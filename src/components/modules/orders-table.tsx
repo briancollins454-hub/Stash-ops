@@ -23,20 +23,18 @@ export function OrdersTable({
   return (
     <div className="space-y-3">
       {orders.map((order) => (
-        <article
+        <Link
           key={order.id}
-          className="record-card grid gap-x-6 gap-y-5 px-4 py-4 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]"
+          href={`/jobs/${order.id}`}
+          className="record-card block cursor-pointer grid gap-x-6 gap-y-5 px-4 py-4 transition hover:ring-1 hover:ring-white/20 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]"
         >
           <div className="min-w-0 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="eyebrow">Job</p>
-                <Link
-                  href={`/jobs/${order.id}`}
-                  className="mt-2 inline-block break-words text-xl font-semibold tracking-tight text-white underline-offset-4 transition hover:text-[#d7f6f2] hover:underline"
-                >
+                <p className="mt-2 break-words text-xl font-semibold tracking-tight text-white">
                   {order.id}
-                </Link>
+                </p>
               </div>
               <span
                 className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${orderTone(order.status)}`}
@@ -77,7 +75,7 @@ export function OrdersTable({
               </span>
             </div>
           </div>
-        </article>
+        </Link>
       ))}
     </div>
   );

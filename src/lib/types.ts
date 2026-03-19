@@ -26,6 +26,8 @@ export interface Metric {
   detail: string;
 }
 
+export type FulfillmentLabel = "unfulfilled" | "partial" | "fulfilled" | "restocked";
+
 export interface Order {
   id: string;
   customer: string;
@@ -34,11 +36,107 @@ export interface Order {
   sourceGroupLabel?: string;
   sourceGroupType?: "School" | "Club" | "Other" | "Unassigned";
   status: OrderStatus;
+  fulfillment: FulfillmentLabel;
   channel: "Shopify" | "Manual" | "Sales rep";
   dueDate: string;
   value: number;
   assignee: string;
   artStatus: string;
+}
+
+// ── Job detail types (single-job view) ──
+
+export interface JobLineItem {
+  id: string;
+  sku: string | null;
+  productTitle: string;
+  variantTitle: string | null;
+  quantity: number;
+  unitPriceMinor: number | null;
+  totalPriceMinor: number | null;
+  garmentReference: string | null;
+  decorationMethod: string | null;
+  decorationPlacement: string | null;
+  stockRequirement: JobStockRequirement | null;
+}
+
+export interface JobStockRequirement {
+  id: string;
+  requiredQuantity: number;
+  receivedQuantity: number;
+  status: string;
+  supplierName: string | null;
+  supplierReference: string | null;
+  eta: string | null;
+  isBlocking: boolean;
+}
+
+export interface JobActivityEntry {
+  id: string;
+  eventType: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface JobExternalLink {
+  provider: string;
+  externalId: string;
+}
+
+export interface JobAccountInfo {
+  id: string;
+  name: string;
+  type: string;
+  defaultDecorationMethod: string | null;
+  defaultProductionNotes: string | null;
+}
+
+export interface JobDetail {
+  id: string;
+  internalJobId: string;
+  source: string;
+  lifecycle: string;
+  classificationStatus: string;
+  configurationStatus: string;
+  stockStatus: string;
+  productionStatus: string;
+  approvalStatus: string;
+  fulfillmentStatus: string;
+  assignedDepartment: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerCompany: string | null;
+  schoolName: string | null;
+  clubName: string | null;
+  leaversYear: string | null;
+  currencyCode: string;
+  subtotalMinor: number;
+  totalMinor: number;
+  orderPlacedAt: string | null;
+  dueAt: string | null;
+  owner: string | null;
+  orderNotes: string | null;
+  tags: string[];
+  sourceGroupKey: string | null;
+  sourceGroupLabel: string | null;
+  sourceGroupType: string | null;
+  shopifyOrderName: string | null;
+  decoOrderId: string | null;
+  requiresReview: boolean;
+  reviewReason: string | null;
+  blockedReason: string | null;
+  proofVersion: number;
+  proofSentAt: string | null;
+  approvedAt: string | null;
+  productionStartedAt: string | null;
+  productionCompletedAt: string | null;
+  productionNotes: string | null;
+  items: JobLineItem[];
+  account: JobAccountInfo | null;
+  externalLinks: JobExternalLink[];
+  activityLogs: JobActivityEntry[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Customer {

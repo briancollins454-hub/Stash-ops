@@ -85,7 +85,7 @@ async function buildDispatchOrders() {
   if (isBackendApiConfigured()) {
     try {
       const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
-        "/api/v1/orders?lane=all&limit=500",
+        "/api/v1/orders?lane=all&limit=300",
       );
       orders = payload.items.map(mapBackendJobToLegacyRecord);
     } catch (error) {

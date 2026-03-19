@@ -1,4 +1,5 @@
 import type {
+  FulfillmentLabel,
   Order,
   StockPurchaseTask,
   WarehouseReceiptTask,
@@ -29,12 +30,19 @@ type BackendJobItem = {
   unitPriceMinor?: number | null;
 };
 
+type BackendFulfillment =
+  | "UNFULFILLED"
+  | "PARTIALLY_FULFILLED"
+  | "FULFILLED"
+  | "RESTOCKED";
+
 export type BackendJobRecord = {
   id: string;
   internalJobId: string;
   source: BackendJobSource;
   lifecycle: BackendLifecycle;
   approvalStatus?: string | null;
+  fulfillmentStatus?: BackendFulfillment | null;
   sourceGroupKey?: string | null;
   sourceGroupLabel?: string | null;
   sourceGroupType?: string | null;
@@ -80,6 +88,19 @@ function mapChannel(source: BackendJobSource): Order["channel"] {
     return "Manual";
   }
   return "Sales rep";
+}
+
+function mapFulfillment(status?: BackendFulfillment | null): FulfillmentLabel {
+  switch (status) {
+    case "FULFILLED":
+      return "fulfilled";
+    case "PARTIALLY_FULFILLED":
+      return "partial";
+    case "RESTOCKED":
+      return "restocked";
+    default:
+      return "unfulfilled";
+  }
 }
 
 function mapStatus(lifecycle: BackendLifecycle, approvalStatus?: string | null): Order["status"] {
@@ -162,6 +183,7 @@ export function mapBackendJobToUiOrder(job: BackendJobRecord): Order {
     sourceGroupLabel: label,
     sourceGroupType,
     status: mapStatus(job.lifecycle, job.approvalStatus),
+    fulfillment: mapFulfillment(job.fulfillmentStatus),
     channel: mapChannel(job.source),
     dueDate: formatMonthDay(job.dueAt),
     value: computeJobValue(job),

@@ -71,7 +71,7 @@ export async function projectDecoratorProducts(): Promise<DecoratorProduct[]> {
   if (isBackendApiConfigured()) {
     try {
       const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
-        "/api/v1/orders?lane=all&limit=500",
+        "/api/v1/orders?lane=all&limit=300",
       );
       orders = payload.items.map(mapBackendJobToLegacyRecord);
     } catch (error) {
@@ -100,7 +100,7 @@ export async function projectDecoratorTemplates(): Promise<DecoratorTemplate[]> 
   if (isBackendApiConfigured()) {
     try {
       const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
-        "/api/v1/orders?lane=all&limit=500",
+        "/api/v1/orders?lane=all&limit=300",
       );
       orders = payload.items.map(mapBackendJobToLegacyRecord);
     } catch (error) {

@@ -299,7 +299,7 @@ async function buildOrderSnapshot() {
     try {
       const payload = await fetchBackendJson<{
         items: BackendJobFull[];
-      }>("/api/v1/orders?lane=all&limit=500");
+      }>("/api/v1/orders?lane=all&limit=300");
       orders = payload.items.map(mapBackendJobToLegacyRecord);
     } catch (error) {
       console.error("Failed to load jobs from backend for projections.", error);
@@ -341,6 +341,7 @@ export async function projectOrders(): Promise<Order[]> {
     customer: order.customer.name,
     company: order.customer.company ?? order.customer.name,
     status: mapLegacyOrderStatus(order),
+    fulfillment: "unfulfilled" as const,
     channel: mapLegacyOrderChannel(order),
     dueDate: formatMonthDay(order.dueAt),
     value: sumOrderValue(order),

@@ -8,6 +8,7 @@ import type {
   DecoratorTemplate,
   InboxThread,
   IntegrationHealth,
+  JobDetail,
   Metric,
   Order,
   ProductionJob,
@@ -56,7 +57,7 @@ export async function listOrders(): Promise<Order[]> {
         lane: "active" | "fulfilled" | "all";
         total: number;
         items: BackendJobRecord[];
-      }>("/api/v1/orders?lane=all&limit=500");
+      }>("/api/v1/orders?lane=all&limit=300");
 
       return payload.items.map(mapBackendJobToUiOrder);
     } catch (error) {
@@ -65,6 +66,19 @@ export async function listOrders(): Promise<Order[]> {
   }
 
   return projectOrders();
+}
+
+export async function getJob(jobId: string): Promise<JobDetail | null> {
+  if (!isBackendApiConfigured()) return null;
+
+  try {
+    const job = await fetchBackendJson<JobDetail>(
+      `/api/v1/jobs/${encodeURIComponent(jobId)}`,
+    );
+    return job;
+  } catch {
+    return null;
+  }
 }
 
 export async function listCustomers(): Promise<Customer[]> {
