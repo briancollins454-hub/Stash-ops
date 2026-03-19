@@ -1,50 +1,63 @@
 import { AppShell } from "@/components/app-shell";
-import { SectionCard } from "@/components/section-card";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { CustomerList } from "@/components/modules/customer-list";
 import { formatCount, shellCopy } from "@/lib/content";
 import { listCustomers, listOrders } from "@/lib/data-repository";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountsPage() {
   const [accounts, orders] = await Promise.all([listCustomers(), listOrders()]);
 
-  const groupedJobs = new Map<string, number>();
+  const sourceGroups = new Map<string, { label: string; count: number }>();
   orders.forEach((order) => {
+    const key = order.sourceGroupKey ?? "unassigned";
     const label = order.sourceGroupLabel ?? "Unassigned";
-    groupedJobs.set(label, (groupedJobs.get(label) ?? 0) + 1);
+    const existing = sourceGroups.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      sourceGroups.set(key, { label, count: 1 });
+    }
   });
 
   const reviewNeeded = orders.filter((order) => order.artStatus.toLowerCase().includes("awaiting")).length;
 
+  const sortedGroups = Array.from(sourceGroups.entries())
+    .sort((a, b) => b[1].count - a[1].count);
+
   return (
     <AppShell title={shellCopy.accounts.title}>
-      <SectionCard
+      <CollapsibleSection
         kicker="Accounts"
         title="Client directory"
         detail={formatCount(accounts.length, "account")}
+        defaultOpen
       >
         <CustomerList customers={accounts} />
-      </SectionCard>
+      </CollapsibleSection>
 
-      <SectionCard
+      <CollapsibleSection
         kicker="Rules"
         title="Source group mapping"
-        detail={`${formatCount(groupedJobs.size, "source group")} · ${formatCount(reviewNeeded, "awaiting review")}`}
+        detail={`${formatCount(sourceGroups.size, "source group")} · ${formatCount(reviewNeeded, "awaiting review")}`}
+        defaultOpen
       >
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-          {Array.from(groupedJobs.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 8)
-            .map(([label, count]) => (
-              <article key={label} className="record-card p-4 sm:p-5">
-                <p className="eyebrow">Source profile</p>
-                <p className="mt-2 text-base font-semibold text-white">{label}</p>
-                <p className="mt-3 text-sm text-white/68">{formatCount(count, "job")} linked</p>
-              </article>
-            ))}
+          {sortedGroups.map(([key, { label, count }]) => (
+            <Link
+              key={key}
+              href={`/jobs?source=${encodeURIComponent(key)}`}
+              className="record-card block p-4 transition-all hover:ring-1 hover:ring-white/25 sm:p-5"
+            >
+              <p className="eyebrow">Source profile</p>
+              <p className="mt-2 text-base font-semibold text-white">{label}</p>
+              <p className="mt-3 text-sm text-white/68">{formatCount(count, "job")} linked</p>
+            </Link>
+          ))}
         </div>
-      </SectionCard>
+      </CollapsibleSection>
     </AppShell>
   );
 }

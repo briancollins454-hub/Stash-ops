@@ -7,7 +7,13 @@ import { formatCount, shellCopy } from "@/lib/content";
 import type { Order } from "@/lib/types";
 import { listOrders } from "@/lib/data-repository";
 
+import Link from "next/link";
+
 export const dynamic = "force-dynamic";
+
+type PageProps = {
+  searchParams: Promise<{ source?: string }>;
+};
 
 function groupOrdersBySource(orders: Order[]) {
   const groups = new Map<
@@ -109,18 +115,40 @@ function LaneSection({
   );
 }
 
-export default async function JobsPage() {
-  const orders = await listOrders();
-  const { newReview, inProgress, readyToShip, shipped, onHold, cancelled } = sortIntoLanes(orders);
+export default async function JobsPage({ searchParams }: PageProps) {
+  const { source } = await searchParams;
+  const allOrders = await listOrders();
+
+  const filtered = source
+    ? allOrders.filter((o) => o.sourceGroupKey === source)
+    : allOrders;
+  const sourceLabel = source
+    ? (filtered[0]?.sourceGroupLabel ?? source)
+    : null;
+
+  const { newReview, inProgress, readyToShip, shipped, onHold, cancelled } = sortIntoLanes(filtered);
 
   return (
-    <AppShell title={shellCopy.jobs.title}>
-      <SectionCard
-        kicker="Manual intake"
-        title="Create job"
-      >
-        <CreateOrderForm />
-      </SectionCard>
+    <AppShell title={sourceLabel ? `Jobs — ${sourceLabel}` : shellCopy.jobs.title}>
+      {sourceLabel && (
+        <div className="flex items-center gap-3 px-1">
+          <Link href="/jobs" className="text-sm text-white/60 transition-colors hover:text-white">
+            ← All jobs
+          </Link>
+          <span className="text-sm font-medium text-white/80">
+            Filtered by <span className="text-white">{sourceLabel}</span> · {formatCount(filtered.length, "job")}
+          </span>
+        </div>
+      )}
+
+      {!source && (
+        <SectionCard
+          kicker="Manual intake"
+          title="Create job"
+        >
+          <CreateOrderForm />
+        </SectionCard>
+      )}
 
       {/* ── Lane 1 — New / Needs Review ── */}
       <CollapsibleSection
