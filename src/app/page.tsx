@@ -1,99 +1,82 @@
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
-import { AccountingList } from "@/components/modules/accounting-list";
-import { ApprovalsBoard } from "@/components/modules/approvals-board";
-import { CommandSpotlight } from "@/components/modules/command-spotlight";
-import { CustomerList } from "@/components/modules/customer-list";
-import { InboxList } from "@/components/modules/inbox-list";
-import { IntegrationsGrid } from "@/components/modules/integrations-grid";
 import { MetricGrid } from "@/components/modules/metric-grid";
 import { OrdersTable } from "@/components/modules/orders-table";
+import { StockPurchasingBoard } from "@/components/modules/stock-purchasing-board";
+import { WarehouseReceiptsBoard } from "@/components/modules/warehouse-receipts-board";
 import { ProductionBoard } from "@/components/modules/production-board";
+import { CommunicationsWorkbench } from "@/components/modules/communications-workbench";
 import { formatCount, shellCopy } from "@/lib/content";
-import { getCommandCenterData } from "@/lib/data-repository";
+import {
+  getCommandCenterData,
+  listCommunicationSignals,
+  listStockPurchaseTasks,
+  listWarehouseReceiptTasks,
+} from "@/lib/data-repository";
 
-export default async function Home() {
-  const {
-    orders,
-    customers,
-    inboxThreads,
-    approvals,
-    productionJobs,
-    accountingRecords,
-    integrations,
-    metrics,
-  } = await getCommandCenterData();
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const [commandData, stockTasks, warehouseTasks, communications] = await Promise.all([
+    getCommandCenterData(),
+    listStockPurchaseTasks(),
+    listWarehouseReceiptTasks(),
+    listCommunicationSignals(),
+  ]);
+
+  const { metrics, orders, productionJobs } = commandData;
+  const blockedStock = stockTasks.filter((task) => task.status === "Awaiting order" || task.status === "Awaiting arrival");
+  const partialWarehouse = warehouseTasks.filter((task) => task.status !== "Complete");
 
   return (
     <AppShell
-      title={shellCopy.home.title}
-      description={shellCopy.home.description}
+      title={shellCopy.dashboard.title}
+      description={shellCopy.dashboard.description}
     >
-      <CommandSpotlight
-        orders={orders}
-        threads={inboxThreads}
-        integrations={integrations}
-      />
-
       <MetricGrid metrics={metrics} />
 
-      <div className="grid gap-6 2xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="grid gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard
-          kicker="Orders"
-          title="Live job traffic"
-          detail={formatCount(orders.length, "active order")}
+          kicker="Intake"
+          title="Jobs requiring attention now"
+          detail={formatCount(orders.length, "active job")}
         >
-          <OrdersTable orders={orders} />
+          <OrdersTable orders={orders.slice(0, 6)} />
         </SectionCard>
         <SectionCard
-          kicker="Inbox"
-          title="Customer comms"
-          detail={formatCount(inboxThreads.length, "active thread")}
+          kicker="Stock blockers"
+          title="Ordering and ETA risks"
+          detail={formatCount(blockedStock.length, "blocked job")}
         >
-          <InboxList threads={inboxThreads} />
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
-        <SectionCard
-          kicker="Approvals"
-          title="Proof queue"
-          detail={formatCount(approvals.length, "proof item")}
-        >
-          <ApprovalsBoard approvals={approvals} compact />
-        </SectionCard>
-        <SectionCard
-          kicker="Production"
-          title="Floor routing"
-          detail={formatCount(productionJobs.length, "live job")}
-        >
-          <ProductionBoard jobs={productionJobs.slice(0, 3)} />
-        </SectionCard>
-        <SectionCard
-          kicker="Accounting"
-          title="QBO sync staging"
-          detail={formatCount(accountingRecords.length, "staged record")}
-        >
-          <AccountingList records={accountingRecords} />
+          <StockPurchasingBoard tasks={blockedStock.slice(0, 6)} />
         </SectionCard>
       </div>
 
-      <div className="grid gap-6 2xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-6 2xl:grid-cols-[0.96fr_1.04fr]">
         <SectionCard
-          kicker="Customers"
-          title="High-value accounts"
-          detail={formatCount(customers.length, "tracked account")}
+          kicker="Warehouse gate"
+          title="Receipts pending scan-in"
+          detail={formatCount(partialWarehouse.length, "receipt task")}
         >
-          <CustomerList customers={customers.slice(0, 3)} />
+          <WarehouseReceiptsBoard tasks={partialWarehouse.slice(0, 6)} />
         </SectionCard>
         <SectionCard
-          kicker="Integrations"
-          title="Server-side health"
-          detail={formatCount(integrations.length, "connected system")}
+          kicker="Production flow"
+          title="Department-ready lanes"
+          detail={formatCount(productionJobs.length, "production job")}
         >
-          <IntegrationsGrid integrations={integrations} />
+          <ProductionBoard jobs={productionJobs.slice(0, 6)} />
         </SectionCard>
       </div>
+
+      <SectionCard
+        kicker="Comms and approvals"
+        title="Customer + team communication load"
+        detail={formatCount(communications.length, "active communication")}
+      >
+        <CommunicationsWorkbench items={communications.slice(0, 8)} />
+      </SectionCard>
     </AppShell>
   );
 }
+

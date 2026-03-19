@@ -2,15 +2,15 @@
 
 Internal operations shell for:
 
-- orders
-- customers
-- inbox
-- approvals
+- dashboard
+- jobs
+- accounts
+- artwork/templates
+- stock/purchasing
+- warehouse
 - production
-- dispatch
-- accounting
-- integrations
-- custom decorator studio
+- communications
+- admin/integrations
 
 ## What is here
 
@@ -24,6 +24,7 @@ This is a greenfield Next.js app scaffolded for the architecture we discussed:
 The current build includes:
 
 - a multi-route UI shell for the main operational modules
+- first-class module navigation aligned to real shop flow (intake -> configuration -> stock -> warehouse -> production)
 - typed domain models and live-derived operational data
 - a shared data repository layer (`src/lib/data-repository.ts`) for server pages + APIs
 - a centralized content registry (`src/lib/content.ts`) for page-level copy consistency
@@ -63,6 +64,7 @@ The current build includes:
 - integrations UI now includes a sync control room at `/integrations` for auto-sync visibility and one-click provider sync
 - architecture reference docs:
   - `docs/unified-ops-architecture.md`
+  - `docs/unified-ops-product-architecture.md`
   - `db/unified_ops_schema.sql`
 
 ## Persistence modes
@@ -91,6 +93,7 @@ To run live provider sync and secure webhooks, set:
 cp .env.example .env.local
 
 export ENABLE_DEMO_DATA="false"
+export BACKEND_API_URL="https://your-railway-api-domain.up.railway.app"
 
 export SHOPIFY_DOMAIN="your-store.myshopify.com"
 export SHOPIFY_ACCESS_TOKEN="shpat_or_admin_api_token"
@@ -129,6 +132,7 @@ export SLACK_SYNC_MAX_PER_CHANNEL="50"                 # optional
 
 Notes:
 - `ENABLE_DEMO_DATA=false` keeps demo seed records disabled by default in both memory and PostgreSQL modes.
+- `BACKEND_API_URL` enables frontend proxy mode to the dedicated `backend/` service for orders + Shopify sync routes.
 - `SHOPIFY_WEBHOOK_SECRET` enables HMAC verification on `/api/webhooks/shopify`.
 - `POST /api/sync/shopify/backfill` performs a historical backfill for Shopify unfulfilled orders.
 - `SHOPIFY_SYNC_TIMEOUT_MS` prevents Shopify sync requests from hanging indefinitely.
@@ -174,3 +178,18 @@ npm run build
 3. Add background jobs/outbox workers for `Deco`, `Shopify`, `Gmail`, `Slack`, and `QBO`.
 4. Build proof send/reply automation over Gmail with signed approval links.
 5. Turn decorator payloads into saved design revisions linked to order proofs.
+
+## Dedicated backend scaffold
+
+This repo now includes a dedicated backend service under `backend/` for Railway deployment:
+
+- Fastify API (`backend/src/index.ts`)
+- BullMQ worker (`backend/src/worker.ts`)
+- Prisma schema (`backend/prisma/schema.prisma`)
+- Shopify webhooks + backfill + grouped order lanes
+
+See [`backend/README.md`](backend/README.md) for deployment and run steps.
+
+Account-aware/template-aware workflow design is documented in:
+
+- `docs/account-aware-template-workflow.md`

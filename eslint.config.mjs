@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Dedicated backend service is linted separately in its own toolchain.
+    "backend/**",
   ]),
 ]);
 

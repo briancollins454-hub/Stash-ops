@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderSource {
+  SHOPIFY
+  MANUAL
+  DECO
+}
+
+enum WorkflowStatus {
+  PENDING_REVIEW
+  AWAITING_ARTWORK
+  AWAITING_APPROVAL
+  APPROVED_AWAITING_STOCK
+  READY_FOR_PRODUCTION
+  IN_PRODUCTION
+  QUALITY_CHECK
+  READY_FOR_DISPATCH
+  DISPATCHED
+  COMPLETE
+  CANCELLED
+}
+
+enum FulfillmentStatus {
+  UNFULFILLED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  RESTOCKED
+}
+
+enum ExternalProvider {
+  SHOPIFY_ORDER
+  SHOPIFY_FULFILLMENT
+  DECO_ORDER
+  GMAIL_THREAD
+  SLACK_CHANNEL
+  SHIPSTATION_LABEL
+}
+
+enum EventProvider {
+  SHOPIFY
+  DECO
+  GMAIL
+  SLACK
+  MANUAL
+  SYSTEM
+}
+
+enum EventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum AccountType {
+  SCHOOL
+  CLUB
+  CLIENT
+  OTHER
+}
+
+enum MatchStatus {
+  AUTO_MATCHED
+  MANUAL_MATCHED
+  REVIEW_REQUIRED
+  UNMATCHED
+}
+
+enum AssetType {
+  LOGO
+  TEMPLATE
+  DESIGN_REFERENCE
+  PROOF
+}
+
+enum ProductMatcherType {
+  ANY
+  SKU_EXACT
+  SKU_PREFIX
+  SKU_CONTAINS
+  TITLE_CONTAINS
+  TAG_CONTAINS
+  METAFIELD_EQUALS
+}
+
+model Order {
+  id                String            @id @default(cuid())
+  internalOrderId   String            @unique
+  source            OrderSource
+  workflowStatus    WorkflowStatus    @default(PENDING_REVIEW)
+  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED)
+  sourceGroupKey    String?
+  sourceGroupLabel  String?
+  sourceGroupType   String?
+  shopifyOrderId    String?
+  shopifyOrderName  String?
+  decoOrderId       String?
+  accountId         String?
+  accountMatchStatus MatchStatus      @default(UNMATCHED)
+  accountMatchScore Int?
+  accountMatchReason String?
+  requiresReview    Boolean           @default(false)
+  reviewReason      String?
+  customerName      String?
+  customerEmail     String?
+  customerCompany   String?
+  currencyCode      String            @default("GBP")
+  subtotalMinor     Int?
+  totalMinor        Int               @default(0)
+  orderPlacedAt     DateTime?
+  dueAt             DateTime?
+  shopifyMetadata   Json?
+  preconfiguration  Json?
+  preconfiguredAt   DateTime?
+  metadata          Json?
+  lineItems         OrderLineItem[]
+  externalLinks     ExternalLink[]
+  activityLogs      ActivityLog[]
+  account           Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([workflowStatus])
+  @@index([fulfillmentStatus])
+  @@index([sourceGroupKey])
+  @@index([shopifyOrderId])
+  @@index([accountId])
+  @@index([accountMatchStatus])
+  @@index([requiresReview])
+}
+
+model OrderLineItem {
+  id               String   @id @default(cuid())
+  orderId          String
+  sku              String?
+  productTitle     String
+  variantTitle     String?
+  quantity         Int
+  requiresArtwork  Boolean  @default(false)
+  decorationMethod String?
+  unitPriceMinor   Int?
+  totalPriceMinor  Int?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([sku])
+}
+
+model ExternalLink {
+  id         String           @id @default(cuid())
+  orderId    String
+  provider   ExternalProvider
+  externalId String
+  metadata   Json?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  order      Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([orderId])
+}
+
+model EventInbox {
+  id             String       @id @default(cuid())
+  provider       EventProvider
+  topic          String
+  externalId     String?
+  idempotencyKey String       @unique
+  payload        Json
+  status         EventStatus  @default(RECEIVED)
+  errorMessage   String?
+  receivedAt     DateTime     @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([provider, topic])
+  @@index([status, receivedAt])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  orderId   String
+  eventType String
+  message   String
+  payload   Json?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+model SyncCursor {
+  id        String   @id @default(cuid())
+  provider  String   @unique
+  cursor    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                      String                   @id @default(cuid())
+  key                     String                   @unique
+  name                    String
+  type                    AccountType              @default(CLIENT)
+  active                  Boolean                  @default(true)
+  decoCustomerId          String?
+  defaultDecorationMethod String?
+  notes                   String?
+  metadata                Json?
+  aliases                 AccountAlias[]
+  assets                  AccountAsset[]
+  placementConfigs        AccountPlacementConfig[]
+  productRules            AccountProductRule[]
+  orders                  Order[]
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  @@index([name])
+  @@index([decoCustomerId])
+}
+
+model AccountAlias {
+  id              String   @id @default(cuid())
+  accountId       String
+  aliasRaw        String
+  aliasNormalized String
+  source          String   @default("manual")
+  weight          Int      @default(100)
+  active          Boolean  @default(true)
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([accountId, aliasNormalized])
+  @@index([aliasNormalized])
+}
+
+model AccountAsset {
+  id               String              @id @default(cuid())
+  accountId        String
+  assetType        AssetType
+  label            String
+  decoDesignId     String?
+  decoTemplateId   String?
+  fileUrl          String?
+  colorway         String?
+  decorationMethod String?
+  isDefault        Boolean             @default(false)
+  priority         Int                 @default(100)
+  active           Boolean             @default(true)
+  metadata         Json?
+  account          Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productRules     AccountProductRule[] @relation("RuleAsset")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([accountId, assetType, active])
+}
+
+model AccountPlacementConfig {
+  id              String               @id @default(cuid())
+  accountId       String
+  label           String
+  placementKey    String
+  decorationMethod String?
+  widthMm         Float?
+  heightMm        Float?
+  offsetXMm       Float?
+  offsetYMm       Float?
+  rotationDegrees Float?
+  priority        Int                  @default(100)
+  active          Boolean              @default(true)
+  metadata        Json?
+  account         Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productRules    AccountProductRule[] @relation("RulePlacement")
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([accountId, placementKey, active])
+}
+
+model AccountProductRule {
+  id                String                  @id @default(cuid())
+  accountId         String
+  matcherType       ProductMatcherType
+  matcherKey        String?
+  matcherValue      String
+  priority          Int                     @default(100)
+  decorationMethod  String?
+  templateAssetId   String?
+  placementConfigId String?
+  requireReview     Boolean                 @default(false)
+  active            Boolean                 @default(true)
+  metadata          Json?
+  account           Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  templateAsset     AccountAsset?           @relation("RuleAsset", fields: [templateAssetId], references: [id], onDelete: SetNull)
+  placementConfig   AccountPlacementConfig? @relation("RulePlacement", fields: [placementConfigId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([accountId, priority, active])
+}

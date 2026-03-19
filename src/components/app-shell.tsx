@@ -32,14 +32,17 @@ export function AppShell({ title, description, children }: AppShellProps) {
                   Stash
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-white/70">
-                  Premium interface over Deco, Shopify, and QuickBooks.
+                  Internal operating system over Shopify, Deco, Gmail, and Slack.
                 </p>
               </div>
             </div>
 
             <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
               {navigationItems.map((item, index) => {
-                const active = pathname === item.href;
+                const active =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
                 return (
                   <Link
@@ -76,7 +79,7 @@ export function AppShell({ title, description, children }: AppShellProps) {
               <div className="mt-4 space-y-4 text-sm text-white/82">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span>Approvals due</span>
+                    <span>Jobs awaiting classification</span>
                     <span className="rail-badge">04</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/12">
@@ -85,7 +88,7 @@ export function AppShell({ title, description, children }: AppShellProps) {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span>QBO mismatches</span>
+                    <span>Stock blockers</span>
                     <span className="rail-badge">01</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/12">
@@ -94,7 +97,7 @@ export function AppShell({ title, description, children }: AppShellProps) {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span>Designer saves</span>
+                    <span>Production-ready jobs</span>
                     <span className="rail-badge">18</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/12">
@@ -105,7 +108,7 @@ export function AppShell({ title, description, children }: AppShellProps) {
             </div>
 
             <div className="rail-glass-note p-4 text-sm leading-6 text-white/68">
-              Customer and team experience stay in Stash. Deco remains an orchestration service.
+              Staff run operations in Stash. Shopify and Deco feed data into one canonical job workflow.
             </div>
           </div>
         </aside>
@@ -115,20 +118,20 @@ export function AppShell({ title, description, children }: AppShellProps) {
             <div className="flex flex-wrap gap-2.5">
               <span className="glass-pill">
                 <span className="soft-tag__dot" />
-                Deco server-only
+                Canonical internal jobs
               </span>
               <span className="glass-pill">
                 <span className="soft-tag__dot" />
-                Shopify live sync
+                Account-aware automation
               </span>
               <span className="glass-pill">
                 <span className="soft-tag__dot" />
-                QBO source of truth
+                Deco + Shopify unified
               </span>
             </div>
             <div className="flex flex-wrap gap-2.5 lg:justify-end">
-              <span className="glass-pill">Realtime operations</span>
-              <span className="glass-pill">Premium workspace</span>
+              <span className="glass-pill">Warehouse aware</span>
+              <span className="glass-pill">Production routing</span>
             </div>
           </div>
 
@@ -146,18 +149,18 @@ export function AppShell({ title, description, children }: AppShellProps) {
                 <div className="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
                   <div className="hero-pulse-row">
                     <p className="hero-pulse-label">Ops state</p>
-                    <p className="hero-pulse-title">Deco server-only</p>
-                    <p className="hero-pulse-detail">Experience stays inside Stash UI.</p>
+                    <p className="hero-pulse-title">Unified job control</p>
+                    <p className="hero-pulse-detail">Lifecycle and blockers are managed internally.</p>
                   </div>
                   <div className="hero-pulse-row">
-                    <p className="hero-pulse-label">Accounting</p>
-                    <p className="hero-pulse-title">QBO posting lane</p>
-                    <p className="hero-pulse-detail">Controls and approvals stay upstream.</p>
+                    <p className="hero-pulse-label">Account intelligence</p>
+                    <p className="hero-pulse-title">Alias + template matching</p>
+                    <p className="hero-pulse-detail">Repeat jobs are preconfigured before staff review.</p>
                   </div>
                   <div className="hero-pulse-row">
-                    <p className="hero-pulse-label">Commerce</p>
-                    <p className="hero-pulse-title">Shopify stream</p>
-                    <p className="hero-pulse-detail">Orders and fulfillment sync continuously.</p>
+                    <p className="hero-pulse-label">Operations</p>
+                    <p className="hero-pulse-title">Stock, warehouse, production</p>
+                    <p className="hero-pulse-detail">Physical flow and digital workflow stay in sync.</p>
                   </div>
                 </div>
               </div>

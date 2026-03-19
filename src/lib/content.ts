@@ -1,53 +1,94 @@
 export const shellCopy = {
-  home: {
-    title: "Command Center",
+  dashboard: {
+    title: "Operations Dashboard",
     description:
-      "Run the whole shop from one place. This shell keeps customer-facing ops, internal communication, production routing, and accounting visibility in your own UI while Deco stays on the server side where it belongs.",
+      "Run intake, account matching, stock gates, warehouse receipt, production routing, and communications from one operating layer. Shopify and Deco enrich jobs, but Stash controls workflow truth.",
   },
-  orders: {
-    title: "Orders",
+  jobs: {
+    title: "Jobs",
     description:
-      "This module is the internal order truth for your staff. Each record can stitch together Shopify events, Deco production context, approvals, inbox threads, and accounting readiness without sending people back into Deco screens.",
+      "Canonical internal job records spanning Shopify metadata, Deco account/design linkage, stock readiness, production routing, and communication timelines. Staff should operate here, not across disconnected tools.",
   },
-  customers: {
-    title: "Customers",
+  accounts: {
+    title: "Accounts",
     description:
-      "A customer layer for your team, not just account records. This is where account health, open jobs, communication history, and design tendencies can live together.",
+      "Schools, clubs, and repeat clients live here with aliases, Deco linkage, template packs, and product rules so repeat jobs can be preconfigured instead of rebuilt manually.",
   },
-  inbox: {
-    title: "Inbox",
+  artworkTemplates: {
+    title: "Artwork & Templates",
     description:
-      "Shared communication should be tied to orders and customers, not trapped in personal mailboxes. This is the message layer where your team sees the context before they reply.",
+      "Manage crest files, logo packs, and reusable templates linked to accounts and product rules. This is the configuration source for auto-placement and job prebuild.",
   },
-  approvals: {
-    title: "Approvals",
+  stockPurchasing: {
+    title: "Stock & Purchasing",
     description:
-      "Approvals become a tracked workflow in your own app, with SLA visibility and customer context around every proof. The aim is to stop approvals from hiding in separate systems.",
+      "Track manual wholesaler ordering with supplier references, ETA, shortages, and blocker visibility. Manual real-world stock actions become workflow-aware system steps.",
+  },
+  warehouse: {
+    title: "Warehouse",
+    description:
+      "Goods-in receiving and scan-in confirmation. Partial and full receipts update the canonical job and automatically open production gates when stock is sufficient.",
   },
   production: {
     title: "Production",
     description:
-      "Production should read like a routing board, not an admin screen. This module is where decorators, operators, and packers get the next best action without digging through Deco.",
+      "Department-led routing for embroidery, DTF, and mixed jobs. Operators get clean, instruction-ready cards with account context, placements, and due-date urgency.",
+  },
+  communications: {
+    title: "Communications",
+    description:
+      "Unified communication timeline for Gmail proof/update messages, replies, internal notes, and Slack alert events tied back to each job.",
+  },
+  admin: {
+    title: "Admin & Integrations",
+    description:
+      "Integration health, sync controls, mapping rules, account aliases, and exception tooling. External platforms integrate through this backplane while workflow remains internal.",
+  },
+  // Legacy keys maintained for existing pages while migration is in progress.
+  home: {
+    title: "Operations Dashboard",
+    description:
+      "Run intake, account matching, stock gates, warehouse receipt, production routing, and communications from one operating layer.",
+  },
+  orders: {
+    title: "Jobs",
+    description:
+      "Canonical internal job records spanning Shopify metadata, Deco account/design linkage, stock readiness, production routing, and communication timelines.",
+  },
+  customers: {
+    title: "Accounts",
+    description:
+      "Schools, clubs, and repeat clients with alias matching, Deco linkage, and reusable rules.",
+  },
+  inbox: {
+    title: "Communications",
+    description:
+      "Shared communication linked to jobs, approvals, and internal events.",
+  },
+  approvals: {
+    title: "Communications",
+    description:
+      "Proof and approval visibility that ties directly to the job lifecycle.",
   },
   dispatch: {
-    title: "Dispatch",
+    title: "Warehouse",
     description:
-      "This is your Shopify unfulfilled lane. Teams can bulk print ShipStation tickets from here, push fulfillment back to Shopify, and keep the unified order record in sync automatically.",
+      "Dispatch and fulfillment lanes linked to warehouse readiness.",
   },
   accounting: {
-    title: "Accounting",
+    title: "Admin & Integrations",
     description:
-      "QuickBooks Online sits here as the accounting source of truth. Your app decides what is ready, what is blocked, and what needs investigation before anything hits the books.",
+      "Accounting and integration controls for operational reliability.",
   },
   integrations: {
-    title: "Integrations",
+    title: "Admin & Integrations",
     description:
-      "This layer is the bridge between your UI and the systems that stay behind the scenes. The app owns orchestration, retries, mapping, and visibility while external platforms keep doing the jobs they are good at.",
+      "Backplane controls, sync status, and mapping governance.",
   },
   designer: {
-    title: "Decorator Studio",
+    title: "Artwork & Templates",
     description:
-      "Your front-end-owned decorator experience: fast, premium, and fully in Stash, with proof and production payloads staying in your own data model.",
+      "Template and design workspace tied to account rules and production instructions.",
   },
 } as const;
 

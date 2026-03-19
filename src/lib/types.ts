@@ -147,3 +147,36 @@ export interface DecoratorTemplate {
   description: string;
   layers: DecoratorLayer[];
 }
+
+export interface StockPurchaseTask {
+  id: string;
+  orderId: string;
+  account: string;
+  supplier: string;
+  requiredQty: number;
+  status: "Awaiting order" | "Ordered" | "Awaiting arrival" | "Partially received" | "Ready";
+  eta: string;
+  blocker?: string;
+}
+
+export interface WarehouseReceiptTask {
+  id: string;
+  orderId: string;
+  account: string;
+  expectedQty: number;
+  receivedQty: number;
+  branch: string;
+  status: "Pending receipt" | "Partial receipt" | "Complete";
+  lastScan: string;
+}
+
+export interface CommunicationSignal {
+  id: string;
+  orderId: string;
+  account: string;
+  channel: "Gmail" | "Slack" | "Internal";
+  direction: "Inbound" | "Outbound" | "Alert";
+  subject: string;
+  state: "Unread" | "Awaiting reply" | "Resolved";
+  updatedAt: string;
+}
