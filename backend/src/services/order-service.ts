@@ -1,11 +1,11 @@
 import {
   ExternalProvider,
   FulfillmentStatus,
+  MainLifecycle,
   MatchStatus,
-  OrderSource,
+  JobSource,
   type Prisma,
   type PrismaClient,
-  WorkflowStatus,
 } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { applyAccountAwareConfiguration } from "./order-account-preconfiguration";
@@ -138,18 +138,13 @@ function mapShopifyFulfillmentStatus(input: ShopifyOrderPayload): FulfillmentSta
   return FulfillmentStatus.UNFULFILLED;
 }
 
-function determineWorkflowStatus(input: ShopifyOrderPayload): WorkflowStatus {
+function determineInitialLifecycle(input: ShopifyOrderPayload): MainLifecycle {
   const fulfillmentStatus = mapShopifyFulfillmentStatus(input);
   if (fulfillmentStatus === FulfillmentStatus.FULFILLED) {
-    return WorkflowStatus.DISPATCHED;
+    return MainLifecycle.COMPLETED;
   }
 
-  const artworkNeeded = (input.line_items ?? []).some(inferArtworkRequirement);
-  if (artworkNeeded) {
-    return WorkflowStatus.AWAITING_ARTWORK;
-  }
-
-  return WorkflowStatus.PENDING_REVIEW;
+  return MainLifecycle.INGESTED;
 }
 
 function resolveCustomerName(input: ShopifyOrderPayload): string | undefined {
@@ -171,7 +166,7 @@ function resolveCompany(input: ShopifyOrderPayload): string | undefined {
   );
 }
 
-async function generateUniqueInternalOrderId(
+async function generateUniqueInternalJobId(
   tx: Prisma.TransactionClient,
   suggestedBase: string,
 ): Promise<string> {
@@ -179,8 +174,8 @@ async function generateUniqueInternalOrderId(
   while (suffix < 1000) {
     const candidate = suffix === 0 ? suggestedBase : `${suggestedBase}-${suffix}`;
     // eslint-disable-next-line no-await-in-loop
-    const exists = await tx.order.findUnique({
-      where: { internalOrderId: candidate },
+    const exists = await tx.job.findUnique({
+      where: { internalJobId: candidate },
       select: { id: true },
     });
     if (!exists) {
@@ -202,10 +197,10 @@ function formatSuggestedInternalId(order: ShopifyOrderPayload): string {
   return `ST-${Date.now().toString().slice(-6)}`;
 }
 
-export async function upsertOrderFromShopify(
+export async function upsertJobFromShopify(
   payload: ShopifyOrderPayload,
   options?: { prismaClient?: PrismaClient; activityType?: string },
-): Promise<{ orderId: string; internalOrderId: string }> {
+): Promise<{ jobId: string; internalJobId: string }> {
   const shopifyOrderId = String(payload.id ?? "").trim();
   if (!shopifyOrderId) {
     throw new Error("Shopify payload missing order id");
@@ -230,12 +225,12 @@ export async function upsertOrderFromShopify(
         },
       },
       select: {
-        orderId: true,
+        jobId: true,
       },
     });
 
     const baseData = {
-      source: OrderSource.SHOPIFY,
+      source: JobSource.SHOPIFY,
       sourceGroupKey: sourceGroup.key,
       sourceGroupLabel: sourceGroup.label,
       sourceGroupType: sourceGroup.type,
@@ -249,42 +244,42 @@ export async function upsertOrderFromShopify(
       totalMinor: parsePriceToMinor(payload.total_price) ?? 0,
       orderPlacedAt: parseDate(payload.processed_at) ?? parseDate(payload.created_at),
       fulfillmentStatus: mapShopifyFulfillmentStatus(payload),
-      workflowStatus: determineWorkflowStatus(payload),
-      metadata: {
+      lifecycle: determineInitialLifecycle(payload),
+      shopifyMetadata: {
         shopifyTags: tags,
         shopifyNote: payload.note ?? null,
       } satisfies JsonObject,
     };
 
-    let orderId: string;
-    let internalOrderId: string;
+    let jobId: string;
+    let internalJobId: string;
 
     if (link) {
-      const updated = await tx.order.update({
-        where: { id: link.orderId },
+      const updated = await tx.job.update({
+        where: { id: link.jobId },
         data: baseData,
-        select: { id: true, internalOrderId: true },
+        select: { id: true, internalJobId: true },
       });
-      orderId = updated.id;
-      internalOrderId = updated.internalOrderId;
+      jobId = updated.id;
+      internalJobId = updated.internalJobId;
     } else {
       const suggestedId = formatSuggestedInternalId(payload);
-      const internal = await generateUniqueInternalOrderId(tx, suggestedId);
+      const internal = await generateUniqueInternalJobId(tx, suggestedId);
 
-      const created = await tx.order.create({
+      const created = await tx.job.create({
         data: {
           ...baseData,
-          internalOrderId: internal,
+          internalJobId: internal,
         },
-        select: { id: true, internalOrderId: true },
+        select: { id: true, internalJobId: true },
       });
 
-      orderId = created.id;
-      internalOrderId = created.internalOrderId;
+      jobId = created.id;
+      internalJobId = created.internalJobId;
 
       await tx.externalLink.create({
         data: {
-          orderId,
+          jobId,
           provider: ExternalProvider.SHOPIFY_ORDER,
           externalId: shopifyOrderId,
         },
@@ -292,22 +287,21 @@ export async function upsertOrderFromShopify(
     }
 
     const lineItems = payload.line_items ?? [];
-    await tx.orderLineItem.deleteMany({
-      where: { orderId },
+    await tx.jobItem.deleteMany({
+      where: { jobId },
     });
 
     if (lineItems.length > 0) {
-      await tx.orderLineItem.createMany({
+      await tx.jobItem.createMany({
         data: lineItems.map((item) => {
           const unitPriceMinor = parsePriceToMinor(item.price);
           const qty = item.quantity && item.quantity > 0 ? item.quantity : 1;
           return {
-            orderId,
+            jobId,
             sku: item.sku ?? undefined,
             productTitle: item.title ?? item.name ?? "Untitled Product",
             variantTitle: item.variant_title ?? undefined,
             quantity: qty,
-            requiresArtwork: inferArtworkRequirement(item),
             decorationMethod: inferArtworkRequirement(item) ? "custom" : undefined,
             unitPriceMinor,
             totalPriceMinor: unitPriceMinor ? unitPriceMinor * qty : undefined,
@@ -319,13 +313,13 @@ export async function upsertOrderFromShopify(
       });
     }
 
-    await applyAccountAwareConfiguration(tx, orderId, payload);
+    await applyAccountAwareConfiguration(tx, jobId, payload);
 
     await tx.activityLog.create({
       data: {
-        orderId,
+        jobId,
         eventType: activityType,
-        message: `Shopify order ${payload.name ?? shopifyOrderId} synced into unified order engine`,
+        message: `Shopify order ${payload.name ?? shopifyOrderId} synced`,
         payload: {
           shopifyOrderId,
           fulfillmentStatus: mapShopifyFulfillmentStatus(payload),
@@ -333,7 +327,7 @@ export async function upsertOrderFromShopify(
       },
     });
 
-    return { orderId, internalOrderId };
+    return { jobId, internalJobId };
   });
 
   return result;
@@ -353,7 +347,7 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
       },
     },
     select: {
-      orderId: true,
+      jobId: true,
     },
   });
 
@@ -362,11 +356,11 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.order.update({
-      where: { id: maybeLink.orderId },
+    await tx.job.update({
+      where: { id: maybeLink.jobId },
       data: {
         fulfillmentStatus: FulfillmentStatus.FULFILLED,
-        workflowStatus: WorkflowStatus.DISPATCHED,
+        lifecycle: MainLifecycle.COMPLETED,
       },
     });
 
@@ -379,7 +373,7 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
           },
         },
         update: {
-          orderId: maybeLink.orderId,
+          jobId: maybeLink.jobId,
           metadata: {
             status: payload.status ?? null,
             trackingNumber:
@@ -388,7 +382,7 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
           } satisfies JsonObject,
         },
         create: {
-          orderId: maybeLink.orderId,
+          jobId: maybeLink.jobId,
           provider: ExternalProvider.SHOPIFY_FULFILLMENT,
           externalId: String(payload.id),
           metadata: {
@@ -403,9 +397,9 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
 
     await tx.activityLog.create({
       data: {
-        orderId: maybeLink.orderId,
+        jobId: maybeLink.jobId,
         eventType: "shopify.fulfillment.created",
-        message: "Shopify fulfillment received and order moved to fulfilled lane",
+        message: "Shopify fulfillment received — job marked complete",
         payload: {
           fulfillmentId: payload.id ?? null,
           status: payload.status ?? null,
@@ -417,7 +411,7 @@ export async function processShopifyFulfillmentWebhook(payload: ShopifyFulfillme
   return true;
 }
 
-export async function createManualOrder(input: ManualOrderInput): Promise<{ orderId: string; internalOrderId: string }> {
+export async function createManualJob(input: ManualOrderInput): Promise<{ jobId: string; internalJobId: string }> {
   const sourceGroup = inferSourceGroup({
     company: input.sourceGroupLabel,
     note: input.note,
@@ -426,17 +420,17 @@ export async function createManualOrder(input: ManualOrderInput): Promise<{ orde
 
   const created = await prisma.$transaction(async (tx) => {
     const baseId = `ST-M-${Date.now().toString().slice(-6)}`;
-    const internalOrderId = await generateUniqueInternalOrderId(tx, baseId);
+    const internalJobId = await generateUniqueInternalJobId(tx, baseId);
 
-    const order = await tx.order.create({
+    const job = await tx.job.create({
       data: {
-        internalOrderId,
-        source: OrderSource.MANUAL,
-        workflowStatus: input.lineItems.some((item) => item.requiresArtwork) ? WorkflowStatus.AWAITING_ARTWORK : WorkflowStatus.PENDING_REVIEW,
+        internalJobId,
+        source: JobSource.MANUAL,
+        lifecycle: MainLifecycle.INGESTED,
         fulfillmentStatus: FulfillmentStatus.UNFULFILLED,
         accountMatchStatus: MatchStatus.REVIEW_REQUIRED,
         requiresReview: true,
-        reviewReason: "Manual order requires account/template review before Deco handoff.",
+        reviewReason: "Manual job requires account/template review.",
         sourceGroupKey: sourceGroup.key,
         sourceGroupLabel: sourceGroup.label,
         sourceGroupType: sourceGroup.type,
@@ -447,17 +441,16 @@ export async function createManualOrder(input: ManualOrderInput): Promise<{ orde
           note: input.note ?? null,
         } satisfies JsonObject,
       },
-      select: { id: true, internalOrderId: true },
+      select: { id: true, internalJobId: true },
     });
 
-    await tx.orderLineItem.createMany({
+    await tx.jobItem.createMany({
       data: input.lineItems.map((item) => ({
-        orderId: order.id,
+        jobId: job.id,
         sku: item.sku,
         productTitle: item.productTitle,
         variantTitle: item.variantTitle,
         quantity: item.quantity,
-        requiresArtwork: item.requiresArtwork ?? false,
         decorationMethod: item.decorationMethod,
         unitPriceMinor: item.unitPriceMinor,
         totalPriceMinor:
@@ -467,14 +460,14 @@ export async function createManualOrder(input: ManualOrderInput): Promise<{ orde
 
     await tx.activityLog.create({
       data: {
-        orderId: order.id,
-        eventType: "manual.order.created",
-        message: "Manual order created in Stash UI",
+        jobId: job.id,
+        eventType: "manual.job.created",
+        message: "Manual job created in Stash",
       },
     });
 
-    return order;
+    return job;
   });
 
-  return { orderId: created.id, internalOrderId: created.internalOrderId };
+  return { jobId: created.id, internalJobId: created.internalJobId };
 }

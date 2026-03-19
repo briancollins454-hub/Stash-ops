@@ -14,22 +14,19 @@ export default async function CommunicationsPage() {
   ]);
 
   return (
-    <AppShell
-      title={shellCopy.communications.title}
-      description={shellCopy.communications.description}
-    >
+    <AppShell title={shellCopy.communications.title}>
       <SectionCard
-        kicker="Unified timeline"
-        title="Gmail and Slack linked events"
-        detail={formatCount(signals.length, "communication signal")}
+        kicker="Timeline"
+        title="Linked messages"
+        detail={formatCount(signals.length, "signal")}
       >
         <CommunicationsWorkbench items={signals} />
       </SectionCard>
 
       <SectionCard
         kicker="Proof gate"
-        title="Approval communication workload"
-        detail={formatCount(approvals.length, "approval item")}
+        title="Approvals"
+        detail={formatCount(approvals.length, "approval")}
       >
         <ApprovalsBoard approvals={approvals} />
       </SectionCard>

@@ -16,8 +16,18 @@ import type {
 } from "@/lib/types";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 import {
-  mapBackendOrderToUiOrder,
-  type BackendOrderRecord,
+  mapBackendJobToUiOrder,
+  mapBackendStockToUi,
+  mapBackendWarehouseToUi,
+  mapBackendCommToUi,
+  mapBackendProductionToUi,
+  mapBackendApprovalToUi,
+  type BackendJobRecord,
+  type BackendStockRequirement,
+  type BackendWarehouseReceipt,
+  type BackendCommunication,
+  type BackendProductionItem,
+  type BackendApprovalItem,
 } from "@/lib/backend-order-adapter";
 import {
   projectAccountingRecords,
@@ -45,12 +55,12 @@ export async function listOrders(): Promise<Order[]> {
       const payload = await fetchBackendJson<{
         lane: "active" | "fulfilled" | "all";
         total: number;
-        items: BackendOrderRecord[];
+        items: BackendJobRecord[];
       }>("/api/v1/orders?lane=all&limit=500");
 
-      return payload.items.map(mapBackendOrderToUiOrder);
+      return payload.items.map(mapBackendJobToUiOrder);
     } catch (error) {
-      console.error("Failed to load orders from backend API. Falling back to local repository.", error);
+      console.error("Failed to load jobs from backend API. Falling back to local repository.", error);
     }
   }
 
@@ -74,10 +84,36 @@ export async function listInboxThreads(): Promise<InboxThread[]> {
 }
 
 export async function listApprovals(): Promise<Approval[]> {
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: BackendApprovalItem[];
+      }>("/api/v1/approvals?limit=200");
+
+      return payload.items.map(mapBackendApprovalToUi);
+    } catch (error) {
+      console.error("Failed to load approvals from backend API. Falling back to projections.", error);
+    }
+  }
+
   return projectApprovals();
 }
 
 export async function listProductionJobs(): Promise<ProductionJob[]> {
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: BackendProductionItem[];
+      }>("/api/v1/production-queue?limit=200");
+
+      return payload.items.map(mapBackendProductionToUi);
+    } catch (error) {
+      console.error("Failed to load production queue from backend API. Falling back to projections.", error);
+    }
+  }
+
   return projectProductionJobs();
 }
 
@@ -106,96 +142,52 @@ export async function getCommandCenterData() {
 }
 
 export async function listStockPurchaseTasks(): Promise<StockPurchaseTask[]> {
-  const orders = await listOrders();
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: BackendStockRequirement[];
+      }>("/api/v1/stock-requirements?limit=200");
 
-  return orders.slice(0, 20).map((order, index) => {
-    const status: StockPurchaseTask["status"] =
-      order.status === "Printing" || order.status === "Shipping"
-        ? "Ready"
-        : order.status === "Queued"
-          ? "Partially received"
-          : index % 3 === 0
-            ? "Awaiting arrival"
-            : index % 2 === 0
-              ? "Ordered"
-              : "Awaiting order";
+      return payload.items.map(mapBackendStockToUi);
+    } catch (error) {
+      console.error("Failed to load stock requirements from backend API.", error);
+    }
+  }
 
-    const blocker =
-      status === "Awaiting order"
-        ? "Supplier order reference not logged"
-        : status === "Awaiting arrival"
-          ? "ETA window approaching"
-          : undefined;
-
-    return {
-      id: `STOCK-${order.id}`,
-      orderId: order.id,
-      account: order.company,
-      supplier: index % 2 === 0 ? "Ralawise" : "PenCarrie",
-      requiredQty: 12 + (index % 7) * 8,
-      status,
-      eta:
-        status === "Ready"
-          ? "In stock"
-          : status === "Partially received"
-            ? "Partial in branch"
-            : `Mar ${19 + (index % 9)}`,
-      blocker,
-    };
-  });
+  return [];
 }
 
 export async function listWarehouseReceiptTasks(): Promise<WarehouseReceiptTask[]> {
-  const tasks = await listStockPurchaseTasks();
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: BackendWarehouseReceipt[];
+      }>("/api/v1/warehouse-receipts?limit=200");
 
-  return tasks.slice(0, 20).map((task, index) => {
-    const receivedQty =
-      task.status === "Ready"
-        ? task.requiredQty
-        : task.status === "Partially received"
-          ? Math.max(1, Math.floor(task.requiredQty * 0.6))
-          : 0;
+      return payload.items.map(mapBackendWarehouseToUi);
+    } catch (error) {
+      console.error("Failed to load warehouse receipts from backend API.", error);
+    }
+  }
 
-    const status: WarehouseReceiptTask["status"] =
-      receivedQty === 0
-        ? "Pending receipt"
-        : receivedQty < task.requiredQty
-          ? "Partial receipt"
-          : "Complete";
-
-    return {
-      id: `WH-${task.id}`,
-      orderId: task.orderId,
-      account: task.account,
-      expectedQty: task.requiredQty,
-      receivedQty,
-      branch: index % 2 === 0 ? "HQ Warehouse" : "North Branch",
-      status,
-      lastScan: status === "Pending receipt" ? "No scan yet" : `${index + 1}h ago`,
-    };
-  });
+  return [];
 }
 
 export async function listCommunicationSignals(): Promise<CommunicationSignal[]> {
-  const [inbox, orders] = await Promise.all([listInboxThreads(), listOrders()]);
-  const orderById = new Map(orders.map((order) => [order.id, order]));
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: BackendCommunication[];
+      }>("/api/v1/communications?limit=200");
 
-  return inbox.slice(0, 30).map((thread, index) => {
-    const linkedOrder = orderById.get(thread.linkedOrder);
-    return {
-      id: `COMM-${thread.id}`,
-      orderId: thread.linkedOrder,
-      account: linkedOrder?.company ?? thread.customer,
-      channel: thread.channel === "Email" ? "Gmail" : thread.channel === "SMS" ? "Internal" : "Slack",
-      direction: thread.channel === "Internal" ? "Alert" : index % 2 === 0 ? "Inbound" : "Outbound",
-      subject: thread.subject,
-      state:
-        thread.priority === "High"
-          ? "Unread"
-          : index % 2 === 0
-            ? "Awaiting reply"
-            : "Resolved",
-      updatedAt: thread.updatedAt,
-    };
-  });
+      return payload.items.map(mapBackendCommToUi);
+    } catch (error) {
+      console.error("Failed to load communications from backend API.", error);
+    }
+  }
+
+  return [];
 }

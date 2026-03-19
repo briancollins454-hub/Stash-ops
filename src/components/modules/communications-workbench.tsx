@@ -26,7 +26,7 @@ export function CommunicationsWorkbench({ items }: { items: CommunicationSignal[
         >
           <div className="min-w-0">
             <p className="eyebrow">Job</p>
-            <p className="mt-2 text-lg font-semibold text-white">{item.orderId}</p>
+            <p className="mt-2 text-lg font-semibold text-white">{item.jobId}</p>
             <p className="mt-1 break-words text-sm text-white/62">{item.account}</p>
           </div>
           <div className="min-w-0">

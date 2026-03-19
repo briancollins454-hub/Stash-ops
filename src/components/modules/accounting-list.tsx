@@ -20,7 +20,7 @@ export function AccountingList({
               {record.customer}
             </p>
             <p className="mt-1 break-words text-sm text-white/60">
-              {record.orderId} · {record.type}
+              {record.jobId} · {record.type}
             </p>
           </div>
           <div className="min-w-0">

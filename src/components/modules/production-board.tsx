@@ -12,7 +12,7 @@ export function ProductionBoard({ jobs }: { jobs: ProductionJob[] }) {
           <div className="min-w-0">
             <p className="eyebrow">Job</p>
             <p className="mt-2 break-words text-lg font-semibold tracking-tight text-white">
-              {job.orderId}
+              {job.jobId}
             </p>
             <p className="mt-1 break-words text-sm text-white/60">{job.customer}</p>
           </div>

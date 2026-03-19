@@ -167,25 +167,25 @@ function serializePlacement(placement: AccountPlacementConfig | null) {
 
 export async function applyAccountAwareConfiguration(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   payload: ShopifyOrderPayload,
 ): Promise<void> {
   const match = await runAccountMatchingEngine(tx, payload);
 
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
     include: {
-      lineItems: true,
+      items: true,
     },
   });
 
-  if (!order) {
-    throw new Error(`Order ${orderId} was not found during account preconfiguration.`);
+  if (!job) {
+    throw new Error(`Job ${jobId} was not found during account preconfiguration.`);
   }
 
   if (!match.accountId) {
-    await tx.order.update({
-      where: { id: orderId },
+    await tx.job.update({
+      where: { id: jobId },
       data: {
         accountMatchStatus: match.status,
         accountMatchScore: match.score,
@@ -210,9 +210,9 @@ export async function applyAccountAwareConfiguration(
 
     await tx.activityLog.create({
       data: {
-        orderId,
+        jobId,
         eventType: "account.match.unmatched",
-        message: "Order requires review: no account match was found.",
+        message: "Job requires review: no account match was found.",
         payload: {
           score: match.score,
           reason: match.reason,
@@ -241,8 +241,8 @@ export async function applyAccountAwareConfiguration(
   });
 
   if (!account || !account.active) {
-    await tx.order.update({
-      where: { id: orderId },
+    await tx.job.update({
+      where: { id: jobId },
       data: {
         accountMatchStatus: MatchStatus.REVIEW_REQUIRED,
         accountMatchScore: match.score,
@@ -272,7 +272,7 @@ export async function applyAccountAwareConfiguration(
     normalizedMetafields: match.context.normalizedMetafields,
   };
 
-  const lineRecommendations = order.lineItems.map((lineItem) => {
+  const lineRecommendations = job.items.map((lineItem) => {
     const matchedRule = pickBestRule(accountRuleSet.productRules, lineItem, context);
     const decorationMethod =
       matchedRule?.decorationMethod ?? accountRuleSet.defaultDecorationMethod ?? lineItem.decorationMethod ?? "embroidery";
@@ -338,9 +338,9 @@ export async function applyAccountAwareConfiguration(
       .filter((value): value is string => Boolean(value)),
   };
 
-  await tx.order.update({
+  await tx.job.update({
     where: {
-      id: orderId,
+      id: jobId,
     },
     data: {
       accountId: accountRuleSet.id,
@@ -379,9 +379,9 @@ export async function applyAccountAwareConfiguration(
   await tx.activityLog.createMany({
     data: [
       {
-        orderId,
+        jobId,
         eventType: "account.match.completed",
-        message: `Order matched to account ${accountRuleSet.name} (${match.status}).`,
+        message: `Job matched to account ${accountRuleSet.name} (${match.status}).`,
         payload: {
           status: match.status,
           score: match.score,
@@ -390,7 +390,7 @@ export async function applyAccountAwareConfiguration(
         } satisfies JsonObject,
       },
       {
-        orderId,
+        jobId,
         eventType: requiresReview ? "preconfiguration.review_required" : "preconfiguration.completed",
         message: requiresReview
           ? "Preconfiguration created, but manual review is required before Deco handoff."

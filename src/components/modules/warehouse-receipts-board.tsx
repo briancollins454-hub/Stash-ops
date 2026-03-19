@@ -26,7 +26,7 @@ export function WarehouseReceiptsBoard({ tasks }: { tasks: WarehouseReceiptTask[
         >
           <div className="min-w-0">
             <p className="eyebrow">Job</p>
-            <p className="mt-2 text-lg font-semibold text-white">{task.orderId}</p>
+            <p className="mt-2 text-lg font-semibold text-white">{task.jobId}</p>
             <p className="mt-1 break-words text-sm text-white/62">{task.account}</p>
           </div>
           <div className="min-w-0">

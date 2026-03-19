@@ -7,8 +7,11 @@ import type {
   DecorationMethod,
   UnifiedOrderRecord,
 } from "@/server/core/order-types";
-import { listUnifiedOrders } from "@/server/repositories/unified-order-repository";
-import { runAutoSyncIfStale } from "@/server/sync/auto-sync-engine";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+import {
+  mapBackendJobToLegacyRecord,
+  type BackendJobFull,
+} from "@/lib/backend-order-adapter";
 
 function toHexColor(method: DecorationMethod) {
   if (method === "embroidery") return "#e7dac5";
@@ -63,8 +66,19 @@ function buildProductFromOrderLine(
 }
 
 export async function projectDecoratorProducts(): Promise<DecoratorProduct[]> {
-  runAutoSyncIfStale();
-  const orders = await listUnifiedOrders();
+  let orders: UnifiedOrderRecord[] = [];
+
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
+        "/api/v1/orders?lane=all&limit=500",
+      );
+      orders = payload.items.map(mapBackendJobToLegacyRecord);
+    } catch (error) {
+      console.error("Failed to load jobs from backend for decorator projections.", error);
+    }
+  }
+
   const bySku = new Map<string, DecoratorProduct>();
 
   orders.forEach((order) => {
@@ -81,8 +95,18 @@ export async function projectDecoratorProducts(): Promise<DecoratorProduct[]> {
 }
 
 export async function projectDecoratorTemplates(): Promise<DecoratorTemplate[]> {
-  runAutoSyncIfStale();
-  const orders = await listUnifiedOrders();
+  let orders: UnifiedOrderRecord[] = [];
+
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
+        "/api/v1/orders?lane=all&limit=500",
+      );
+      orders = payload.items.map(mapBackendJobToLegacyRecord);
+    } catch (error) {
+      console.error("Failed to load jobs from backend for decorator templates.", error);
+    }
+  }
 
   const templates = orders
     .filter((order) => order.designSetup.placements.length > 0)

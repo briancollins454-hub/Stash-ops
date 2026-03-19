@@ -10,7 +10,7 @@ type OrdersTableProps = {
 
 export function OrdersTable({
   orders,
-  emptyMessage = "No orders in this section yet.",
+  emptyMessage = "No jobs in this section yet.",
 }: OrdersTableProps) {
   if (orders.length === 0) {
     return (
@@ -30,9 +30,9 @@ export function OrdersTable({
           <div className="min-w-0 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="eyebrow">Order</p>
+                <p className="eyebrow">Job</p>
                 <Link
-                  href={`/orders/${order.id}`}
+                  href={`/jobs/${order.id}`}
                   className="mt-2 inline-block break-words text-xl font-semibold tracking-tight text-white underline-offset-4 transition hover:text-[#d7f6f2] hover:underline"
                 >
                   {order.id}

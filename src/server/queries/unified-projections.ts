@@ -14,8 +14,11 @@ import type {
   ProductionWorkflowStage,
   UnifiedOrderRecord,
 } from "@/server/core/order-types";
-import { listUnifiedOrders } from "@/server/repositories/unified-order-repository";
-import { runAutoSyncIfStale } from "@/server/sync/auto-sync-engine";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+import {
+  mapBackendJobToLegacyRecord,
+  type BackendJobFull,
+} from "@/lib/backend-order-adapter";
 import { isDecoConnectorConfigured } from "@/server/integrations/deco-connector";
 import { isShopifyConnectorConfigured } from "@/server/integrations/shopify-connector";
 import { isQboConnectorConfigured } from "@/server/integrations/qbo-connector";
@@ -178,13 +181,16 @@ function mapLegacyOrderStatus(order: UnifiedOrderRecord): Order["status"] {
   const approval = order.approval.status;
 
   if (stage === "dispatched" || stage === "complete") {
-    return "Shipping";
+    return "Complete";
   }
   if (stage === "in_production" || stage === "quality_check" || stage === "ready_for_dispatch") {
     return "Printing";
   }
-  if (stage === "ready_for_production" || stage === "approved_awaiting_stock") {
+  if (stage === "ready_for_production") {
     return "Queued";
+  }
+  if (stage === "approved_awaiting_stock") {
+    return "Stock";
   }
   if (approval === "awaiting_customer_approval" || approval === "proof_sent") {
     return "Approval";
@@ -287,8 +293,18 @@ function mapLegacyProcess(method: DecorationMethod): ProductionJob["process"] {
 }
 
 async function buildOrderSnapshot() {
-  runAutoSyncIfStale();
-  const orders = await listUnifiedOrders();
+  let orders: UnifiedOrderRecord[] = [];
+
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        items: BackendJobFull[];
+      }>("/api/v1/orders?lane=all&limit=500");
+      orders = payload.items.map(mapBackendJobToLegacyRecord);
+    } catch (error) {
+      console.error("Failed to load jobs from backend for projections.", error);
+    }
+  }
 
   const byUrgency = [...orders].sort((a, b) => {
     const rank = (value: UnifiedOrderRecord["urgency"]) => {
@@ -340,7 +356,7 @@ export async function projectApprovals(): Promise<Approval[]> {
     .filter((order) => order.approval.status !== "not_required")
     .map((order) => ({
       id: `AP-${order.internalOrderId.replace("ST-", "")}`,
-      orderId: order.internalOrderId,
+      jobId: order.internalOrderId,
       customer: order.customer.company ?? order.customer.name,
       status: mapLegacyApprovalStatus(order.approval.status),
       asset:
@@ -361,7 +377,7 @@ export async function projectProductionJobs(): Promise<ProductionJob[]> {
     .filter((order) => !terminalStages.includes(order.production.stage))
     .map((order) => ({
       id: `PR-${order.internalOrderId.replace("ST-", "")}`,
-      orderId: order.internalOrderId,
+      jobId: order.internalOrderId,
       customer: order.customer.company ?? order.customer.name,
       stage: mapLegacyProductionStage(order.production.stage),
       process: mapLegacyProcess(order.lineItems[0]?.decorationMethod ?? "other"),
@@ -389,7 +405,7 @@ export async function projectAccountingRecords(): Promise<AccountingRecord[]> {
 
     return {
       id: `AR-${order.internalOrderId.replace("ST-", "")}`,
-      orderId: order.internalOrderId,
+      jobId: order.internalOrderId,
       customer: order.customer.company ?? order.customer.name,
       type: terminalStages.includes(order.production.stage) ? "Payment" : "Invoice",
       amount: sumOrderValue(order),
@@ -423,7 +439,7 @@ export async function projectInboxThreads(): Promise<InboxThread[]> {
       threads.push({
         id: `TH-${order.internalOrderId}`,
         customer: order.customer.company ?? order.customer.name,
-        subject: `Order ${order.internalOrderId} requires attention`,
+        subject: `Job ${order.internalOrderId} requires attention`,
         channel: "Internal",
         priority: order.urgency === "critical" || order.urgency === "rush" ? "High" : "Normal",
         summary: order.blockedReason,
@@ -528,9 +544,9 @@ export async function projectMetrics(): Promise<Metric[]> {
     projectInboxThreads(),
   ]);
 
-  const ordersInFlight = orders.filter((order) => order.status !== "Shipping").length;
+  const ordersInFlight = orders.filter((order) => order.status !== "Complete" && order.status !== "Cancelled").length;
   const revenueQueued = orders
-    .filter((order) => order.status !== "Shipping")
+    .filter((order) => order.status !== "Complete" && order.status !== "Cancelled")
     .reduce((sum, order) => sum + order.value, 0);
   const qboReadyCount = accounting.filter((record) => record.qboStatus === "Ready").length;
   const highPriorityThreads = threads.filter((thread) => thread.priority === "High").length;
@@ -542,24 +558,24 @@ export async function projectMetrics(): Promise<Metric[]> {
 
   return [
     {
-      label: "Orders in flight",
+      label: "Jobs in flight",
       value: String(ordersInFlight),
-      detail: `${highPriorityThreads} urgent threads linked to active orders`,
+      detail: `${highPriorityThreads} urgent threads`,
     },
     {
       label: "Revenue queued",
       value: compactRevenue,
-      detail: "Combined value across open production and approval queues",
+      detail: `${ordersInFlight} active jobs`,
     },
     {
-      label: "Shared inbox",
+      label: "Inbox",
       value: String(threads.length),
-      detail: "Customer and internal messages attached to order timelines",
+      detail: `${highPriorityThreads} high priority`,
     },
     {
       label: "QBO ready",
       value: String(qboReadyCount),
-      detail: "Orders currently clear to post into accounting",
+      detail: `${qboReadyCount} ready to post`,
     },
   ];
 }

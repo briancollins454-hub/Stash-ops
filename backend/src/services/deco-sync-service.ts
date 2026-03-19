@@ -16,25 +16,25 @@ function asJson(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function prepareOrderForDecoPush(
+export async function prepareJobForDecoPush(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
 ): Promise<DecoPushResult> {
-  const payload = await buildDecoPreparedPayload(tx, orderId);
+  const payload = await buildDecoPreparedPayload(tx, jobId);
   if (!payload) {
     return {
       attempted: false,
       succeeded: false,
-      reason: "Order is not preconfigured for Deco push.",
+      reason: "Job is not preconfigured for Deco push.",
     };
   }
 
-  await tx.order.update({
-    where: { id: orderId },
+  await tx.job.update({
+    where: { id: jobId },
     data: {
       metadata: {
-        ...asJson((await tx.order.findUnique({
-          where: { id: orderId },
+        ...asJson((await tx.job.findUnique({
+          where: { id: jobId },
           select: { metadata: true },
         }))?.metadata),
         decoPushPreparedAt: new Date().toISOString(),
@@ -44,14 +44,14 @@ export async function prepareOrderForDecoPush(
 
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: "deco.push.prepared",
       message: "Deco payload prepared and ready for connector handoff.",
       payload: payload as unknown as Prisma.InputJsonValue,
     },
   });
 
-  logger.info({ orderId }, "Prepared order for Deco push");
+  logger.info({ jobId }, "Prepared job for Deco push");
 
   return {
     attempted: true,

@@ -8,14 +8,11 @@ export default async function ProductionPage() {
   const productionJobs = await listProductionJobs();
 
   return (
-    <AppShell
-      title={shellCopy.production.title}
-      description={shellCopy.production.description}
-    >
+    <AppShell title={shellCopy.production.title}>
       <SectionCard
         kicker="Floor"
-        title="Live job routing"
-        detail={formatCount(productionJobs.length, "active lane")}
+        title="Job routing"
+        detail={formatCount(productionJobs.length, "active job")}
       >
         <ProductionBoard jobs={productionJobs} />
       </SectionCard>

@@ -1,13 +1,4 @@
-import type { Prisma } from "@prisma/client";
-
-type JsonObject = Record<string, unknown>;
-
-function asJson(value: unknown): JsonObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as JsonObject;
-}
+import { CommunicationChannel, CommunicationDirection, type Prisma } from "@prisma/client";
 
 export type CommunicationEventInput = {
   channel: "gmail" | "slack" | "internal";
@@ -18,54 +9,56 @@ export type CommunicationEventInput = {
   actor: string;
 };
 
+const channelMap: Record<string, CommunicationChannel> = {
+  gmail: CommunicationChannel.GMAIL,
+  slack: CommunicationChannel.SLACK,
+  internal: CommunicationChannel.INTERNAL_NOTE,
+};
+
+const directionMap: Record<string, CommunicationDirection> = {
+  inbound: CommunicationDirection.INBOUND,
+  outbound: CommunicationDirection.OUTBOUND,
+  internal: CommunicationDirection.INTERNAL,
+};
+
 export async function appendCommunicationEvent(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   input: CommunicationEventInput,
 ): Promise<void> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
-    select: { metadata: true },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
+    select: { id: true },
   });
 
-  if (!order) {
-    throw new Error("Order not found.");
+  if (!job) {
+    throw new Error("Job not found.");
   }
 
-  const metadata = asJson(order.metadata);
-  const communications = asJson(metadata.communications);
-  const timeline = Array.isArray(communications.timeline) ? communications.timeline : [];
-
-  const event = {
-    channel: input.channel,
-    direction: input.direction,
-    subject: input.subject,
-    bodyPreview: input.bodyPreview ?? "",
-    externalMessageId: input.externalMessageId ?? null,
-    actor: input.actor,
-    createdAt: new Date().toISOString(),
-  };
-
-  await tx.order.update({
-    where: { id: orderId },
+  await tx.communication.create({
     data: {
-      metadata: {
-        ...metadata,
-        communications: {
-          ...communications,
-          timeline: [...timeline, event],
-          lastMessageAt: event.createdAt,
-        },
-      },
+      jobId,
+      channel: channelMap[input.channel] ?? CommunicationChannel.INTERNAL_NOTE,
+      direction: directionMap[input.direction] ?? CommunicationDirection.INTERNAL,
+      subject: input.subject,
+      bodyPreview: input.bodyPreview ?? null,
+      providerMessageId: input.externalMessageId ?? null,
+      sentBy: input.actor,
+      sentAt: new Date(),
     },
   });
 
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: "communication.logged",
       message: `${input.channel.toUpperCase()} ${input.direction} communication recorded.`,
-      payload: event,
+      payload: {
+        channel: input.channel,
+        direction: input.direction,
+        subject: input.subject,
+        actor: input.actor,
+      },
     },
   });
 }

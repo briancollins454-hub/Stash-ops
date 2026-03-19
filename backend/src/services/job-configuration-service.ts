@@ -35,28 +35,28 @@ export function canPushToDeco(snapshot: JobWorkflowSnapshot): { ok: boolean; rea
 
 export async function markReviewDecision(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   accepted: boolean,
   actor: string,
   note?: string,
 ): Promise<void> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
     select: {
       id: true,
       preconfiguration: true,
     },
   });
 
-  if (!order) {
-    throw new Error("Order not found for review decision.");
+  if (!job) {
+    throw new Error("Job not found for review decision.");
   }
 
-  const preconfiguration = asJsonObject(order.preconfiguration);
+  const preconfiguration = asJsonObject(job.preconfiguration);
   const existingReview = asJsonObject(preconfiguration.review);
 
-  await tx.order.update({
-    where: { id: orderId },
+  await tx.job.update({
+    where: { id: jobId },
     data: {
       accountMatchStatus: accepted ? MatchStatus.MANUAL_MATCHED : MatchStatus.REVIEW_REQUIRED,
       requiresReview: !accepted,
@@ -76,7 +76,7 @@ export async function markReviewDecision(
 
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: accepted ? "review.accepted" : "review.rejected",
       message: accepted
         ? "Review flags accepted; job can continue."

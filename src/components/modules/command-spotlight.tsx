@@ -24,19 +24,9 @@ export function CommandSpotlight({
         <div className="pointer-events-none absolute -left-16 -top-14 h-56 w-56 rounded-full bg-[#22d3c6]/20 blur-[62px]" />
         <div className="pointer-events-none absolute -bottom-20 right-8 h-52 w-52 rounded-full bg-[#c9a84c]/20 blur-[58px]" />
 
-        <p className="eyebrow text-white/58">Mission Pulse</p>
-        <h2
-          className="mt-4 max-w-3xl break-words pb-[0.16em] text-[clamp(2.3rem,4.8vw,4.6rem)] leading-[1.12] tracking-[-0.02em] text-white"
-          style={{ fontFamily: "var(--font-fraunces)" }}
-        >
-          Give every team a single live operating layer.
-        </h2>
-        <p className="mt-4 max-w-2xl text-sm leading-7 text-white/72">
-          Move from customer message to artwork to production to accounting without
-          bouncing between disconnected tools.
-        </p>
+        <p className="eyebrow text-white/58">Priority jobs</p>
 
-        <div className="mt-7 grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
           {priorityOrders.map((order) => (
             <article
               key={order.id}
@@ -64,12 +54,11 @@ export function CommandSpotlight({
         <section className="panel studio-glass-panel p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="eyebrow">What matters next</p>
+              <p className="eyebrow">Inbox</p>
               <h3 className="mt-3 break-words text-2xl font-semibold leading-[1.2] tracking-tight text-white">
-                Human moments tied to revenue
+                Recent threads
               </h3>
             </div>
-            <span className="glass-pill">Shared inbox</span>
           </div>
           <div className="mt-6 space-y-4">
             {hotThreads.map((thread) => (
@@ -96,12 +85,11 @@ export function CommandSpotlight({
         <section className="panel studio-glass-panel p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="eyebrow">System tempo</p>
+              <p className="eyebrow">Integrations</p>
               <h3 className="mt-3 break-words text-2xl font-semibold leading-[1.2] tracking-tight text-white">
-                Silent integrations, visible exceptions
+                Attention needed
               </h3>
             </div>
-            <span className="glass-pill">Backplane</span>
           </div>
           <div className="mt-6 space-y-4">
             {systemsNeedingAttention.map((integration) => (

@@ -11,7 +11,7 @@ export type AuditEntryInput = {
 
 export async function appendAuditEntry(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   input: AuditEntryInput,
 ): Promise<void> {
   const payload = {
@@ -23,7 +23,7 @@ export async function appendAuditEntry(
 
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: input.eventType,
       message: input.message,
       payload,

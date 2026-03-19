@@ -17,12 +17,18 @@ export function orderTone(status: Order["status"]) {
       return "border-[#f97366]/35 bg-[#f97366]/14 text-[#ffd1c8]";
     case "Approval":
       return "border-[#e3c96e]/35 bg-[#e3c96e]/14 text-[#f6e8bc]";
+    case "Stock":
+      return "border-[#c084fc]/30 bg-[#c084fc]/14 text-[#e9d5ff]";
     case "Queued":
       return "border-[#8ea0c8]/28 bg-[#8ea0c8]/12 text-[#d7e3ff]";
     case "Printing":
       return "border-[#0ea5a0]/35 bg-[#0ea5a0]/22 text-[#b9fff5]";
-    case "Shipping":
+    case "Complete":
       return "border-[#3b82f6]/35 bg-[#3b82f6]/16 text-[#d6e8ff]";
+    case "On hold":
+      return "border-[#fb923c]/30 bg-[#fb923c]/14 text-[#fed7aa]";
+    case "Cancelled":
+      return "border-white/14 bg-white/[0.06] text-white/50";
     default:
       return "border-white/20 bg-white/[0.08] text-white/80";
   }

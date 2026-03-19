@@ -11,14 +11,11 @@ export default async function WarehousePage() {
   const pending = tasks.filter((task) => task.status !== "Complete");
 
   return (
-    <AppShell
-      title={shellCopy.warehouse.title}
-      description={shellCopy.warehouse.description}
-    >
+    <AppShell title={shellCopy.warehouse.title}>
       <SectionCard
         kicker="Goods in"
-        title="Branch receipt and scan flow"
-        detail={`${formatCount(tasks.length, "receipt task")} · ${formatCount(pending.length, "open receipt")}`}
+        title="Receipt & scan"
+        detail={`${formatCount(tasks.length, "receipt")} · ${formatCount(pending.length, "open")}`}
       >
         <WarehouseReceiptsBoard tasks={tasks} />
       </SectionCard>

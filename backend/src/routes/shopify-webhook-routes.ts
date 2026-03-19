@@ -140,4 +140,28 @@ export async function registerShopifyWebhookRoutes(app: FastifyInstance): Promis
       return result;
     },
   );
+
+  app.post(
+    "/webhooks/shopify/fulfillments-update",
+    { config: { rawBody: true } },
+    async (request, reply) => {
+      const result = await ingestShopifyEvent({
+        app,
+        request: {
+          headers: request.headers as Record<string, string | string[] | undefined>,
+          body: request.body,
+          rawBody: request.rawBody,
+        },
+        topic: "fulfillments/update",
+      });
+
+      if (!result.accepted) {
+        reply.status(401);
+      } else {
+        reply.status(202);
+      }
+
+      return result;
+    },
+  );
 }

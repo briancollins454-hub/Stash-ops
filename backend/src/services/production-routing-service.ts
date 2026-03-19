@@ -1,15 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type { ProductionDepartment } from "../domain/job-status";
 
-type JsonObject = Record<string, unknown>;
-
-function asJson(value: unknown): JsonObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as JsonObject;
-}
-
 export type ProductionRoutingInput = {
   department: ProductionDepartment;
   lane: "queued" | "in_progress" | "qc" | "complete";
@@ -17,45 +8,43 @@ export type ProductionRoutingInput = {
   notes?: string;
 };
 
-export async function routeOrderToProduction(
+export async function routeJobToProduction(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   input: ProductionRoutingInput,
 ): Promise<void> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
-    select: { metadata: true },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, productionStartedAt: true },
   });
 
-  if (!order) {
-    throw new Error("Order not found.");
+  if (!job) {
+    throw new Error("Job not found.");
   }
 
-  const metadata = asJson(order.metadata);
-  const production = asJson(metadata.production);
+  const now = new Date();
+  const updates: Record<string, unknown> = {
+    productionNotes: input.notes ?? null,
+  };
 
-  await tx.order.update({
-    where: { id: orderId },
-    data: {
-      metadata: {
-        ...metadata,
-        production: {
-          ...production,
-          department: input.department,
-          lane: input.lane,
-          notes: input.notes ?? null,
-          updatedAt: new Date().toISOString(),
-          updatedBy: input.actor,
-        },
-      },
-    },
+  if (!job.productionStartedAt && (input.lane === "in_progress" || input.lane === "qc")) {
+    updates.productionStartedAt = now;
+  }
+
+  if (input.lane === "complete") {
+    updates.productionCompletedAt = now;
+  }
+
+  await tx.job.update({
+    where: { id: jobId },
+    data: updates,
   });
 
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: "production.routed",
-      message: `Order routed to ${input.department} (${input.lane}).`,
+      message: `Job routed to ${input.department} (${input.lane}).`,
       payload: {
         department: input.department,
         lane: input.lane,

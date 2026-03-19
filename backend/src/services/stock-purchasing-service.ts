@@ -1,13 +1,4 @@
-import type { Prisma } from "@prisma/client";
-
-type JsonObject = Record<string, unknown>;
-
-function asJson(value: unknown): JsonObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as JsonObject;
-}
+import { StockStatus, type Prisma } from "@prisma/client";
 
 export type SupplierOrderInput = {
   supplierName: string;
@@ -19,42 +10,60 @@ export type SupplierOrderInput = {
 
 export async function recordSupplierOrder(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   input: SupplierOrderInput,
 ): Promise<void> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
-    select: { metadata: true },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
+    select: { id: true },
   });
 
-  if (!order) {
-    throw new Error("Order not found.");
+  if (!job) {
+    throw new Error("Job not found.");
   }
 
-  const metadata = asJson(order.metadata);
-  const purchasing = asJson(metadata.purchasing);
-
-  await tx.order.update({
-    where: { id: orderId },
+  // Update all stock requirements for this job with supplier info
+  await tx.jobStockRequirement.updateMany({
+    where: {
+      jobId,
+      status: { in: [StockStatus.AWAITING_ORDER, StockStatus.NOT_REQUIRED] },
+    },
     data: {
-      metadata: {
-        ...metadata,
-        purchasing: {
-          ...purchasing,
-          status: "ordered",
-          supplierName: input.supplierName,
-          supplierReference: input.supplierReference ?? null,
-          eta: input.eta ?? null,
-          notes: input.notes ?? null,
-          orderedAt: new Date().toISOString(),
-        },
-      },
+      supplierName: input.supplierName,
+      supplierReference: input.supplierReference ?? null,
+      supplierNotes: input.notes ?? null,
+      eta: input.eta ? new Date(input.eta) : null,
+      status: StockStatus.ORDERED,
     },
   });
 
+  // If no stock requirements exist yet, create one per job item
+  const existingCount = await tx.jobStockRequirement.count({ where: { jobId } });
+  if (existingCount === 0) {
+    const items = await tx.jobItem.findMany({
+      where: { jobId },
+      select: { id: true, quantity: true },
+    });
+
+    for (const item of items) {
+      await tx.jobStockRequirement.create({
+        data: {
+          jobId,
+          jobItemId: item.id,
+          requiredQuantity: item.quantity,
+          status: StockStatus.ORDERED,
+          supplierName: input.supplierName,
+          supplierReference: input.supplierReference ?? null,
+          supplierNotes: input.notes ?? null,
+          eta: input.eta ? new Date(input.eta) : null,
+        },
+      });
+    }
+  }
+
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: "stock.order.recorded",
       message: `Supplier order recorded: ${input.supplierName}.`,
       payload: {

@@ -3,9 +3,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { buildDecoPreparedPayload } from "../services/deco-linking-service";
-import { createManualOrder } from "../services/order-service";
+import { createManualJob } from "../services/order-service";
 
-const listOrdersQuerySchema = z.object({
+const listJobsQuerySchema = z.object({
   lane: z.enum(["active", "fulfilled", "all"]).optional(),
   groupKey: z.string().optional(),
   requiresReview: z
@@ -19,7 +19,7 @@ const listOrdersQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(300).optional(),
 });
 
-const createManualOrderSchema = z.object({
+const createManualJobSchema = z.object({
   customerName: z.string().min(1),
   customerEmail: z.string().email().optional(),
   sourceGroupLabel: z.string().optional(),
@@ -49,12 +49,12 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
 
     const limit = query.limit ?? 100;
 
-    const items = await prisma.order.findMany({
+    const items = await prisma.job.findMany({
       where: {
         requiresReview: true,
       },
       include: {
-        lineItems: true,
+        items: true,
         account: true,
       },
       orderBy: [{ updatedAt: "desc" }],
@@ -68,7 +68,7 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/v1/orders", async (request) => {
-    const query = listOrdersQuerySchema.parse(request.query);
+    const query = listJobsQuerySchema.parse(request.query);
     const lane = query.lane ?? "active";
     const limit = query.limit ?? 150;
 
@@ -83,14 +83,14 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
     const reviewFilter =
       query.requiresReview === undefined ? {} : { requiresReview: query.requiresReview };
 
-    const orders = await prisma.order.findMany({
+    const jobs = await prisma.job.findMany({
       where: {
         ...where,
         ...groupFilter,
         ...reviewFilter,
       },
       include: {
-        lineItems: true,
+        items: true,
         account: true,
       },
       orderBy: [{ orderPlacedAt: "desc" }, { createdAt: "desc" }],
@@ -104,17 +104,17 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
         label: string;
         type: string;
         count: number;
-        orders: typeof orders;
+        jobs: typeof jobs;
       }
     >();
 
-    for (const order of orders) {
-      const key = order.sourceGroupKey ?? "unassigned";
-      const label = order.sourceGroupLabel ?? "Unassigned";
-      const type = order.sourceGroupType ?? "unassigned";
+    for (const job of jobs) {
+      const key = job.sourceGroupKey ?? "unassigned";
+      const label = job.sourceGroupLabel ?? "Unassigned";
+      const type = job.sourceGroupType ?? "unassigned";
       const existing = groups.get(key);
       if (existing) {
-        existing.orders.push(order);
+        existing.jobs.push(job);
         existing.count += 1;
       } else {
         groups.set(key, {
@@ -122,34 +122,34 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
           label,
           type,
           count: 1,
-          orders: [order],
+          jobs: [job],
         });
       }
     }
 
     return {
       lane,
-      total: orders.length,
-      items: orders,
+      total: jobs.length,
+      items: jobs,
       groupedBySource: Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label)),
     };
   });
 
   app.post("/v1/orders/manual", async (request, reply) => {
-    const body = createManualOrderSchema.parse(request.body);
-    const created = await createManualOrder(body);
+    const body = createManualJobSchema.parse(request.body);
+    const created = await createManualJob(body);
     reply.status(201);
     return {
       ok: true,
-      orderId: created.orderId,
-      internalOrderId: created.internalOrderId,
+      jobId: created.jobId,
+      internalJobId: created.internalJobId,
     };
   });
 
-  app.get("/v1/orders/:orderId/deco-prepared", async (request, reply) => {
+  app.get("/v1/orders/:jobId/deco-prepared", async (request, reply) => {
     const params = z
       .object({
-        orderId: z.string(),
+        jobId: z.string(),
       })
       .parse(request.params);
 
@@ -157,49 +157,49 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
       where: {
         provider: ExternalProvider.SHOPIFY_ORDER,
         OR: [
-          { externalId: params.orderId },
+          { externalId: params.jobId },
           {
-            order: {
-              internalOrderId: params.orderId.toUpperCase(),
+            job: {
+              internalJobId: params.jobId.toUpperCase(),
             },
           },
         ],
       },
       select: {
-        orderId: true,
+        jobId: true,
       },
     });
 
-    const order =
+    const job =
       (link
-        ? await prisma.order.findUnique({
-            where: { id: link.orderId },
+        ? await prisma.job.findUnique({
+            where: { id: link.jobId },
             select: { id: true },
           })
-        : await prisma.order.findFirst({
+        : await prisma.job.findFirst({
             where: {
               OR: [
-                { id: params.orderId },
-                { internalOrderId: params.orderId.toUpperCase() },
+                { id: params.jobId },
+                { internalJobId: params.jobId.toUpperCase() },
               ],
             },
             select: { id: true },
           })) ?? null;
 
-    if (!order) {
+    if (!job) {
       reply.status(404);
-      return { error: "Order not found." };
+      return { error: "Job not found." };
     }
 
     const payload = await prisma.$transaction((tx) =>
-      buildDecoPreparedPayload(tx, order.id),
+      buildDecoPreparedPayload(tx, job.id),
     );
 
     if (!payload) {
       reply.status(422);
       return {
         error:
-          "Order is not ready for Deco payload. Ensure account is matched and a Deco customer is linked.",
+          "Job is not ready for Deco payload. Ensure account is matched and a Deco customer is linked.",
       };
     }
 

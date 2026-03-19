@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { applyApprovalStatus } from "@/server/core/order-orchestrator";
-import type { ApprovalWorkflowStatus } from "@/server/core/order-types";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 
 type RouteParams = {
   params: Promise<{
@@ -10,8 +9,16 @@ type RouteParams = {
 
 export async function PATCH(request: Request, context: RouteParams) {
   const { orderId } = await context.params;
+
+  if (!isBackendApiConfigured()) {
+    return NextResponse.json(
+      { error: "Backend API is not configured. Set BACKEND_API_URL." },
+      { status: 503 },
+    );
+  }
+
   const body = (await request.json()) as {
-    status?: ApprovalWorkflowStatus;
+    status?: string;
     actor?: string;
     notes?: string;
   };
@@ -20,18 +27,30 @@ export async function PATCH(request: Request, context: RouteParams) {
     return NextResponse.json({ error: "status is required." }, { status: 400 });
   }
 
-  const order = await applyApprovalStatus(
-    orderId,
-    body.status,
-    body.actor ?? "ops.user",
-    body.notes,
-  );
-  if (!order) {
-    return NextResponse.json({ error: "Order not found." }, { status: 404 });
-  }
+  try {
+    const accepted = body.status === "approved";
+    await fetchBackendJson(
+      `/api/v1/jobs/${encodeURIComponent(orderId)}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accepted,
+          actor: body.actor ?? "ops.user",
+          note: body.notes,
+        }),
+      },
+    );
 
-  return NextResponse.json({
-    data: order,
-    updated: true,
-  });
+    const job = await fetchBackendJson<Record<string, unknown>>(
+      `/api/v1/jobs/${encodeURIComponent(orderId)}`,
+    );
+
+    return NextResponse.json({ data: job, updated: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Backend request failed." },
+      { status: 502 },
+    );
+  }
 }

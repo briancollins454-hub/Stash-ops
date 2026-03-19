@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { OrderCockpit } from "@/components/order-cockpit/order-cockpit";
-import { getUnifiedOrder } from "@/server/repositories/unified-order-repository";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+import {
+  mapBackendJobToLegacyRecord,
+  type BackendJobFull,
+} from "@/lib/backend-order-adapter";
 
 type OrderDetailPageProps = {
   params: Promise<{
@@ -11,17 +15,24 @@ type OrderDetailPageProps = {
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
   const { orderId } = await params;
-  const order = await getUnifiedOrder(orderId.toUpperCase());
 
-  if (!order) {
+  if (!isBackendApiConfigured()) {
     notFound();
   }
 
+  let job: BackendJobFull;
+  try {
+    job = await fetchBackendJson<BackendJobFull>(
+      `/api/v1/jobs/${encodeURIComponent(orderId.toUpperCase())}`,
+    );
+  } catch {
+    notFound();
+  }
+
+  const order = mapBackendJobToLegacyRecord(job);
+
   return (
-    <AppShell
-      title={`Order ${order.internalOrderId}`}
-      description="Unified order cockpit with Shopify, Deco, Gmail, Slack, approvals, stock, production, and full activity history in one place."
-    >
+    <AppShell title={`Job ${order.internalOrderId}`}>
       <OrderCockpit order={order} />
     </AppShell>
   );

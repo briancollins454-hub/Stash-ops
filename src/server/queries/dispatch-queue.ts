@@ -1,7 +1,10 @@
 import type { DispatchOrder } from "@/lib/types";
 import type { ShopifyFulfillmentStatus, UnifiedOrderRecord } from "@/server/core/order-types";
-import { listUnifiedOrders } from "@/server/repositories/unified-order-repository";
-import { runAutoSyncIfStale } from "@/server/sync/auto-sync-engine";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+import {
+  mapBackendJobToLegacyRecord,
+  type BackendJobFull,
+} from "@/lib/backend-order-adapter";
 
 function formatMonthDay(value?: string) {
   if (!value) {
@@ -77,8 +80,19 @@ function sortDispatchOrders(a: DispatchOrder, b: DispatchOrder) {
 }
 
 async function buildDispatchOrders() {
-  runAutoSyncIfStale();
-  const orders = await listUnifiedOrders();
+  let orders: UnifiedOrderRecord[] = [];
+
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{ items: BackendJobFull[] }>(
+        "/api/v1/orders?lane=all&limit=500",
+      );
+      orders = payload.items.map(mapBackendJobToLegacyRecord);
+    } catch (error) {
+      console.error("Failed to load jobs from backend for dispatch projections.", error);
+    }
+  }
+
   return orders.filter(isShopifyLinked).map(mapDispatchOrder).sort(sortDispatchOrders);
 }
 

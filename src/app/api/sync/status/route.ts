@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
-import { getSyncEngineStatus, runAutoSyncIfStale } from "@/server/sync/auto-sync-engine";
 
 const providerOrder = [
   "shopify",
@@ -99,7 +98,6 @@ export async function GET() {
 
       return NextResponse.json({
         data: legacyShape,
-        backend: true,
         generatedAt: legacyShape.generatedAt,
       });
     } catch (error) {
@@ -115,12 +113,22 @@ export async function GET() {
     }
   }
 
-  const scheduledProviders = runAutoSyncIfStale();
-  const status = getSyncEngineStatus();
+  const generatedAt = new Date().toISOString();
+  const emptyStatus = {
+    providers: providerOrder.map((provider) => ({
+      provider,
+      running: false,
+      queued: 0,
+      totalRuns: 0,
+      successfulRuns: 0,
+      failedRuns: 0,
+    })),
+    jobs: [],
+    generatedAt,
+  };
 
   return NextResponse.json({
-    data: status,
-    scheduledProviders,
-    generatedAt: status.generatedAt,
+    data: emptyStatus,
+    generatedAt,
   });
 }

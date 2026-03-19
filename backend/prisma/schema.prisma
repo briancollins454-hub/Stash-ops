@@ -7,25 +7,94 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum OrderSource {
+// ── Source & lifecycle enums ──
+
+enum JobSource {
   SHOPIFY
   MANUAL
   DECO
 }
 
-enum WorkflowStatus {
-  PENDING_REVIEW
-  AWAITING_ARTWORK
-  AWAITING_APPROVAL
-  APPROVED_AWAITING_STOCK
-  READY_FOR_PRODUCTION
+enum MainLifecycle {
+  INGESTED
+  CLASSIFIED
+  CONFIGURED
+  PUSHED_TO_DECO
+  AWAITING_STOCK
+  STOCK_RECEIVED
+  PRODUCTION_QUEUED
   IN_PRODUCTION
-  QUALITY_CHECK
-  READY_FOR_DISPATCH
-  DISPATCHED
-  COMPLETE
+  COMPLETED
+  ON_HOLD
   CANCELLED
 }
+
+enum ClassificationStatus {
+  UNCLASSIFIED
+  ACCOUNT_MATCHED
+  ACCOUNT_REVIEW_NEEDED
+  ASSET_REVIEW_NEEDED
+  RULE_REVIEW_NEEDED
+  METHOD_REVIEW_NEEDED
+  CLASSIFIED_READY
+}
+
+enum ConfigurationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_FOR_CONFIRMATION
+  CONFIRMED
+  PUSHED_TO_DECO
+  DECO_PUSH_FAILED
+}
+
+enum StockStatus {
+  NOT_REQUIRED
+  AWAITING_ORDER
+  ORDERED
+  AWAITING_ARRIVAL
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+  STOCK_ISSUE
+}
+
+enum ProductionStatus {
+  NOT_READY
+  QUEUED_EMBROIDERY
+  QUEUED_DTF
+  QUEUED_MIXED
+  IN_EMBROIDERY
+  IN_DTF
+  IN_MIXED
+  QC
+  READY_FOR_DISPATCH
+  COMPLETE
+}
+
+enum ApprovalStatus {
+  NOT_REQUIRED
+  AWAITING_ARTWORK
+  PROOF_IN_PROGRESS
+  PROOF_SENT
+  AWAITING_CUSTOMER_APPROVAL
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+enum ProductionDepartment {
+  EMBROIDERY
+  DTF
+  MIXED
+}
+
+enum Urgency {
+  NORMAL
+  RUSH
+  CRITICAL
+}
+
+// ── Fulfillment ──
 
 enum FulfillmentStatus {
   UNFULFILLED
@@ -34,10 +103,13 @@ enum FulfillmentStatus {
   RESTOCKED
 }
 
+// ── External & event enums ──
+
 enum ExternalProvider {
   SHOPIFY_ORDER
   SHOPIFY_FULFILLMENT
   DECO_ORDER
+  DECO_CUSTOMER
   GMAIL_THREAD
   SLACK_CHANNEL
   SHIPSTATION_LABEL
@@ -58,6 +130,8 @@ enum EventStatus {
   FAILED
   IGNORED
 }
+
+// ── Account enums ──
 
 enum AccountType {
   SCHOOL
@@ -80,6 +154,12 @@ enum AssetType {
   PROOF
 }
 
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  SUPERSEDED
+}
+
 enum ProductMatcherType {
   ANY
   SKU_EXACT
@@ -90,99 +170,279 @@ enum ProductMatcherType {
   METAFIELD_EQUALS
 }
 
-model Order {
-  id                String            @id @default(cuid())
-  internalOrderId   String            @unique
-  source            OrderSource
-  workflowStatus    WorkflowStatus    @default(PENDING_REVIEW)
-  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED)
-  sourceGroupKey    String?
-  sourceGroupLabel  String?
-  sourceGroupType   String?
-  shopifyOrderId    String?
-  shopifyOrderName  String?
-  decoOrderId       String?
-  accountId         String?
-  accountMatchStatus MatchStatus      @default(UNMATCHED)
-  accountMatchScore Int?
-  accountMatchReason String?
-  requiresReview    Boolean           @default(false)
-  reviewReason      String?
-  customerName      String?
-  customerEmail     String?
-  customerCompany   String?
-  currencyCode      String            @default("GBP")
-  subtotalMinor     Int?
-  totalMinor        Int               @default(0)
-  orderPlacedAt     DateTime?
-  dueAt             DateTime?
-  shopifyMetadata   Json?
-  preconfiguration  Json?
-  preconfiguredAt   DateTime?
-  metadata          Json?
-  lineItems         OrderLineItem[]
-  externalLinks     ExternalLink[]
-  activityLogs      ActivityLog[]
-  account           Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+// ── Communication enums ──
 
-  @@index([workflowStatus])
+enum CommunicationChannel {
+  GMAIL
+  SLACK
+  INTERNAL_NOTE
+}
+
+enum CommunicationDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+// ── Core models ──
+
+model Job {
+  id                    String               @id @default(cuid())
+  internalJobId         String               @unique
+  source                JobSource
+
+  // Main lifecycle + sub-statuses
+  lifecycle             MainLifecycle        @default(INGESTED)
+  classificationStatus  ClassificationStatus @default(UNCLASSIFIED)
+  configurationStatus   ConfigurationStatus  @default(NOT_STARTED)
+  stockStatus           StockStatus          @default(NOT_REQUIRED)
+  productionStatus      ProductionStatus     @default(NOT_READY)
+  approvalStatus        ApprovalStatus       @default(NOT_REQUIRED)
+  fulfillmentStatus     FulfillmentStatus    @default(UNFULFILLED)
+  assignedDepartment    ProductionDepartment?
+
+  // External references
+  shopifyOrderId        String?
+  shopifyOrderName      String?
+  decoOrderId           String?
+  shopifyCustomerId     String?
+  decoCustomerId        String?
+
+  // Account context
+  accountId             String?
+  accountMatchStatus    MatchStatus          @default(UNMATCHED)
+  accountMatchScore     Int?
+  accountMatchReason    String?
+
+  // Review / blocking
+  requiresReview        Boolean              @default(false)
+  reviewReason          String?
+  blockedReason         String?
+
+  // Customer context
+  customerName          String?
+  customerEmail         String?
+  customerCompany       String?
+  schoolName            String?
+  clubName              String?
+  leaversYear           String?
+
+  // Commercial
+  currencyCode          String               @default("GBP")
+  subtotalMinor         Int?
+  totalMinor            Int                  @default(0)
+  urgency               Urgency              @default(NORMAL)
+  orderPlacedAt         DateTime?
+  dueAt                 DateTime?
+  owner                 String?
+  tags                  String[]             @default([])
+  orderNotes            String?
+
+  // Source group (school/club/company grouping)
+  sourceGroupKey        String?
+  sourceGroupLabel      String?
+  sourceGroupType       String?
+
+  // Metadata snapshots
+  shopifyMetadata       Json?
+  preconfiguration      Json?
+  preconfiguredAt       DateTime?
+
+  // Deco push context
+  pushToDecoStatus      String?
+  lastDecoPushAt        DateTime?
+  decoPushErrors        String?
+
+  // Artwork / proof
+  proofVersion          String?
+  proofSentAt           DateTime?
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  approvalNotes         String?
+
+  // Production
+  productionStartedAt   DateTime?
+  productionCompletedAt DateTime?
+  productionNotes       String?
+
+  metadata              Json?
+
+  // Relations
+  items                 JobItem[]
+  externalLinks         ExternalLink[]
+  stockRequirements     JobStockRequirement[]
+  warehouseReceipts     WarehouseReceipt[]
+  communications        Communication[]
+  activityLogs          ActivityLog[]
+  account               Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([lifecycle])
+  @@index([classificationStatus])
+  @@index([configurationStatus])
+  @@index([stockStatus])
+  @@index([productionStatus])
+  @@index([approvalStatus])
   @@index([fulfillmentStatus])
-  @@index([sourceGroupKey])
+  @@index([assignedDepartment])
   @@index([shopifyOrderId])
+  @@index([decoOrderId])
   @@index([accountId])
   @@index([accountMatchStatus])
   @@index([requiresReview])
+  @@index([sourceGroupKey])
+  @@index([dueAt])
+  @@index([urgency])
 }
 
-model OrderLineItem {
-  id               String   @id @default(cuid())
-  orderId          String
-  sku              String?
-  productTitle     String
-  variantTitle     String?
-  quantity         Int
-  requiresArtwork  Boolean  @default(false)
-  decorationMethod String?
-  unitPriceMinor   Int?
-  totalPriceMinor  Int?
-  metadata         Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+model JobItem {
+  id                  String    @id @default(cuid())
+  jobId               String
+  externalLineId      String?
+  sku                 String?
+  productTitle        String
+  variantTitle        String?
+  quantity            Int
+  unitPriceMinor      Int?
+  totalPriceMinor     Int?
+  garmentReference    String?
+  decorationMethod    String?
+  decorationPlacement String?
 
-  @@index([orderId])
+  // Preconfiguration recommendation
+  matchedRuleId       String?
+  matchedAssetId      String?
+  matchedPlacementId  String?
+  recommendedMethod   String?
+  recommendationScore Int?
+  lineReviewRequired  Boolean   @default(false)
+  lineReviewReasons   String[]  @default([])
+
+  customOptions       Json?
+  metadata            Json?
+
+  job                 Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stockRequirement    JobStockRequirement?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([jobId])
   @@index([sku])
+}
+
+model JobStockRequirement {
+  id                String      @id @default(cuid())
+  jobId             String
+  jobItemId         String      @unique
+  requiredQuantity  Int
+  receivedQuantity  Int         @default(0)
+  status            StockStatus @default(AWAITING_ORDER)
+
+  supplierName      String?
+  supplierReference String?
+  supplierNotes     String?
+  eta               DateTime?
+
+  isBlocking        Boolean     @default(true)
+  shortageFlag      Boolean     @default(false)
+
+  job               Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobItem           JobItem     @relation(fields: [jobItemId], references: [id], onDelete: Cascade)
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([jobId])
+  @@index([status])
+}
+
+model WarehouseReceipt {
+  id              String               @id @default(cuid())
+  jobId           String
+  receivedBy      String
+  branch          String               @default("HQ")
+  isPartial       Boolean              @default(true)
+  totalReceived   Int                  @default(0)
+  notes           String?
+  receivedAt      DateTime             @default(now())
+
+  scanEvents      WarehouseScanEvent[]
+  job             Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime             @default(now())
+
+  @@index([jobId])
+  @@index([receivedAt])
+}
+
+model WarehouseScanEvent {
+  id              String           @id @default(cuid())
+  receiptId       String
+  sku             String
+  barcode         String?
+  quantity        Int
+  scannedBy       String
+  location        String?
+  scannedAt       DateTime         @default(now())
+
+  receipt         WarehouseReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([sku])
+}
+
+model Communication {
+  id                  String                 @id @default(cuid())
+  jobId               String
+  channel             CommunicationChannel
+  direction           CommunicationDirection
+  subject             String
+  bodyPreview         String?
+  bodyHtml            String?
+  providerMessageId   String?
+  providerThreadId    String?
+  attachments         Json                   @default("[]")
+  sentBy              String?
+  sentAt              DateTime?
+  createdAt           DateTime               @default(now())
+
+  job                 Job                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([channel])
+  @@index([providerThreadId])
 }
 
 model ExternalLink {
   id         String           @id @default(cuid())
-  orderId    String
+  jobId      String
   provider   ExternalProvider
   externalId String
   metadata   Json?
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
-  order      Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  job        Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@unique([provider, externalId])
-  @@index([orderId])
+  @@index([jobId])
 }
 
 model EventInbox {
-  id             String       @id @default(cuid())
+  id             String        @id @default(cuid())
   provider       EventProvider
   topic          String
   externalId     String?
-  idempotencyKey String       @unique
+  idempotencyKey String        @unique
   payload        Json
-  status         EventStatus  @default(RECEIVED)
+  status         EventStatus   @default(RECEIVED)
   errorMessage   String?
-  receivedAt     DateTime     @default(now())
+  receivedAt     DateTime      @default(now())
   processedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([provider, topic])
   @@index([status, receivedAt])
@@ -190,14 +450,14 @@ model EventInbox {
 
 model ActivityLog {
   id        String   @id @default(cuid())
-  orderId   String
+  jobId     String
   eventType String
   message   String
   payload   Json?
   createdAt DateTime @default(now())
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-  @@index([orderId, createdAt])
+  @@index([jobId, createdAt])
 }
 
 model SyncCursor {
@@ -209,6 +469,8 @@ model SyncCursor {
   updatedAt DateTime @updatedAt
 }
 
+// ── Account models ──
+
 model Account {
   id                      String                   @id @default(cuid())
   key                     String                   @unique
@@ -216,19 +478,22 @@ model Account {
   type                    AccountType              @default(CLIENT)
   active                  Boolean                  @default(true)
   decoCustomerId          String?
+  shopifyCustomerIds      String[]                 @default([])
   defaultDecorationMethod String?
+  defaultProductionNotes  String?
   notes                   String?
   metadata                Json?
   aliases                 AccountAlias[]
   assets                  AccountAsset[]
   placementConfigs        AccountPlacementConfig[]
   productRules            AccountProductRule[]
-  orders                  Order[]
+  jobs                    Job[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 
   @@index([name])
   @@index([decoCustomerId])
+  @@index([type])
 }
 
 model AccountAlias {
@@ -251,6 +516,7 @@ model AccountAsset {
   id               String              @id @default(cuid())
   accountId        String
   assetType        AssetType
+  assetStatus      AssetStatus         @default(ACTIVE)
   label            String
   decoDesignId     String?
   decoTemplateId   String?
@@ -267,26 +533,27 @@ model AccountAsset {
   updatedAt        DateTime            @updatedAt
 
   @@index([accountId, assetType, active])
+  @@index([assetStatus])
 }
 
 model AccountPlacementConfig {
-  id              String               @id @default(cuid())
-  accountId       String
-  label           String
-  placementKey    String
+  id               String               @id @default(cuid())
+  accountId        String
+  label            String
+  placementKey     String
   decorationMethod String?
-  widthMm         Float?
-  heightMm        Float?
-  offsetXMm       Float?
-  offsetYMm       Float?
-  rotationDegrees Float?
-  priority        Int                  @default(100)
-  active          Boolean              @default(true)
-  metadata        Json?
-  account         Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  productRules    AccountProductRule[] @relation("RulePlacement")
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  widthMm          Float?
+  heightMm         Float?
+  offsetXMm        Float?
+  offsetYMm        Float?
+  rotationDegrees  Float?
+  priority         Int                  @default(100)
+  active           Boolean              @default(true)
+  metadata         Json?
+  account          Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productRules     AccountProductRule[] @relation("RulePlacement")
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@index([accountId, placementKey, active])
 }

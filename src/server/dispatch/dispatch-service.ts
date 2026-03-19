@@ -1,10 +1,9 @@
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 import {
-  getUnifiedOrder,
-  saveUnifiedOrder,
-} from "@/server/repositories/unified-order-repository";
-import { transitionProductionStage } from "@/server/core/order-orchestrator";
+  mapBackendJobToLegacyRecord,
+  type BackendJobFull,
+} from "@/lib/backend-order-adapter";
 import { fulfillShopifyOrder } from "@/server/integrations/shopify-fulfillment";
-import type { ShopifyFulfillmentStatus } from "@/server/core/order-types";
 import {
   printShipstationLabels,
   type ShipstationPrintItemInput,
@@ -30,23 +29,8 @@ export type BulkDispatchResult = {
   results: BulkDispatchItemResult[];
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
 function randomId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
-function activity(message: string, actor: string) {
-  return {
-    activityId: randomId("act"),
-    type: "integration_sync" as const,
-    message,
-    actor,
-    source: "system" as const,
-    createdAt: nowIso(),
-  };
 }
 
 function unique(values: string[]) {
@@ -71,7 +55,39 @@ export async function bulkDispatchOrders(
     };
   }
 
-  const loadedOrders = await Promise.all(uniqueIds.map((orderId) => getUnifiedOrder(orderId)));
+  if (!isBackendApiConfigured()) {
+    return {
+      requested: uniqueIds.length,
+      processed: 0,
+      dispatched: 0,
+      fulfilled: 0,
+      emulatedPrint: true,
+      batchId: randomId("ship-batch"),
+      note: "Backend API not configured.",
+      results: uniqueIds.map((id) => ({
+        orderId: id,
+        printed: false,
+        shopifyFulfilled: false,
+        transitionedToDispatched: false,
+        message: "Backend API not configured.",
+      })),
+    };
+  }
+
+  // Load orders from backend
+  const loadedOrders = await Promise.all(
+    uniqueIds.map(async (orderId) => {
+      try {
+        const job = await fetchBackendJson<BackendJobFull>(
+          `/api/v1/jobs/${encodeURIComponent(orderId)}`,
+        );
+        return mapBackendJobToLegacyRecord(job);
+      } catch {
+        return null;
+      }
+    }),
+  );
+
   const byId = new Map(
     loadedOrders
       .filter((order): order is NonNullable<typeof order> => Boolean(order))
@@ -141,99 +157,20 @@ export async function bulkDispatchOrders(
   const printByOrderId = new Map(printBatch.labels.map((label) => [label.internalOrderId, label]));
 
   for (const item of printItems) {
-    const order = byId.get(item.internalOrderId);
     const printResult = printByOrderId.get(item.internalOrderId);
 
-    if (!order || !printResult) {
+    if (!printResult || !printResult.printed) {
       results.push({
         orderId: item.internalOrderId,
         printed: false,
         shopifyFulfilled: false,
         transitionedToDispatched: false,
-        message: "ShipStation print result missing.",
+        message: printResult?.error ?? "ShipStation print failed.",
       });
       continue;
     }
-
-    if (!printResult.printed) {
-      const failedOrder = {
-        ...order,
-        activityLog: [
-          ...order.activityLog,
-          activity(
-            `ShipStation label print failed for ${order.internalOrderId}: ${printResult.error ?? "unknown error"}`,
-            actor,
-          ),
-        ],
-        updatedAt: nowIso(),
-      };
-      await saveUnifiedOrder(failedOrder);
-
-      results.push({
-        orderId: item.internalOrderId,
-        printed: false,
-        shopifyFulfilled: false,
-        transitionedToDispatched: false,
-        message: printResult.error ?? "ShipStation print failed.",
-      });
-      continue;
-    }
-
-    const orderWithPrint = {
-      ...order,
-      externalReferences: {
-        ...order.externalReferences,
-        shipstationLabelBatchId: printBatch.batchId,
-        shipstationShipmentId: printResult.shipmentId ?? order.externalReferences.shipstationShipmentId,
-      },
-      activityLog: [
-        ...order.activityLog,
-        activity(
-          printBatch.emulated
-            ? `ShipStation label batch simulated (${printBatch.batchId}).`
-            : `ShipStation label printed (${printResult.shipmentId ?? printBatch.batchId}).`,
-          actor,
-        ),
-      ],
-      updatedAt: nowIso(),
-    };
-
-    await saveUnifiedOrder(orderWithPrint);
 
     const fulfillment = await fulfillShopifyOrder(item.shopifyOrderId);
-    const refreshedAfterPrint = await getUnifiedOrder(item.internalOrderId);
-    if (!refreshedAfterPrint) {
-      results.push({
-        orderId: item.internalOrderId,
-        printed: true,
-        shopifyFulfilled: false,
-        transitionedToDispatched: false,
-        shipmentId: printResult.shipmentId,
-        message: "Order disappeared after print step.",
-      });
-      continue;
-    }
-
-    const nextShopifyFulfillmentStatus: ShopifyFulfillmentStatus = fulfillment.fulfilled
-      ? "fulfilled"
-      : "unfulfilled";
-
-    const withFulfillment = {
-      ...refreshedAfterPrint,
-      externalReferences: {
-        ...refreshedAfterPrint.externalReferences,
-        shopifyFulfillmentStatus: nextShopifyFulfillmentStatus,
-      },
-      activityLog: [
-        ...refreshedAfterPrint.activityLog,
-        activity(
-          fulfillment.note,
-          actor,
-        ),
-      ],
-      updatedAt: nowIso(),
-    };
-    await saveUnifiedOrder(withFulfillment);
 
     if (!fulfillment.fulfilled) {
       results.push({
@@ -247,30 +184,27 @@ export async function bulkDispatchOrders(
       continue;
     }
 
-    const transitioned = await transitionProductionStage(
-      item.internalOrderId,
-      "dispatched",
-      actor,
-      "Dispatch confirmed after ShipStation label print + Shopify fulfillment.",
-    );
-
-    if (!transitioned.ok) {
-      results.push({
-        orderId: item.internalOrderId,
-        printed: true,
-        shopifyFulfilled: true,
-        transitionedToDispatched: false,
-        shipmentId: printResult.shipmentId,
-        message: `Fulfilled, but stage transition failed: ${transitioned.reason}`,
-      });
-      continue;
+    // Transition via backend API
+    let transitioned = false;
+    try {
+      const result = await fetchBackendJson<{ ok: boolean }>(
+        `/api/v1/jobs/${encodeURIComponent(item.internalOrderId)}/transition`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ target: "COMPLETED", actor, force: false }),
+        },
+      );
+      transitioned = result.ok;
+    } catch {
+      transitioned = false;
     }
 
     results.push({
       orderId: item.internalOrderId,
       printed: true,
       shopifyFulfilled: true,
-      transitionedToDispatched: true,
+      transitionedToDispatched: transitioned,
       shipmentId: printResult.shipmentId,
       message: fulfillment.alreadyFulfilled
         ? "Already fulfilled in Shopify; moved to dispatched."

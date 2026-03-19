@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
-import { enqueueSyncJob, getSyncEngineStatus } from "@/server/sync/auto-sync-engine";
 
 export async function POST() {
   if (isBackendApiConfigured()) {
@@ -26,7 +25,6 @@ export async function POST() {
         provider: "shopify",
         generatedAt: new Date().toISOString(),
         note: `Queued ${payload.queued} order event(s) from ${payload.pages} page(s).`,
-        backend: true,
       });
     } catch (error) {
       return NextResponse.json(
@@ -41,14 +39,8 @@ export async function POST() {
     }
   }
 
-  const job = enqueueSyncJob("shopify", "manual", "Manual Shopify sync requested from UI.");
-  const status = getSyncEngineStatus();
-
   return NextResponse.json({
-    accepted: true,
-    status: "queued",
-    generatedAt: status.generatedAt,
-    job,
-    provider: status.providers.find((provider) => provider.provider === "shopify"),
-  });
+    accepted: false,
+    error: "Backend API is not configured. Set BACKEND_API_URL.",
+  }, { status: 503 });
 }

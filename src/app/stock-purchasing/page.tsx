@@ -11,14 +11,11 @@ export default async function StockPurchasingPage() {
   const blocked = tasks.filter((task) => task.status === "Awaiting order" || task.status === "Awaiting arrival");
 
   return (
-    <AppShell
-      title={shellCopy.stockPurchasing.title}
-      description={shellCopy.stockPurchasing.description}
-    >
+    <AppShell title={shellCopy.stockPurchasing.title}>
       <SectionCard
-        kicker="Procurement queue"
-        title="Supplier ordering board"
-        detail={`${formatCount(tasks.length, "stock task")} · ${formatCount(blocked.length, "blocked job")}`}
+        kicker="Procurement"
+        title="Supplier orders"
+        detail={`${formatCount(tasks.length, "task")} · ${formatCount(blocked.length, "blocked")}`}
       >
         <StockPurchasingBoard tasks={tasks} />
       </SectionCard>

@@ -29,24 +29,21 @@ export default async function DashboardPage() {
   const partialWarehouse = warehouseTasks.filter((task) => task.status !== "Complete");
 
   return (
-    <AppShell
-      title={shellCopy.dashboard.title}
-      description={shellCopy.dashboard.description}
-    >
+    <AppShell title={shellCopy.dashboard.title}>
       <MetricGrid metrics={metrics} />
 
       <div className="grid gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard
           kicker="Intake"
-          title="Jobs requiring attention now"
+          title="Needs attention"
           detail={formatCount(orders.length, "active job")}
         >
           <OrdersTable orders={orders.slice(0, 6)} />
         </SectionCard>
         <SectionCard
-          kicker="Stock blockers"
-          title="Ordering and ETA risks"
-          detail={formatCount(blockedStock.length, "blocked job")}
+          kicker="Stock"
+          title="Ordering risks"
+          detail={formatCount(blockedStock.length, "blocked")}
         >
           <StockPurchasingBoard tasks={blockedStock.slice(0, 6)} />
         </SectionCard>
@@ -54,25 +51,25 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 2xl:grid-cols-[0.96fr_1.04fr]">
         <SectionCard
-          kicker="Warehouse gate"
-          title="Receipts pending scan-in"
-          detail={formatCount(partialWarehouse.length, "receipt task")}
+          kicker="Warehouse"
+          title="Pending scan-in"
+          detail={formatCount(partialWarehouse.length, "receipt")}
         >
           <WarehouseReceiptsBoard tasks={partialWarehouse.slice(0, 6)} />
         </SectionCard>
         <SectionCard
-          kicker="Production flow"
-          title="Department-ready lanes"
-          detail={formatCount(productionJobs.length, "production job")}
+          kicker="Production"
+          title="Floor lanes"
+          detail={formatCount(productionJobs.length, "job")}
         >
           <ProductionBoard jobs={productionJobs.slice(0, 6)} />
         </SectionCard>
       </div>
 
       <SectionCard
-        kicker="Comms and approvals"
-        title="Customer + team communication load"
-        detail={formatCount(communications.length, "active communication")}
+        kicker="Comms"
+        title="Messages & approvals"
+        detail={formatCount(communications.length, "signal")}
       >
         <CommunicationsWorkbench items={communications.slice(0, 8)} />
       </SectionCard>

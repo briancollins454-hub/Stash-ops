@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 type JsonObject = Record<string, unknown>;
 
 export type DecoPreparedPayload = {
-  internalOrderId: string;
+  internalJobId: string;
   shopifyOrderId?: string | null;
   decoCustomerId: string;
   customer: {
@@ -12,7 +12,7 @@ export type DecoPreparedPayload = {
     company?: string | null;
   };
   lineItems: Array<{
-    orderLineItemId: string;
+    jobItemId: string;
     sku?: string | null;
     productTitle: string;
     quantity: number;
@@ -30,57 +30,57 @@ export type DecoPreparedPayload = {
 
 export async function buildDecoPreparedPayload(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
 ): Promise<DecoPreparedPayload | null> {
-  const order = await tx.order.findUnique({
+  const job = await tx.job.findUnique({
     where: {
-      id: orderId,
+      id: jobId,
     },
     include: {
-      lineItems: true,
+      items: true,
       account: true,
     },
   });
 
-  if (!order?.account?.decoCustomerId) {
+  if (!job?.account?.decoCustomerId) {
     return null;
   }
 
-  const preconfiguration = (order.preconfiguration ?? {}) as JsonObject;
+  const preconfiguration = (job.preconfiguration ?? {}) as JsonObject;
   const lineRecommendations = Array.isArray(preconfiguration.lineRecommendations)
     ? (preconfiguration.lineRecommendations as JsonObject[])
     : [];
 
-  const recommendationByLineItemId = new Map<string, JsonObject>();
+  const recommendationByItemId = new Map<string, JsonObject>();
   for (const recommendation of lineRecommendations) {
-    const lineItemId = typeof recommendation.orderLineItemId === "string"
+    const itemId = typeof recommendation.orderLineItemId === "string"
       ? recommendation.orderLineItemId
       : undefined;
-    if (lineItemId) {
-      recommendationByLineItemId.set(lineItemId, recommendation);
+    if (itemId) {
+      recommendationByItemId.set(itemId, recommendation);
     }
   }
 
   return {
-    internalOrderId: order.internalOrderId,
-    shopifyOrderId: order.shopifyOrderId,
-    decoCustomerId: order.account.decoCustomerId,
+    internalJobId: job.internalJobId,
+    shopifyOrderId: job.shopifyOrderId,
+    decoCustomerId: job.account.decoCustomerId,
     customer: {
-      name: order.customerName,
-      email: order.customerEmail,
-      company: order.customerCompany,
+      name: job.customerName,
+      email: job.customerEmail,
+      company: job.customerCompany,
     },
-    lineItems: order.lineItems.map((lineItem) => {
-      const recommendation = recommendationByLineItemId.get(lineItem.id) ?? {};
+    lineItems: job.items.map((item) => {
+      const recommendation = recommendationByItemId.get(item.id) ?? {};
       const asset = (recommendation.asset ?? {}) as JsonObject;
       const placement = (recommendation.placement ?? {}) as JsonObject;
 
       return {
-        orderLineItemId: lineItem.id,
-        sku: lineItem.sku,
-        productTitle: lineItem.productTitle,
-        quantity: lineItem.quantity,
-        decorationMethod: (recommendation.decorationMethod as string | undefined) ?? lineItem.decorationMethod,
+        jobItemId: item.id,
+        sku: item.sku,
+        productTitle: item.productTitle,
+        quantity: item.quantity,
+        decorationMethod: (recommendation.decorationMethod as string | undefined) ?? item.decorationMethod,
         assetDesignId: (asset.decoDesignId as string | undefined) ?? null,
         assetTemplateId: (asset.decoTemplateId as string | undefined) ?? null,
         placementKey: (placement.placementKey as string | undefined) ?? null,

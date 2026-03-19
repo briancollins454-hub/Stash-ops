@@ -4,19 +4,22 @@ import { bulkDispatchOrders } from "@/server/dispatch/dispatch-service";
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     orderIds?: string[];
+    jobIds?: string[];
     actor?: string;
   };
 
-  if (!Array.isArray(body.orderIds)) {
+  const ids = body.jobIds ?? body.orderIds;
+
+  if (!Array.isArray(ids)) {
     return NextResponse.json(
       {
-        error: "orderIds must be an array of internal order IDs.",
+        error: "jobIds must be an array of internal job IDs.",
       },
       { status: 400 },
     );
   }
 
-  const result = await bulkDispatchOrders(body.orderIds, body.actor ?? "dispatch.ui");
+  const result = await bulkDispatchOrders(ids, body.actor ?? "dispatch.ui");
 
   return NextResponse.json({
     data: result,

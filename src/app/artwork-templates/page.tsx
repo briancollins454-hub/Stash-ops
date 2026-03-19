@@ -12,14 +12,11 @@ export default async function ArtworkTemplatesPage() {
   ]);
 
   return (
-    <AppShell
-      title={shellCopy.artworkTemplates.title}
-      description={shellCopy.artworkTemplates.description}
-    >
+    <AppShell title={shellCopy.artworkTemplates.title}>
       <SectionCard
-        kicker="Asset packs"
-        title="Managed logo and template sets"
-        detail={`${formatCount(templates.length, "template")} · ${formatCount(products.length, "garment profile")}`}
+        kicker="Templates"
+        title="Logo & template sets"
+        detail={`${formatCount(templates.length, "template")} · ${formatCount(products.length, "product")}`}
       >
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
           {templates.map((template) => (
@@ -28,7 +25,7 @@ export default async function ArtworkTemplatesPage() {
               <p className="mt-2 text-base font-semibold text-white">{template.name}</p>
               <p className="mt-2 break-words text-sm text-white/68">{template.description}</p>
               <p className="mt-3 text-xs text-white/56">
-                {formatCount(template.layers.length, "layer")} · linked to account rule engine
+                {formatCount(template.layers.length, "layer")}
               </p>
             </article>
           ))}
@@ -36,9 +33,9 @@ export default async function ArtworkTemplatesPage() {
       </SectionCard>
 
       <SectionCard
-        kicker="Product defaults"
-        title="Garment placement baselines"
-        detail={formatCount(products.length, "decorated product")}
+        kicker="Products"
+        title="Garment profiles"
+        detail={formatCount(products.length, "product")}
       >
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {products.map((product) => (

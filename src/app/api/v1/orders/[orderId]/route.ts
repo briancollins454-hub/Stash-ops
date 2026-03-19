@@ -1,25 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  applyApprovalStatus,
-  applyStockStatus,
-  recordReceivingScan,
-  transitionProductionStage,
-  updateDesignSetup,
-  updateOrderMetadata,
-  updatePurchasingStatus,
-} from "@/server/core/order-orchestrator";
-import type {
-  ApprovalWorkflowStatus,
-  Department,
-  DesignSetupState,
-  EmbellishmentPlacement,
-  PurchasingWorkflowStatus,
-  ProductionWorkflowStage,
-  StockWorkflowStatus,
-  StudioViewMode,
-  UrgencyLevel,
-} from "@/server/core/order-types";
-import { getUnifiedOrder } from "@/server/repositories/unified-order-repository";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 
 type RouteParams = {
   params: Promise<{
@@ -27,135 +7,105 @@ type RouteParams = {
   }>;
 };
 
-type DesignSetupPatchPayload = Partial<
-  Pick<
-    DesignSetupState,
-    | "status"
-    | "studioView"
-    | "productLabel"
-    | "garmentSku"
-    | "model3dUrl"
-    | "previewImageUrl"
-    | "notes"
-  >
-> & {
-  placements?: EmbellishmentPlacement[];
-};
-
 export async function GET(_request: Request, context: RouteParams) {
   const { orderId } = await context.params;
-  const order = await getUnifiedOrder(orderId);
 
-  if (!order) {
-    return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  if (!isBackendApiConfigured()) {
+    return NextResponse.json(
+      { error: "Backend API is not configured. Set BACKEND_API_URL." },
+      { status: 503 },
+    );
   }
 
-  return NextResponse.json({
-    data: order,
-  });
+  try {
+    const job = await fetchBackendJson<Record<string, unknown>>(
+      `/api/v1/jobs/${encodeURIComponent(orderId)}`,
+    );
+    return NextResponse.json({ data: job });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Backend request failed." },
+      { status: 502 },
+    );
+  }
 }
 
 export async function PATCH(request: Request, context: RouteParams) {
   const { orderId } = await context.params;
+
+  if (!isBackendApiConfigured()) {
+    return NextResponse.json(
+      { error: "Backend API is not configured. Set BACKEND_API_URL." },
+      { status: 503 },
+    );
+  }
+
   const body = (await request.json()) as {
     actor?: string;
     notes?: string;
-    owner?: string;
-    assignedDepartment?: Department;
-    dueAt?: string;
-    urgency?: UrgencyLevel;
-    approvalStatus?: ApprovalWorkflowStatus;
-    stockStatus?: StockWorkflowStatus;
-    productionStage?: ProductionWorkflowStage;
-    designSetup?: DesignSetupPatchPayload;
-    purchasing?: {
-      status?: PurchasingWorkflowStatus;
-      supplierName?: string;
-      supplierPoNumber?: string;
-      orderedAt?: string;
-      expectedAt?: string;
-      receivedAt?: string;
-      notes?: string;
-    };
-    receivingScan?: {
-      sku: string;
-      quantity: number;
-      location?: string;
-      scannedBy?: string;
-    };
+    target?: string;
+    force?: boolean;
+    classificationStatus?: string;
+    configurationStatus?: string;
+    stockStatusBackend?: string;
+    productionStatus?: string;
+    approvalStatusBackend?: string;
+    assignedDepartmentBackend?: string;
+    productionStage?: string;
   };
 
   const actor = body.actor ?? "ops.user";
-  let current = await getUnifiedOrder(orderId);
 
-  if (!current) {
-    return NextResponse.json({ error: "Order not found." }, { status: 404 });
-  }
-
-  if (
-    body.owner !== undefined ||
-    body.assignedDepartment !== undefined ||
-    body.dueAt !== undefined ||
-    body.urgency !== undefined
-  ) {
-    current = await updateOrderMetadata(
-      orderId,
-      {
-        owner: body.owner,
-        assignedDepartment: body.assignedDepartment,
-        dueAt: body.dueAt,
-        urgency: body.urgency,
-      },
-      actor,
-    );
-  }
-
-  if (body.approvalStatus) {
-    current = await applyApprovalStatus(orderId, body.approvalStatus, actor, body.notes);
-  }
-
-  if (body.stockStatus) {
-    current = await applyStockStatus(orderId, body.stockStatus, actor, body.notes);
-  }
-
-  if (body.productionStage) {
-    const transition = await transitionProductionStage(
-      orderId,
-      body.productionStage,
-      actor,
-      body.notes,
-    );
-    if (!transition.ok) {
-      return NextResponse.json({ error: transition.reason }, { status: 400 });
+  try {
+    // Lifecycle transition
+    if (body.target || body.productionStage) {
+      const target = body.target ?? body.productionStage;
+      const result = await fetchBackendJson<{ ok: boolean; reasons?: string[] }>(
+        `/api/v1/jobs/${encodeURIComponent(orderId)}/transition`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ target, actor, force: body.force }),
+        },
+      );
+      if (!result.ok) {
+        return NextResponse.json({ error: result.reasons?.join(", ") ?? "Transition failed." }, { status: 422 });
+      }
     }
-    current = transition.order;
-  }
 
-  if (body.designSetup) {
-    current = await updateDesignSetup(
-      orderId,
-      {
-        ...body.designSetup,
-        studioView: body.designSetup.studioView as StudioViewMode | undefined,
-      },
-      actor,
+    // Sub-status updates
+    const subUpdates: Record<string, string> = {};
+    if (body.approvalStatusBackend) subUpdates.approvalStatus = body.approvalStatusBackend;
+    if (body.stockStatusBackend) subUpdates.stockStatus = body.stockStatusBackend;
+    if (body.productionStatus) subUpdates.productionStatus = body.productionStatus;
+    if (body.classificationStatus) subUpdates.classificationStatus = body.classificationStatus;
+    if (body.configurationStatus) subUpdates.configurationStatus = body.configurationStatus;
+    if (body.assignedDepartmentBackend) subUpdates.assignedDepartment = body.assignedDepartmentBackend;
+
+    if (Object.keys(subUpdates).length > 0) {
+      await fetchBackendJson(
+        `/api/v1/jobs/${encodeURIComponent(orderId)}/substatus`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...subUpdates, actor }),
+        },
+      );
+    }
+
+    // Fetch updated job
+    const job = await fetchBackendJson<Record<string, unknown>>(
+      `/api/v1/jobs/${encodeURIComponent(orderId)}`,
+    );
+
+    return NextResponse.json({ data: job, updated: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Backend request failed." },
+      { status: 502 },
     );
   }
-
-  if (body.purchasing) {
-    current = await updatePurchasingStatus(orderId, body.purchasing, actor);
-  }
-
-  if (body.receivingScan) {
-    current = await recordReceivingScan(orderId, body.receivingScan, actor);
-  }
-
-  if (!current) {
-    return NextResponse.json({ error: "Order update failed." }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    data: current,
-    updated: true,
-  });
 }

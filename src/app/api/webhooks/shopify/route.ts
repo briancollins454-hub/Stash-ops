@@ -1,48 +1,49 @@
 import { NextResponse } from "next/server";
-import { processInboundEvent } from "@/server/core/order-orchestrator";
-import { mapShopifyWebhook } from "@/server/integrations/webhook-mappers";
-import { verifyShopifyWebhookHmac } from "@/server/integrations/shopify-security";
+import { getBackendApiBaseUrl } from "@/lib/backend-api";
 
 export const runtime = "nodejs";
 
+function resolveBackendWebhookPath(topic: string | null): string {
+  if (topic === "orders/updated") return "/webhooks/shopify/orders-updated";
+  if (topic?.startsWith("fulfillments/")) {
+    return topic === "fulfillments/update"
+      ? "/webhooks/shopify/fulfillments-update"
+      : "/webhooks/shopify/fulfillments-create";
+  }
+  return "/webhooks/shopify/orders-create";
+}
+
 export async function POST(request: Request) {
+  const baseUrl = getBackendApiBaseUrl();
+  if (!baseUrl) {
+    return NextResponse.json(
+      { accepted: false, error: "Backend API is not configured." },
+      { status: 503 },
+    );
+  }
+
   const topic = request.headers.get("x-shopify-topic");
-  const webhookId = request.headers.get("x-shopify-webhook-id");
-  const hmac = request.headers.get("x-shopify-hmac-sha256");
-  const rawBody = await request.text();
-  const verification = verifyShopifyWebhookHmac(rawBody, hmac);
+  const rawBody = await request.arrayBuffer();
+  const path = resolveBackendWebhookPath(topic);
 
-  if (!verification.valid) {
-    return NextResponse.json(
-      {
-        accepted: false,
-        error: "Invalid Shopify webhook signature.",
-        details: verification.reason,
-      },
-      { status: 401 },
-    );
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  for (const key of ["x-shopify-topic", "x-shopify-hmac-sha256", "x-shopify-webhook-id", "x-shopify-shop-domain"]) {
+    const value = request.headers.get(key);
+    if (value) headers[key] = value;
   }
 
-  let payload: unknown;
   try {
-    payload = rawBody ? JSON.parse(rawBody) : {};
-  } catch {
+    const upstream = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: rawBody,
+    });
+    const data = await upstream.json();
+    return NextResponse.json(data, { status: upstream.status });
+  } catch (error) {
     return NextResponse.json(
-      {
-        accepted: false,
-        error: "Invalid webhook JSON payload.",
-      },
-      { status: 400 },
+      { accepted: false, error: error instanceof Error ? error.message : "Upstream proxy failed." },
+      { status: 502 },
     );
   }
-
-  const event = mapShopifyWebhook(topic, payload, webhookId);
-  const result = await processInboundEvent(event);
-
-  return NextResponse.json({
-    accepted: result.accepted,
-    duplicate: "duplicate" in result ? result.duplicate : false,
-    orderId: "orderId" in result ? result.orderId : undefined,
-    signatureBypassed: verification.bypassed,
-  });
 }

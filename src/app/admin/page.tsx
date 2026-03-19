@@ -15,29 +15,26 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <AppShell
-      title={shellCopy.admin.title}
-      description={shellCopy.admin.description}
-    >
+    <AppShell title={shellCopy.admin.title}>
       <SectionCard
         kicker="Control room"
-        title="Integration and sync orchestration"
+        title="Integrations & sync"
         detail={formatCount(integrations.length, "connected platform")}
       >
         <SyncControlPanel />
       </SectionCard>
 
       <SectionCard
-        kicker="Backplane health"
-        title="Integration status board"
-        detail={formatCount(integrations.length, "integration adapter")}
+        kicker="Health"
+        title="Integration status"
+        detail={formatCount(integrations.length, "integration")}
       >
         <IntegrationsGrid integrations={integrations} />
       </SectionCard>
 
       <SectionCard
-        kicker="Finance integrity"
-        title="Accounting and exception lane"
+        kicker="Finance"
+        title="Accounting exceptions"
         detail={formatCount(accountingRecords.length, "record")}
       >
         <AccountingList records={accountingRecords} />

@@ -18,22 +18,19 @@ export default async function AccountsPage() {
   const reviewNeeded = orders.filter((order) => order.artStatus.toLowerCase().includes("awaiting")).length;
 
   return (
-    <AppShell
-      title={shellCopy.accounts.title}
-      description={shellCopy.accounts.description}
-    >
+    <AppShell title={shellCopy.accounts.title}>
       <SectionCard
-        kicker="Account intelligence"
-        title="Schools, clubs, and repeat clients"
-        detail={formatCount(accounts.length, "active account")}
+        kicker="Accounts"
+        title="Client directory"
+        detail={formatCount(accounts.length, "account")}
       >
         <CustomerList customers={accounts} />
       </SectionCard>
 
       <SectionCard
-        kicker="Matching and rules"
-        title="Alias and template readiness"
-        detail={`${formatCount(groupedJobs.size, "source group")} · ${formatCount(reviewNeeded, "job awaiting review signal")}`}
+        kicker="Rules"
+        title="Source group mapping"
+        detail={`${formatCount(groupedJobs.size, "source group")} · ${formatCount(reviewNeeded, "awaiting review")}`}
       >
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {Array.from(groupedJobs.entries())
@@ -43,10 +40,7 @@ export default async function AccountsPage() {
               <article key={label} className="record-card p-4 sm:p-5">
                 <p className="eyebrow">Source profile</p>
                 <p className="mt-2 text-base font-semibold text-white">{label}</p>
-                <p className="mt-3 text-sm text-white/68">{formatCount(count, "job")} currently linked</p>
-                <p className="mt-2 text-xs text-white/56">
-                  Assign aliases + Deco customer + default assets for auto-preconfiguration.
-                </p>
+                <p className="mt-3 text-sm text-white/68">{formatCount(count, "job")} linked</p>
               </article>
             ))}
         </div>

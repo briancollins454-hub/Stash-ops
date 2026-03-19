@@ -1,14 +1,5 @@
 import type { Prisma } from "@prisma/client";
 
-type JsonObject = Record<string, unknown>;
-
-function asJson(value: unknown): JsonObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as JsonObject;
-}
-
 export type WarehouseReceiptInput = {
   receivedQuantity: number;
   expectedQuantity: number;
@@ -20,58 +11,79 @@ export type WarehouseReceiptInput = {
 
 export async function recordWarehouseReceipt(
   tx: Prisma.TransactionClient,
-  orderId: string,
+  jobId: string,
   input: WarehouseReceiptInput,
 ): Promise<"partial" | "full"> {
-  const order = await tx.order.findUnique({
-    where: { id: orderId },
-    select: { metadata: true },
+  const job = await tx.job.findUnique({
+    where: { id: jobId },
+    select: { id: true },
   });
 
-  if (!order) {
-    throw new Error("Order not found.");
+  if (!job) {
+    throw new Error("Job not found.");
   }
 
-  const status = input.receivedQuantity >= input.expectedQuantity ? "full" : "partial";
-  const metadata = asJson(order.metadata);
-  const warehouse = asJson(metadata.warehouse);
-  const receipts = Array.isArray(warehouse.receipts) ? warehouse.receipts : [];
+  const isPartial = input.receivedQuantity < input.expectedQuantity;
+  const status = isPartial ? "partial" : "full";
 
-  const receiptEvent = {
-    receivedQuantity: input.receivedQuantity,
-    expectedQuantity: input.expectedQuantity,
-    location: input.location,
-    branch: input.branch,
-    notes: input.notes ?? null,
-    receivedAt: new Date().toISOString(),
-    receivedBy: input.actor,
-    status,
-  };
-
-  await tx.order.update({
-    where: { id: orderId },
+  // Create the warehouse receipt record
+  const receipt = await tx.warehouseReceipt.create({
     data: {
-      metadata: {
-        ...metadata,
-        warehouse: {
-          ...warehouse,
-          receiptStatus: status,
-          receipts: [...receipts, receiptEvent],
-          latestReceiptAt: receiptEvent.receivedAt,
-        },
-      },
+      jobId,
+      receivedBy: input.actor,
+      branch: input.branch,
+      isPartial,
+      totalReceived: input.receivedQuantity,
+      notes: input.notes ?? null,
     },
   });
 
+  // Create a scan event for this receipt
+  await tx.warehouseScanEvent.create({
+    data: {
+      receiptId: receipt.id,
+      sku: "BULK",
+      quantity: input.receivedQuantity,
+      scannedBy: input.actor,
+      location: input.location,
+    },
+  });
+
+  // Update received quantities on stock requirements
+  const stockReqs = await tx.jobStockRequirement.findMany({
+    where: { jobId },
+    select: { id: true, receivedQuantity: true },
+  });
+
+  if (stockReqs.length > 0) {
+    // Distribute received quantity across requirements proportionally
+    const perReq = Math.floor(input.receivedQuantity / stockReqs.length);
+    for (const req of stockReqs) {
+      await tx.jobStockRequirement.update({
+        where: { id: req.id },
+        data: {
+          receivedQuantity: req.receivedQuantity + perReq,
+        },
+      });
+    }
+  }
+
   await tx.activityLog.create({
     data: {
-      orderId,
+      jobId,
       eventType: "warehouse.receipt.recorded",
       message:
         status === "full"
           ? "Warehouse receipt complete."
           : "Warehouse receipt partial.",
-      payload: receiptEvent,
+      payload: {
+        receiptId: receipt.id,
+        receivedQuantity: input.receivedQuantity,
+        expectedQuantity: input.expectedQuantity,
+        location: input.location,
+        branch: input.branch,
+        actor: input.actor,
+      },
     },
   });
 

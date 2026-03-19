@@ -47,20 +47,16 @@ function groupOrdersBySource(orders: Order[]) {
 
 export default async function JobsPage() {
   const orders = await listOrders();
-  const activeOrders = orders.filter((order) => order.status !== "Shipping");
-  const completedOrders = orders.filter((order) => order.status === "Shipping");
+  const activeOrders = orders.filter((order) => order.status !== "Complete" && order.status !== "Cancelled");
+  const completedOrders = orders.filter((order) => order.status === "Complete");
   const activeGroups = groupOrdersBySource(activeOrders);
   const completedGroups = groupOrdersBySource(completedOrders);
 
   return (
-    <AppShell
-      title={shellCopy.jobs.title}
-      description={shellCopy.jobs.description}
-    >
+    <AppShell title={shellCopy.jobs.title}>
       <SectionCard
         kicker="Manual intake"
-        title="Create manual internal job"
-        detail="Manual jobs follow the same lifecycle and rule engine as Shopify-ingested jobs."
+        title="Create job"
       >
         <CreateOrderForm />
       </SectionCard>

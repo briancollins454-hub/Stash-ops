@@ -2,9 +2,12 @@ export type OrderStatus =
   | "New"
   | "Artwork"
   | "Approval"
+  | "Stock"
   | "Queued"
   | "Printing"
-  | "Shipping";
+  | "Complete"
+  | "On hold"
+  | "Cancelled";
 
 export type ApprovalStatus = "Needs proof" | "Awaiting client" | "Approved";
 
@@ -63,7 +66,7 @@ export interface InboxThread {
 
 export interface Approval {
   id: string;
-  orderId: string;
+  jobId: string;
   customer: string;
   status: ApprovalStatus;
   asset: string;
@@ -73,7 +76,7 @@ export interface Approval {
 
 export interface ProductionJob {
   id: string;
-  orderId: string;
+  jobId: string;
   customer: string;
   stage: ProductionStage;
   process: "DTF" | "Screen print" | "Embroidery" | "DTG";
@@ -84,7 +87,7 @@ export interface ProductionJob {
 
 export interface AccountingRecord {
   id: string;
-  orderId: string;
+  jobId: string;
   customer: string;
   type: "Invoice" | "Payment" | "Refund";
   amount: number;
@@ -150,7 +153,7 @@ export interface DecoratorTemplate {
 
 export interface StockPurchaseTask {
   id: string;
-  orderId: string;
+  jobId: string;
   account: string;
   supplier: string;
   requiredQty: number;
@@ -161,7 +164,7 @@ export interface StockPurchaseTask {
 
 export interface WarehouseReceiptTask {
   id: string;
-  orderId: string;
+  jobId: string;
   account: string;
   expectedQty: number;
   receivedQty: number;
@@ -172,7 +175,7 @@ export interface WarehouseReceiptTask {
 
 export interface CommunicationSignal {
   id: string;
-  orderId: string;
+  jobId: string;
   account: string;
   channel: "Gmail" | "Slack" | "Internal";
   direction: "Inbound" | "Outbound" | "Alert";

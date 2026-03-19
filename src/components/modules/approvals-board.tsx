@@ -24,7 +24,7 @@ export function ApprovalsBoard({
             <div className="min-w-0">
               <p className="eyebrow">Approval</p>
               <p className="mt-2 break-words text-lg font-semibold tracking-tight text-white">
-                {approval.orderId}
+                {approval.jobId}
               </p>
               <p className="mt-1 break-words text-sm text-white/60">
                 {approval.customer}

@@ -11,10 +11,11 @@ import {
 } from "./services/event-inbox-service";
 import {
   processShopifyFulfillmentWebhook,
-  upsertOrderFromShopify,
+  upsertJobFromShopify,
   type ShopifyFulfillmentPayload,
   type ShopifyOrderPayload,
 } from "./services/order-service";
+import { processDecoOrderEvent, processDecoStockEvent } from "./services/deco-event-processor";
 
 async function processEvent(eventInboxId: string): Promise<void> {
   const event = await prisma.eventInbox.findUnique({
@@ -33,11 +34,23 @@ async function processEvent(eventInboxId: string): Promise<void> {
   try {
     if (event.provider === EventProvider.SHOPIFY) {
       if (event.topic === "orders/create" || event.topic === "orders/updated" || event.topic === "orders/backfill") {
-        await upsertOrderFromShopify(event.payload as unknown as ShopifyOrderPayload, {
+        await upsertJobFromShopify(event.payload as unknown as ShopifyOrderPayload, {
           activityType: `shopify.${event.topic.replace("/", ".")}`,
         });
-      } else if (event.topic === "fulfillments/create") {
+      } else if (event.topic === "fulfillments/create" || event.topic === "fulfillments/update") {
         await processShopifyFulfillmentWebhook(event.payload as unknown as ShopifyFulfillmentPayload);
+      } else {
+        await prisma.eventInbox.update({
+          where: { id: eventInboxId },
+          data: { status: EventStatus.IGNORED, processedAt: new Date() },
+        });
+        return;
+      }
+    } else if (event.provider === EventProvider.DECO) {
+      if (event.topic === "orders/sync" || event.topic === "orders/updated") {
+        await processDecoOrderEvent(event.payload as Record<string, unknown>);
+      } else if (event.topic === "stock/updated") {
+        await processDecoStockEvent(event.payload as Record<string, unknown>);
       } else {
         await prisma.eventInbox.update({
           where: { id: eventInboxId },
