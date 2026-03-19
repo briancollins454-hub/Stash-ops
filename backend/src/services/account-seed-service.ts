@@ -157,6 +157,8 @@ export async function seedAccountsFromJobs(): Promise<AccountSeedResult> {
             accountMatchStatus: MatchStatus.AUTO_MATCHED,
             accountMatchScore: 200,
             accountMatchReason: `Auto-matched via source group key: ${key}`,
+            requiresReview: false,
+            reviewReason: null,
           },
         });
       });
