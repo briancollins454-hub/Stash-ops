@@ -3,6 +3,7 @@ export const navigationItems = [
   { href: "/jobs", label: "Jobs", caption: "All jobs", icon: "layers" },
   { href: "/accounts", label: "Accounts", caption: "Clients & rules", icon: "users" },
   { href: "/artwork-templates", label: "Artwork", caption: "Templates & logos", icon: "palette" },
+  { href: "/designer", label: "Decorator", caption: "Design studio", icon: "pen" },
   { href: "/stock-purchasing", label: "Stock", caption: "Ordering & ETAs", icon: "package" },
   { href: "/warehouse", label: "Warehouse", caption: "Receiving & scan-in", icon: "warehouse" },
   { href: "/production", label: "Production", caption: "Floor routing", icon: "zap" },
