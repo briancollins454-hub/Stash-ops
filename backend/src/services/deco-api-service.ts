@@ -56,6 +56,11 @@ async function decoFetch<T>(path: string, options?: RequestInit): Promise<T> {
       throw new Error(`Deco API ${options?.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 300)}`);
     }
 
+    // Detect HTML responses (e.g. login pages for unsupported endpoints)
+    if (text.trimStart().startsWith("<!DOCTYPE") || text.trimStart().startsWith("<html")) {
+      throw new Error(`Deco API returned HTML instead of JSON for ${path} — endpoint may not exist`);
+    }
+
     return text ? (JSON.parse(text) as T) : ({} as T);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
