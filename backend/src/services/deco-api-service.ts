@@ -243,74 +243,91 @@ export async function syncDecoOrders(options?: {
   const since = options?.since ?? cursor?.cursor ?? undefined;
   const limit = options?.limit ?? 10000;
   const BATCH_SIZE = 100;
-  let allOrders: DecoRawOrder[] = [];
-  let offset = 0;
-  let hasMore = true;
 
   // Default to 90 days ago if no cursor
   const defaultSince = new Date();
   defaultSince.setDate(defaultSince.getDate() - 90);
   const dateFilter = since ?? `${defaultSince.toISOString().split("T")[0]} 00:00:00`;
 
+  let offset = 0;
+  let hasMore = true;
+  let synced = 0;
+  let errors = 0;
+  let totalFetched = 0;
+  let latestUpdate: string | undefined;
+  const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
+
+  // Process each batch inline — keeps memory low and saves progress as we go
   while (hasMore && offset < limit) {
     const batchLimit = Math.min(BATCH_SIZE, limit - offset);
-    const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
-      "/api/json/manage_orders/find",
-      {
-        limit: String(batchLimit),
-        offset: String(offset),
-        field: "1", // Date Ordered
-        condition: "4", // >=
-        date1: dateFilter,
-        include_workflow_data: "1",
-      },
-    );
+
+    let data: { total?: number; orders?: DecoRawOrder[] };
+    try {
+      data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
+        "/api/json/manage_orders/find",
+        {
+          limit: String(batchLimit),
+          offset: String(offset),
+          field: "1",
+          condition: "4",
+          date1: dateFilter,
+          include_workflow_data: "1",
+        },
+      );
+    } catch (err) {
+      logger.error({ offset, err }, "Deco order fetch failed mid-pagination, saving progress");
+      break;
+    }
 
     const batch = data.orders ?? [];
-    allOrders = [...allOrders, ...batch];
-    if (batch.length < batchLimit || allOrders.length >= (data.total ?? 0)) {
+    totalFetched += batch.length;
+    logger.info({ offset, batchSize: batch.length, totalFetched, decoTotal: data.total }, "Deco order batch fetched");
+
+    // Process orders in this batch immediately
+    for (const rawOrder of batch) {
+      try {
+        const order = normaliseOrder(rawOrder);
+        if (!order.id) continue;
+
+        const decoOrderId = String(order.id);
+
+        await createInboxEvent({
+          provider: EventProvider.DECO,
+          topic: "orders/sync",
+          externalId: decoOrderId,
+          idempotencyKey: `deco:order:${decoOrderId}:${order.dateUpdated ?? order.dateOrdered ?? Date.now()}`,
+          payload: rawOrder as unknown as Prisma.InputJsonValue,
+        });
+
+        synced++;
+
+        const customerId = rawOrder.customer_id ?? rawOrder.billing_details?.user_id;
+        if (customerId && rawOrder.billing_details && !customerMap.has(String(customerId))) {
+          customerMap.set(String(customerId), { id: customerId, billing: rawOrder.billing_details });
+        }
+
+        if (order.dateUpdated && (!latestUpdate || order.dateUpdated > latestUpdate)) {
+          latestUpdate = order.dateUpdated;
+        }
+      } catch (error) {
+        errors++;
+        logger.warn({ decoOrderId: rawOrder.order_id, err: error }, "Failed to queue Deco order sync event");
+      }
+    }
+
+    // Save cursor after each batch so progress isn't lost
+    if (latestUpdate) {
+      await prisma.syncCursor.upsert({
+        where: { provider: "deco:orders" },
+        update: { cursor: latestUpdate, updatedAt: new Date() },
+        create: { provider: "deco:orders", cursor: latestUpdate },
+      });
+    }
+
+    if (batch.length < batchLimit || totalFetched >= (data.total ?? 0)) {
       hasMore = false;
     } else {
       offset += batch.length;
-    }
-  }
-
-  let synced = 0;
-  let errors = 0;
-  let latestUpdate: string | undefined;
-
-  // Also extract customers inline from order billing_details
-  const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
-
-  for (const rawOrder of allOrders) {
-    try {
-      const order = normaliseOrder(rawOrder);
-      if (!order.id) continue;
-
-      const decoOrderId = String(order.id);
-
-      await createInboxEvent({
-        provider: EventProvider.DECO,
-        topic: "orders/sync",
-        externalId: decoOrderId,
-        idempotencyKey: `deco:order:${decoOrderId}:${order.dateUpdated ?? order.dateOrdered ?? Date.now()}`,
-        payload: rawOrder as unknown as Prisma.InputJsonValue,
-      });
-
-      synced++;
-
-      // Collect customer data from billing_details
-      const customerId = rawOrder.customer_id ?? rawOrder.billing_details?.user_id;
-      if (customerId && rawOrder.billing_details && !customerMap.has(String(customerId))) {
-        customerMap.set(String(customerId), { id: customerId, billing: rawOrder.billing_details });
-      }
-
-      if (order.dateUpdated && (!latestUpdate || order.dateUpdated > latestUpdate)) {
-        latestUpdate = order.dateUpdated;
-      }
-    } catch (error) {
-      errors++;
-      logger.warn({ decoOrderId: rawOrder.order_id, err: error }, "Failed to queue Deco order sync event");
     }
   }
 
@@ -331,19 +348,11 @@ export async function syncDecoOrders(options?: {
     } catch { /* skip duplicate */ }
   }
   if (customersExtracted > 0) {
-    logger.info({ customersExtracted }, "Extracted customers from order batch");
+    logger.info({ customersExtracted }, "Extracted customers from order sync");
   }
 
-  if (latestUpdate) {
-    await prisma.syncCursor.upsert({
-      where: { provider: "deco:orders" },
-      update: { cursor: latestUpdate, updatedAt: new Date() },
-      create: { provider: "deco:orders", cursor: latestUpdate },
-    });
-  }
-
-  logger.info({ synced, errors, total: allOrders.length }, "Deco order sync complete");
-  return { provider: "deco", operation: "orders", synced, errors, total: allOrders.length };
+  logger.info({ synced, errors, total: totalFetched, customersExtracted }, "Deco order sync complete");
+  return { provider: "deco", operation: "orders", synced, errors, total: totalFetched };
 }
 
 /**
