@@ -107,7 +107,7 @@ worker.on("error", (error) => {
 // ── Deco Sync Worker ──
 // Runs deco sync tasks in the background with no HTTP timeout pressure.
 
-async function processDecoSync(payload: DecoSyncJobPayload): Promise<void> {
+async function processDecoSync(payload: DecoSyncJobPayload, job: { updateProgress: (p: number | object) => Promise<void> }): Promise<void> {
   const { task, since, limit } = payload;
   logger.info({ task, since, limit }, "Starting Deco sync job");
 
@@ -121,15 +121,19 @@ async function processDecoSync(payload: DecoSyncJobPayload): Promise<void> {
   };
 
   if (task === "orders" || task === "all") {
+    await job.updateProgress({ phase: "orders" });
     await safe("orders", () => syncDecoOrders({ since, limit }));
   }
   if (task === "products" || task === "all") {
+    await job.updateProgress({ phase: "products" });
     await safe("products", () => syncDecoProducts());
   }
   if (task === "inventory" || task === "all") {
+    await job.updateProgress({ phase: "inventory" });
     await safe("inventory", () => syncDecoInventory());
   }
   if (task === "customers" || task === "all") {
+    await job.updateProgress({ phase: "customers" });
     await safe("customers", () => syncDecoCustomers());
   }
 
@@ -139,7 +143,7 @@ async function processDecoSync(payload: DecoSyncJobPayload): Promise<void> {
 const decoSyncWorker = new Worker<DecoSyncJobPayload>(
   DECO_SYNC_QUEUE_NAME,
   async (job) => {
-    await processDecoSync(job.data);
+    await processDecoSync(job.data, job);
   },
   {
     connection: bullConnection,

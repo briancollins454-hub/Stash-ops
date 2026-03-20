@@ -283,24 +283,22 @@ export async function syncDecoOrders(options?: {
     totalFetched += batch.length;
     logger.info({ offset, batchSize: batch.length, totalFetched, decoTotal: data.total }, "Deco order batch fetched");
 
-    // Process orders in this batch immediately
-    for (const rawOrder of batch) {
+    // Build idempotency keys for the entire batch, then batch-check DB
+    const batchEntries = batch.map(rawOrder => {
+      const order = normaliseOrder(rawOrder);
+      return { rawOrder, order, key: `deco:order:${order.id}:${order.dateUpdated ?? order.dateOrdered ?? Date.now()}` };
+    }).filter(e => e.order.id !== 0);
+
+    const existingEvents = await prisma.eventInbox.findMany({
+      where: { idempotencyKey: { in: batchEntries.map(e => e.key) } },
+      select: { idempotencyKey: true },
+    });
+    const existingKeys = new Set(existingEvents.map(e => e.idempotencyKey));
+
+    // Only create events for genuinely new/updated orders
+    for (const { rawOrder, order, key } of batchEntries) {
       try {
-        const order = normaliseOrder(rawOrder);
-        if (!order.id) continue;
-
-        const decoOrderId = String(order.id);
-
-        await createInboxEvent({
-          provider: EventProvider.DECO,
-          topic: "orders/sync",
-          externalId: decoOrderId,
-          idempotencyKey: `deco:order:${decoOrderId}:${order.dateUpdated ?? order.dateOrdered ?? Date.now()}`,
-          payload: rawOrder as unknown as Prisma.InputJsonValue,
-        });
-
-        synced++;
-
+        // Collect customer data regardless of event dedup
         const customerId = rawOrder.customer_id ?? rawOrder.billing_details?.user_id;
         if (customerId && rawOrder.billing_details && !customerMap.has(String(customerId))) {
           customerMap.set(String(customerId), { id: customerId, billing: rawOrder.billing_details });
@@ -309,6 +307,21 @@ export async function syncDecoOrders(options?: {
         if (order.dateUpdated && (!latestUpdate || order.dateUpdated > latestUpdate)) {
           latestUpdate = order.dateUpdated;
         }
+
+        if (existingKeys.has(key)) {
+          synced++; // Already exists, skip creation
+          continue;
+        }
+
+        await createInboxEvent({
+          provider: EventProvider.DECO,
+          topic: "orders/sync",
+          externalId: String(order.id),
+          idempotencyKey: key,
+          payload: rawOrder as unknown as Prisma.InputJsonValue,
+        });
+
+        synced++;
       } catch (error) {
         errors++;
         logger.warn({ decoOrderId: rawOrder.order_id, err: error }, "Failed to queue Deco order sync event");
