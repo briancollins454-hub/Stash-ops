@@ -157,17 +157,19 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   // ── Deco reprocess existing events into Jobs ──
 
   app.post("/sync/deco/reprocess", async (request) => {
-    const body = (request.body ?? {}) as { batchSize?: number };
+    const body = (request.body ?? {}) as { batchSize?: number; afterId?: string };
     const batchSize = Math.min(body.batchSize ?? 500, 2000);
 
-    // Find PROCESSED Deco events that have no corresponding Job yet
+    // Get all DECO order event IDs that already have an ExternalLink (i.e. already ingested)
+    // Use cursor-based approach: skip events where a Job already exists with that decoOrderId
     const events = await prisma.eventInbox.findMany({
       where: {
         provider: "DECO",
         topic: "orders/sync",
         status: EventStatus.PROCESSED,
+        ...(body.afterId ? { id: { gt: body.afterId } } : {}),
       },
-      orderBy: { receivedAt: "asc" },
+      orderBy: { id: "asc" },
       take: batchSize,
       select: { id: true, payload: true },
     });
@@ -175,10 +177,26 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     let created = 0;
     let skipped = 0;
     let errors = 0;
+    let lastId = body.afterId ?? "";
 
     for (const event of events) {
+      lastId = event.id;
       try {
         const payload = event.payload as Record<string, unknown>;
+        const orderId = String(payload.order_id ?? payload.id ?? payload.orderId ?? "");
+
+        // Skip if job already exists for this deco order
+        if (orderId) {
+          const exists = await prisma.job.findFirst({
+            where: { decoOrderId: orderId },
+            select: { id: true },
+          });
+          if (exists) {
+            skipped += 1;
+            continue;
+          }
+        }
+
         await processDecoOrderEvent(payload);
         created += 1;
       } catch (err) {
@@ -187,17 +205,17 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    skipped = events.length - created - errors;
-
     return {
       ok: true,
       total: events.length,
       created,
       skipped,
       errors,
+      lastId,
+      hasMore: events.length === batchSize,
       message: events.length < batchSize
         ? "All events processed."
-        : `Processed batch of ${batchSize}. Call again to process more.`,
+        : `Processed batch of ${batchSize}. Call again with afterId="${lastId}" to continue.`,
     };
   });
 
