@@ -103,9 +103,9 @@ export async function listCustomers(): Promise<Customer[]> {
       return payload.items
         .filter((a) => a.active)
         .map((a) => {
-          const hasShopify = a.shopifyCustomerIds && a.shopifyCustomerIds.length > 0;
           const hasDeco = !!a.decoCustomerId;
-          const source: "shopify" | "deco" | "both" = hasShopify && hasDeco ? "both" : hasDeco ? "deco" : "shopify";
+          const isDecoKey = a.key.startsWith("deco-");
+          const source: "shopify" | "deco" | "both" = hasDeco && !isDecoKey ? "both" : hasDeco || isDecoKey ? "deco" : "shopify";
 
           return {
             id: a.id,
