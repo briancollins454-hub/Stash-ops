@@ -241,7 +241,7 @@ export async function syncDecoOrders(options?: {
   });
 
   const since = options?.since ?? cursor?.cursor ?? undefined;
-  const limit = options?.limit ?? 100;
+  const limit = options?.limit ?? 10000;
   const BATCH_SIZE = 100;
   let allOrders: DecoRawOrder[] = [];
   let offset = 0;
@@ -462,23 +462,34 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  // Fetch a large batch of orders to extract customer data
-  const defaultSince = new Date();
-  defaultSince.setDate(defaultSince.getDate() - 365);
-  const dateFilter = `${defaultSince.toISOString().split("T")[0]} 00:00:00`;
+  // Paginate through all orders to extract customer data
+  const BATCH = 100;
+  let allOrders: DecoRawOrder[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
-    "/api/json/manage_orders/find",
-    {
-      limit: "500",
-      offset: "0",
-      field: "1",
-      condition: "4",
-      date1: dateFilter,
-    },
-  );
+  while (hasMore) {
+    const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
+      "/api/json/manage_orders/find",
+      {
+        limit: String(BATCH),
+        offset: String(offset),
+        field: "1",
+        condition: "4",
+        date1: "2000-01-01 00:00:00",
+      },
+    );
 
-  const ordersList = data.orders ?? [];
+    const batch = data.orders ?? [];
+    allOrders = [...allOrders, ...batch];
+    if (batch.length < BATCH || allOrders.length >= (data.total ?? 0)) {
+      hasMore = false;
+    } else {
+      offset += batch.length;
+    }
+  }
+
+  const ordersList = allOrders;
 
   // De-duplicate customers by customer_id
   const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
