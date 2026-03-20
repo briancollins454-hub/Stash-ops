@@ -152,6 +152,9 @@ export interface Customer {
   lastOrder: string;
   openOrders: number;
   lastTouch: string;
+  source?: "shopify" | "deco" | "both";
+  type?: string;
+  decoCustomerId?: string | null;
 }
 
 export interface InboxThread {

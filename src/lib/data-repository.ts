@@ -82,6 +82,51 @@ export async function getJob(jobId: string): Promise<JobDetail | null> {
 }
 
 export async function listCustomers(): Promise<Customer[]> {
+  if (isBackendApiConfigured()) {
+    try {
+      const payload = await fetchBackendJson<{
+        total: number;
+        items: Array<{
+          id: string;
+          key: string;
+          name: string;
+          type: string;
+          active: boolean;
+          decoCustomerId: string | null;
+          shopifyCustomerIds: string[];
+          counts: { aliases: number; assets: number; placementConfigs: number; productRules: number };
+          createdAt: string;
+          updatedAt: string;
+        }>;
+      }>("/api/v1/accounts");
+
+      return payload.items
+        .filter((a) => a.active)
+        .map((a) => {
+          const hasShopify = a.shopifyCustomerIds && a.shopifyCustomerIds.length > 0;
+          const hasDeco = !!a.decoCustomerId;
+          const source: "shopify" | "deco" | "both" = hasShopify && hasDeco ? "both" : hasDeco ? "deco" : "shopify";
+
+          return {
+            id: a.id,
+            name: a.name,
+            company: a.name,
+            region: "",
+            segment: a.type ?? "CLIENT",
+            lifetimeValue: 0,
+            lastOrder: "",
+            openOrders: 0,
+            lastTouch: a.updatedAt ?? "",
+            source,
+            type: a.type,
+            decoCustomerId: a.decoCustomerId,
+          };
+        });
+    } catch (error) {
+      console.error("Failed to load accounts from backend API. Falling back to local projections.", error);
+    }
+  }
+
   return projectCustomers();
 }
 

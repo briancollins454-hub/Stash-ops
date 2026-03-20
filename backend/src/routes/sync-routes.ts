@@ -8,7 +8,7 @@ import { eventInboxQueue, decoSyncQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
 import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
-import { seedAccountsFromJobs, rematchUnmatchedJobs } from "../services/account-seed-service";
+import { seedAccountsFromJobs, rematchUnmatchedJobs, seedAccountsFromDecoCustomers, backfillDecoJobSourceGroups } from "../services/account-seed-service";
 import { processDecoOrderEvent } from "../services/deco-event-processor";
 
 const backfillSchema = z.object({
@@ -233,12 +233,22 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/sync/accounts/seed-and-rematch", async () => {
     const seedResult = await seedAccountsFromJobs();
+    const decoSeedResult = await seedAccountsFromDecoCustomers();
+    const backfillResult = await backfillDecoJobSourceGroups();
     const rematchResult = await rematchUnmatchedJobs();
     return {
       ok: true,
       seed: seedResult,
+      decoSeed: decoSeedResult,
+      backfill: backfillResult,
       rematch: rematchResult,
     };
+  });
+
+  app.post("/sync/accounts/seed-from-deco", async () => {
+    const seedResult = await seedAccountsFromDecoCustomers();
+    const backfillResult = await backfillDecoJobSourceGroups();
+    return { ok: true, seed: seedResult, backfill: backfillResult };
   });
 
   // ── Unified sync status ──
