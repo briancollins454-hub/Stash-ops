@@ -156,13 +156,18 @@ type DecoRawWorkflowItem = {
 
 type DecoRawProduct = {
   product_id?: number;
+  product_code?: string;
   product_name?: string;
   sku?: string;
   category?: string;
+  supplier?: string;
+  brand?: string;
   active?: boolean;
+  is_active?: boolean;
   price?: number;
   sizes?: string;
   colors?: string;
+  categories?: Array<{ id?: number; name?: string }>;
 };
 
 type DecoRawInventory = {
@@ -375,61 +380,81 @@ export async function syncDecoOrders(options?: {
 /**
  * Fetch products from DecoNetwork using /api/json/manage_products/find
  * Persists to DecoProduct table.
- * Note: Deco requires field/condition params even for products.
+ * Uses condition=2 (name NOT contains nonsense string) to return all products,
+ * with offset-based pagination.
  */
 export async function syncDecoProducts(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  const data = await decoFetch<{ total?: number; products?: DecoRawProduct[] }>(
-    "/api/json/manage_products/find",
-    {
-      limit: "500",
-      field: "1",
-      condition: "4",
-      date1: "2000-01-01 00:00:00",
-    },
-  );
-
-  const products = data.products ?? [];
+  const PAGE_SIZE = 500;
+  let offset = 0;
   let synced = 0;
   let errors = 0;
+  let totalFetched = 0;
 
-  for (const product of products) {
-    try {
-      const decoProductId = String(product.product_id ?? "");
-      if (!decoProductId) continue;
+  while (true) {
+    const data = await decoFetch<{ total?: number; products?: DecoRawProduct[] }>(
+      "/api/json/manage_products/find",
+      {
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+        field: "1",
+        condition: "2",
+        string: "ZZZZNOTEXIST",
+      },
+    );
 
-      await prisma.decoProduct.upsert({
-        where: { decoProductId },
-        update: {
-          name: product.product_name ?? "Unknown",
-          sku: product.sku ?? null,
-          category: product.category ?? null,
-          price: product.price ?? null,
-          sizes: product.sizes ?? null,
-          colors: product.colors ?? null,
-          active: product.active !== false,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          decoProductId,
-          name: product.product_name ?? "Unknown",
-          sku: product.sku ?? null,
-          category: product.category ?? null,
-          price: product.price ?? null,
-          sizes: product.sizes ?? null,
-          colors: product.colors ?? null,
-          active: product.active !== false,
-        },
-      });
+    const products = data.products ?? [];
+    if (products.length === 0) break;
 
-      synced++;
-    } catch (error) {
-      errors++;
-      logger.warn({ productId: product.product_id, err: error }, "Failed to process Deco product");
+    totalFetched += products.length;
+
+    for (const product of products) {
+      try {
+        const decoProductId = String(product.product_id ?? "");
+        if (!decoProductId) continue;
+
+        const sku = product.product_code ?? product.sku ?? null;
+        const category = product.categories?.[0]?.name ?? product.category ?? null;
+        const isActive = product.is_active ?? product.active ?? true;
+
+        await prisma.decoProduct.upsert({
+          where: { decoProductId },
+          update: {
+            name: product.product_name ?? "Unknown",
+            sku,
+            category,
+            price: product.price ?? null,
+            sizes: product.sizes ?? null,
+            colors: product.colors ?? null,
+            active: isActive,
+            lastSyncedAt: new Date(),
+          },
+          create: {
+            decoProductId,
+            name: product.product_name ?? "Unknown",
+            sku,
+            category,
+            price: product.price ?? null,
+            sizes: product.sizes ?? null,
+            colors: product.colors ?? null,
+            active: isActive,
+          },
+        });
+
+        synced++;
+      } catch (error) {
+        errors++;
+        logger.warn({ productId: product.product_id, err: error }, "Failed to process Deco product");
+      }
     }
+
+    logger.info({ offset, fetched: products.length, synced }, "Deco product sync page");
+
+    if (products.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
   }
 
   await prisma.syncCursor.upsert({
@@ -438,8 +463,8 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
     create: { provider: "deco:products", cursor: new Date().toISOString() },
   });
 
-  logger.info({ synced, errors, total: products.length }, "Deco product sync complete");
-  return { provider: "deco", operation: "products", synced, errors, total: products.length };
+  logger.info({ synced, errors, total: totalFetched }, "Deco product sync complete");
+  return { provider: "deco", operation: "products", synced, errors, total: totalFetched };
 }
 
 /**
