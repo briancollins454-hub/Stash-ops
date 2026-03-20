@@ -9,6 +9,7 @@ import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
 import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs } from "../services/account-seed-service";
+import { processDecoOrderEvent } from "../services/deco-event-processor";
 
 const backfillSchema = z.object({
   maxPages: z.coerce.number().int().positive().optional(),
@@ -151,6 +152,53 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await pushJobToDeco(job.id);
     return { ok: result.pushed, ...result };
+  });
+
+  // ── Deco reprocess existing events into Jobs ──
+
+  app.post("/sync/deco/reprocess", async (request) => {
+    const body = (request.body ?? {}) as { batchSize?: number };
+    const batchSize = Math.min(body.batchSize ?? 500, 2000);
+
+    // Find PROCESSED Deco events that have no corresponding Job yet
+    const events = await prisma.eventInbox.findMany({
+      where: {
+        provider: "DECO",
+        topic: "orders/sync",
+        status: EventStatus.PROCESSED,
+      },
+      orderBy: { receivedAt: "asc" },
+      take: batchSize,
+      select: { id: true, payload: true },
+    });
+
+    let created = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const event of events) {
+      try {
+        const payload = event.payload as Record<string, unknown>;
+        await processDecoOrderEvent(payload);
+        created += 1;
+      } catch (err) {
+        errors += 1;
+        logger.error({ eventId: event.id, err }, "Failed to reprocess Deco event");
+      }
+    }
+
+    skipped = events.length - created - errors;
+
+    return {
+      ok: true,
+      total: events.length,
+      created,
+      skipped,
+      errors,
+      message: events.length < batchSize
+        ? "All events processed."
+        : `Processed batch of ${batchSize}. Call again to process more.`,
+    };
   });
 
   // ── Account seeding & matching ──
