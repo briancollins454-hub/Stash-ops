@@ -388,7 +388,7 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  const PAGE_SIZE = 500;
+  const PAGE_SIZE = 100;
   let offset = 0;
   let synced = 0;
   let errors = 0;
