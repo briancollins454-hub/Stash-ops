@@ -28,16 +28,19 @@ export interface Metric {
 
 export type FulfillmentLabel = "unfulfilled" | "partial" | "fulfilled" | "restocked";
 
+export type JobSource = "SHOPIFY" | "DECO" | "MANUAL";
+
 export interface Order {
   id: string;
   customer: string;
   company: string;
+  source: JobSource;
   sourceGroupKey?: string;
   sourceGroupLabel?: string;
   sourceGroupType?: "School" | "Club" | "Other" | "Unassigned";
   status: OrderStatus;
   fulfillment: FulfillmentLabel;
-  channel: "Shopify" | "Manual" | "Sales rep";
+  channel: "Shopify" | "Manual" | "Deco";
   dueDate: string;
   value: number;
   assignee: string;

@@ -4,7 +4,7 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { OrdersTable } from "@/components/modules/orders-table";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { formatCount, shellCopy } from "@/lib/content";
-import type { Order } from "@/lib/types";
+import type { Order, JobSource } from "@/lib/types";
 import { listOrders } from "@/lib/data-repository";
 
 import Link from "next/link";
@@ -12,8 +12,14 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ source?: string }>;
+  searchParams: Promise<{ source?: string; tab?: string }>;
 };
+
+const TABS: { key: string; label: string; filter: JobSource | null }[] = [
+  { key: "all", label: "All Jobs", filter: null },
+  { key: "deco", label: "Deco Jobs", filter: "DECO" },
+  { key: "shopify", label: "Shopify Orders", filter: "SHOPIFY" },
+];
 
 function groupOrdersBySource(orders: Order[]) {
   const groups = new Map<
@@ -73,7 +79,6 @@ function sortIntoLanes(orders: Order[]) {
     } else if (order.status === "New") {
       newReview.push(order);
     } else {
-      // Artwork, Approval, Stock, Queued, Printing
       inProgress.push(order);
     }
   }
@@ -115,21 +120,83 @@ function LaneSection({
   );
 }
 
+function SourceTabs({
+  activeTab,
+  counts,
+}: {
+  activeTab: string;
+  counts: Record<string, number>;
+}) {
+  return (
+    <div className="flex gap-1 rounded-xl p-1" style={{ background: "var(--bg-surface)" }}>
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.key;
+        const count = counts[tab.key] ?? 0;
+        return (
+          <Link
+            key={tab.key}
+            href={tab.key === "all" ? "/jobs" : `/jobs?tab=${tab.key}`}
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+            style={{
+              background: isActive ? "var(--bg-raised)" : "transparent",
+              color: isActive ? "var(--text-primary)" : "var(--text-tertiary)",
+            }}
+          >
+            {tab.label}
+            <span
+              className="rounded-md px-1.5 py-0.5 text-xs tabular-nums"
+              style={{
+                background: isActive ? "var(--accent)" : "var(--bg-raised)",
+                color: isActive ? "var(--bg-base)" : "var(--text-tertiary)",
+              }}
+            >
+              {count}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export default async function JobsPage({ searchParams }: PageProps) {
-  const { source } = await searchParams;
+  const params = await searchParams;
+  const sourceFilter = params.source;
+  const activeTab = params.tab ?? "all";
+
   const allOrders = await listOrders();
 
-  const filtered = source
-    ? allOrders.filter((o) => o.sourceGroupKey === source)
+  // Source filter (from ?source=xxx link)
+  const sourceFiltered = sourceFilter
+    ? allOrders.filter((o) => o.sourceGroupKey === sourceFilter)
     : allOrders;
-  const sourceLabel = source
-    ? (filtered[0]?.sourceGroupLabel ?? source)
+  const sourceLabel = sourceFilter
+    ? (sourceFiltered[0]?.sourceGroupLabel ?? sourceFilter)
     : null;
+
+  // Tab filter
+  const tabDef = TABS.find((t) => t.key === activeTab) ?? TABS[0];
+  const filtered = tabDef.filter
+    ? sourceFiltered.filter((o) => o.source === tabDef.filter)
+    : sourceFiltered;
+
+  // Counts for tab badges
+  const counts: Record<string, number> = {
+    all: sourceFiltered.length,
+    deco: sourceFiltered.filter((o) => o.source === "DECO").length,
+    shopify: sourceFiltered.filter((o) => o.source === "SHOPIFY").length,
+  };
 
   const { newReview, inProgress, readyToShip, shipped, onHold, cancelled } = sortIntoLanes(filtered);
 
+  const title = sourceLabel
+    ? `Jobs — ${sourceLabel}`
+    : tabDef.key !== "all"
+      ? `Jobs — ${tabDef.label}`
+      : shellCopy.jobs.title;
+
   return (
-    <AppShell title={sourceLabel ? `Jobs — ${sourceLabel}` : shellCopy.jobs.title}>
+    <AppShell title={title}>
       {sourceLabel && (
         <div className="flex items-center gap-3 px-1">
           <Link href="/jobs" className="text-sm transition-colors hover:text-white" style={{ color: "var(--text-tertiary)" }}>
@@ -141,7 +208,9 @@ export default async function JobsPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {!source && (
+      <SourceTabs activeTab={activeTab} counts={counts} />
+
+      {!sourceFilter && activeTab === "all" && (
         <SectionCard
           kicker="Manual intake"
           title="Create job"

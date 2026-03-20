@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { navigationItems } from "@/lib/navigation";
 
@@ -72,6 +72,8 @@ const icons: Record<string, ReactNode> = {
 
 export function AppShell({ title, children }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const isRoot = pathname === "/";
 
   return (
     <div className="shell-stage min-h-screen">
@@ -134,6 +136,19 @@ export function AppShell({ title, children }: AppShellProps) {
         <main className="min-w-0 space-y-5 pb-10">
           {/* Page header */}
           <header className="flex items-center gap-4 px-1 pt-1">
+            {!isRoot && (
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition hover:bg-white/[0.06]"
+                style={{ color: "var(--text-tertiary)", border: "1px solid var(--border)" }}
+                aria-label="Go back"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
             <h1 className="page-title">{title}</h1>
           </header>
           {children}

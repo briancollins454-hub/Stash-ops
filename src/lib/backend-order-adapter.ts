@@ -84,10 +84,10 @@ function mapChannel(source: BackendJobSource): Order["channel"] {
   if (source === "SHOPIFY") {
     return "Shopify";
   }
-  if (source === "MANUAL") {
-    return "Manual";
+  if (source === "DECO") {
+    return "Deco";
   }
-  return "Sales rep";
+  return "Manual";
 }
 
 function mapFulfillment(status?: BackendFulfillment | null): FulfillmentLabel {
@@ -179,6 +179,7 @@ export function mapBackendJobToUiOrder(job: BackendJobRecord): Order {
     id: job.internalJobId,
     customer: job.customerName ?? "Unknown customer",
     company: job.customerCompany ?? job.customerName ?? "Unknown company",
+    source: job.source,
     sourceGroupKey: job.sourceGroupKey ?? "unassigned",
     sourceGroupLabel: label,
     sourceGroupType,

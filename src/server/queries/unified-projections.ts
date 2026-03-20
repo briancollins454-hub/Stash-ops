@@ -214,7 +214,7 @@ function mapLegacyOrderChannel(order: UnifiedOrderRecord): Order["channel"] {
   if (order.origin === "manual") {
     return "Manual";
   }
-  return "Sales rep";
+  return "Deco";
 }
 
 function mapArtStatus(status: ApprovalWorkflowStatus) {
@@ -340,6 +340,7 @@ export async function projectOrders(): Promise<Order[]> {
     id: order.internalOrderId,
     customer: order.customer.name,
     company: order.customer.company ?? order.customer.name,
+    source: order.origin === "shopify" ? "SHOPIFY" : order.origin === "manual" ? "MANUAL" : "DECO",
     status: mapLegacyOrderStatus(order),
     fulfillment: "unfulfilled" as const,
     channel: mapLegacyOrderChannel(order),
