@@ -6,33 +6,37 @@ import { createInboxEvent } from "./event-inbox-service";
 
 // ── DecoNetwork API client ──
 //
-// DecoNetwork uses Basic Auth (username/password) and exposes JSON endpoints:
+// DecoNetwork authenticates via Username/Password query params (not Basic Auth).
+// Available APIs (from Deco admin Reports panel):
 //   /api/json/manage_orders/find          — search orders
+//   /api/json/manage_orders/create        — create order
 //   /api/json/manage_orders/update_order_status — update order status
 //   /api/json/manage_products/find        — search products
 //   /api/json/manage_inventory/find       — search inventory
 //   /api/json/manage_purchase_orders/find — search POs
+//   /api/json/manage_inventory_events/find — inventory events
+// Note: There is NO customer management API — customers are extracted from orders.
 
 function baseUrl(): string {
   return env.DECO_BASE_URL!.replace(/\/+$/, "");
 }
 
-function basicAuthHeader(): string {
-  const credentials = Buffer.from(`${env.DECO_USERNAME}:${env.DECO_PASSWORD}`).toString("base64");
-  return `Basic ${credentials}`;
+/** Build base auth query params required by every Deco API call */
+function authParams(): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("Username", env.DECO_USERNAME!);
+  params.set("Password", env.DECO_PASSWORD!);
+  return params;
 }
 
-function headers(): Record<string, string> {
+function getHeaders(): Record<string, string> {
   return {
-    Authorization: basicAuthHeader(),
-    "Content-Type": "application/x-www-form-urlencoded",
     Accept: "application/json",
   };
 }
 
 function jsonHeaders(): Record<string, string> {
   return {
-    Authorization: basicAuthHeader(),
     "Content-Type": "application/json",
     Accept: "application/json",
   };
@@ -226,10 +230,8 @@ export async function syncDecoOrders(options?: {
   const since = options?.since ?? cursor?.cursor ?? undefined;
   const limit = options?.limit ?? 100;
 
-  // Build form-encoded body for the Deco Order Management API
-  const params = new URLSearchParams();
-  params.set("Username", env.DECO_USERNAME!);
-  params.set("Password", env.DECO_PASSWORD!);
+  // Build query params for the Deco Order Management API
+  const params = authParams();
   params.set("Limit", String(limit));
   params.set("Offset", "0");
   params.set("SortBy", "Date Ordered");
@@ -251,12 +253,10 @@ export async function syncDecoOrders(options?: {
   }
 
   const rawOrders = await decoFetch<DecoOrderResponse[]>(
-    "/api/json/manage_orders/find",
+    `/api/json/manage_orders/find?${params.toString()}`,
     {
       method: "GET",
-      headers: {
-        ...headers(),
-      },
+      headers: getHeaders(),
     },
   );
 
@@ -313,9 +313,12 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
     throw new Error("DecoNetwork is not configured.");
   }
 
+  const params = authParams();
+  params.set("Limit", "500");
+
   const rawProducts = await decoFetch<DecoProductResponse[]>(
-    `/api/json/manage_products/find?Username=${encodeURIComponent(env.DECO_USERNAME!)}&Password=${encodeURIComponent(env.DECO_PASSWORD!)}&Limit=500`,
-    { method: "GET", headers: headers() },
+    `/api/json/manage_products/find?${params.toString()}`,
+    { method: "GET", headers: getHeaders() },
   );
 
   const products = Array.isArray(rawProducts) ? rawProducts : [];
@@ -377,9 +380,12 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
     throw new Error("DecoNetwork is not configured.");
   }
 
+  const params = authParams();
+  params.set("Limit", "500");
+
   const rawInventory = await decoFetch<DecoInventoryResponse[]>(
-    `/api/json/manage_inventory/find?Username=${encodeURIComponent(env.DECO_USERNAME!)}&Password=${encodeURIComponent(env.DECO_PASSWORD!)}&Limit=500`,
-    { method: "GET", headers: headers() },
+    `/api/json/manage_inventory/find?${params.toString()}`,
+    { method: "GET", headers: getHeaders() },
   );
 
   const items = Array.isArray(rawInventory) ? rawInventory : [];
@@ -429,20 +435,44 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 }
 
 /**
- * Fetch customers from DecoNetwork using /api/json/manage_customers/find
- * Persists to DecoCustomer table and optionally links to Account records.
+ * Extract unique customers from Deco orders and persist to DecoCustomer table.
+ * DecoNetwork has no dedicated customer management API, so we pull customer
+ * info from the order data (CustomerId, CustomerName, CustomerEmail).
  */
 export async function syncDecoCustomers(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  const rawCustomers = await decoFetch<DecoCustomerResponse[]>(
-    `/api/json/manage_customers/find?Username=${encodeURIComponent(env.DECO_USERNAME!)}&Password=${encodeURIComponent(env.DECO_PASSWORD!)}&Limit=500`,
-    { method: "GET", headers: headers() },
+  // Fetch a large batch of orders to extract customer data
+  const params = authParams();
+  params.set("Limit", "500");
+  params.set("Offset", "0");
+  params.set("SortBy", "Date Ordered");
+
+  const rawOrders = await decoFetch<DecoOrderResponse[]>(
+    `/api/json/manage_orders/find?${params.toString()}`,
+    { method: "GET", headers: getHeaders() },
   );
 
-  const customers = Array.isArray(rawCustomers) ? rawCustomers : [];
+  const ordersList = Array.isArray(rawOrders) ? rawOrders : [];
+
+  // De-duplicate customers by CustomerId
+  const customerMap = new Map<string, DecoCustomerResponse>();
+  for (const order of ordersList) {
+    const customerId = order.CustomerId;
+    if (!customerId) continue;
+    const key = String(customerId);
+    if (!customerMap.has(key)) {
+      customerMap.set(key, {
+        CustomerId: customerId,
+        CustomerName: order.CustomerName,
+        Email: order.CustomerEmail,
+      });
+    }
+  }
+
+  const customers = Array.from(customerMap.values());
   let synced = 0;
   let errors = 0;
 
