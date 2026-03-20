@@ -12,17 +12,16 @@ export async function POST() {
   try {
     const result = await fetchBackendJson<{
       ok: boolean;
-      customers?: { synced: number; total: number };
-      products?: { synced: number; total: number };
-      inventory?: { synced: number; total: number };
-      orders?: { synced: number; total: number };
+      queued?: boolean;
+      jobId?: string;
+      message?: string;
     }>("/api/sync/deco/all", {
       method: "POST",
     });
 
     return NextResponse.json({
       accepted: true,
-      status: "completed",
+      status: result.queued ? "queued" : "completed",
       ...result,
       generatedAt: new Date().toISOString(),
     });

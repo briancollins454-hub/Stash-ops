@@ -4,7 +4,7 @@ import { env } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { bullConnection, redisHealthClient } from "./queue/connection";
-import { EVENT_INBOX_QUEUE_NAME, type EventInboxJobPayload } from "./queue/queues";
+import { EVENT_INBOX_QUEUE_NAME, DECO_SYNC_QUEUE_NAME, type EventInboxJobPayload, type DecoSyncJobPayload } from "./queue/queues";
 import {
   markEventFailed,
   markEventProcessed,
@@ -16,6 +16,7 @@ import {
   type ShopifyOrderPayload,
 } from "./services/order-service";
 import { processDecoOrderEvent, processDecoStockEvent } from "./services/deco-event-processor";
+import { syncDecoOrders, syncDecoProducts, syncDecoInventory, syncDecoCustomers } from "./services/deco-api-service";
 
 async function processEvent(eventInboxId: string): Promise<void> {
   const event = await prisma.eventInbox.findUnique({
@@ -103,11 +104,67 @@ worker.on("error", (error) => {
   logger.error({ err: error }, "Worker runtime error");
 });
 
+// ── Deco Sync Worker ──
+// Runs deco sync tasks in the background with no HTTP timeout pressure.
+
+async function processDecoSync(payload: DecoSyncJobPayload): Promise<void> {
+  const { task, since, limit } = payload;
+  logger.info({ task, since, limit }, "Starting Deco sync job");
+
+  const safe = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
+    try {
+      const result = await fn();
+      logger.info({ label, result }, "Deco sync sub-task completed");
+    } catch (err) {
+      logger.error({ label, err }, "Deco sync sub-task failed");
+    }
+  };
+
+  if (task === "orders" || task === "all") {
+    await safe("orders", () => syncDecoOrders({ since, limit }));
+  }
+  if (task === "products" || task === "all") {
+    await safe("products", () => syncDecoProducts());
+  }
+  if (task === "inventory" || task === "all") {
+    await safe("inventory", () => syncDecoInventory());
+  }
+  if (task === "customers" || task === "all") {
+    await safe("customers", () => syncDecoCustomers());
+  }
+
+  logger.info({ task }, "Deco sync job finished");
+}
+
+const decoSyncWorker = new Worker<DecoSyncJobPayload>(
+  DECO_SYNC_QUEUE_NAME,
+  async (job) => {
+    await processDecoSync(job.data);
+  },
+  {
+    connection: bullConnection,
+    concurrency: 1, // Only run one sync at a time
+  },
+);
+
+decoSyncWorker.on("completed", (job) => {
+  logger.info({ jobId: job.id, task: job.data.task }, "Deco sync worker job completed");
+});
+
+decoSyncWorker.on("failed", (job, error) => {
+  logger.error({ jobId: job?.id, task: job?.data.task, err: error }, "Deco sync worker job failed");
+});
+
+decoSyncWorker.on("error", (error) => {
+  logger.error({ err: error }, "Deco sync worker runtime error");
+});
+
 logger.info({ nodeEnv: env.NODE_ENV }, "Stash Ops worker started");
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "Shutting down worker");
   await worker.close();
+  await decoSyncWorker.close();
   await prisma.$disconnect();
   redisHealthClient.disconnect();
   process.exit(0);

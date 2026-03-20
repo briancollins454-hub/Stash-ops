@@ -4,10 +4,10 @@ import { z } from "zod";
 import { env, isShopifyConfigured, isDecoConfigured } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
-import { eventInboxQueue } from "../queue/queues";
+import { eventInboxQueue, decoSyncQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
-import { syncDecoOrders, syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
+import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs } from "../services/account-seed-service";
 
 const backfillSchema = z.object({
@@ -72,14 +72,17 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Deco sync ──
+  // These enqueue background jobs via BullMQ so they're not limited by HTTP timeouts.
 
   app.post("/sync/deco/orders", async (request) => {
     if (!isDecoConfigured()) {
       return { ok: false, error: "DecoNetwork is not configured." };
     }
     const body = (request.body ?? {}) as { since?: string; limit?: number };
-    const result = await syncDecoOrders({ since: body.since, limit: body.limit });
-    return { ok: true, ...result };
+    const job = await decoSyncQueue.add("deco-sync", { task: "orders", since: body.since, limit: body.limit }, {
+      jobId: `deco-orders-${Date.now()}`,
+    });
+    return { ok: true, queued: true, jobId: job.id, message: "Deco order sync enqueued. Check /sync/deco/status for progress." };
   });
 
   app.post("/sync/deco/products", async () => {
@@ -106,25 +109,32 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, ...result };
   });
 
-  app.post("/sync/deco/all", async () => {
+  app.post("/sync/deco/all", async (request) => {
     if (!isDecoConfigured()) {
       return { ok: false, error: "DecoNetwork is not configured." };
     }
+    const body = (request.body ?? {}) as { since?: string; limit?: number };
+    const job = await decoSyncQueue.add("deco-sync", { task: "all", since: body.since, limit: body.limit }, {
+      jobId: `deco-all-${Date.now()}`,
+    });
+    return { ok: true, queued: true, jobId: job.id, message: "Full Deco sync enqueued. Check /sync/deco/status for progress." };
+  });
 
-    const safe = async <T>(fn: () => Promise<T>, label: string): Promise<T | { provider: string; operation: string; synced: number; errors: number; total: number; error: string }> => {
-      try { return await fn(); } catch (err) {
-        logger.warn({ err, label }, "Deco sync sub-task failed");
-        return { provider: "deco", operation: label, synced: 0, errors: 1, total: 0, error: err instanceof Error ? err.message : String(err) };
-      }
+  app.get("/sync/deco/status", async () => {
+    const counts = await decoSyncQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed");
+    const active = await decoSyncQueue.getActive();
+    const waiting = await decoSyncQueue.getWaiting();
+    const completed = await decoSyncQueue.getCompleted(0, 5);
+    const failed = await decoSyncQueue.getFailed(0, 5);
+
+    return {
+      ok: true,
+      queue: counts,
+      active: active.map(j => ({ id: j.id, task: j.data.task, since: j.data.since, progress: j.progress })),
+      waiting: waiting.map(j => ({ id: j.id, task: j.data.task })),
+      recentCompleted: completed.map(j => ({ id: j.id, task: j.data.task, finishedAt: j.finishedOn })),
+      recentFailed: failed.map(j => ({ id: j.id, task: j.data.task, failedReason: j.failedReason })),
     };
-
-    const [customers, products, inventory, orders] = await Promise.all([
-      safe(syncDecoCustomers, "customers"),
-      safe(syncDecoProducts, "products"),
-      safe(syncDecoInventory, "inventory"),
-      safe(syncDecoOrders, "orders"),
-    ]);
-    return { ok: true, customers, products, inventory, orders };
   });
 
   app.post("/sync/deco/push/:jobId", async (request) => {
