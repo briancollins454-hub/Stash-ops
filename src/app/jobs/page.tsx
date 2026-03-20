@@ -95,17 +95,17 @@ function LaneSection({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {groups.map((group) => (
-        <section key={`${laneKey}-${group.key}`} className="space-y-3">
-          <div className="record-card flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+        <section key={`${laneKey}-${group.key}`} className="space-y-2">
+          <div className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <div className="min-w-0">
               <p className="eyebrow">Account/source group</p>
-              <p className="mt-1 text-base font-semibold text-white">{group.label}</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{group.label}</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="data-pill">{group.type}</span>
-              <span className="data-pill">{formatCount(group.orders.length, "job")}</span>
+              <span className="pill pill--ghost">{group.type}</span>
+              <span className="pill pill--ghost">{formatCount(group.orders.length, "job")}</span>
             </div>
           </div>
           <OrdersTable orders={group.orders} />
@@ -132,11 +132,11 @@ export default async function JobsPage({ searchParams }: PageProps) {
     <AppShell title={sourceLabel ? `Jobs — ${sourceLabel}` : shellCopy.jobs.title}>
       {sourceLabel && (
         <div className="flex items-center gap-3 px-1">
-          <Link href="/jobs" className="text-sm text-white/60 transition-colors hover:text-white">
+          <Link href="/jobs" className="text-sm transition-colors hover:text-white" style={{ color: "var(--text-tertiary)" }}>
             ← All jobs
           </Link>
-          <span className="text-sm font-medium text-white/80">
-            Filtered by <span className="text-white">{sourceLabel}</span> · {formatCount(filtered.length, "job")}
+          <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+            Filtered by <span style={{ color: "var(--text-primary)" }}>{sourceLabel}</span> · {formatCount(filtered.length, "job")}
           </span>
         </div>
       )}

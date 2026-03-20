@@ -82,23 +82,23 @@ export function OrderFlowActions({
           type="button"
           onClick={markCompleteAndSync}
           disabled={isLoading}
-          className="ui-control rounded-full border border-cyan-200/35 bg-cyan-300/18 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-50 transition hover:bg-cyan-300/28 disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn--primary disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isLoading ? "Syncing..." : "Mark Complete + Import to Deco"}
         </button>
       ) : null}
 
       {isComplete ? (
-        <p className="text-xs text-cyan-100/90">
+        <p className="text-xs" style={{ color: "var(--accent-light)" }}>
           Deco import linked: {decoOrderId ?? "queued"}
         </p>
       ) : (
-        <p className="text-xs text-white/58">
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
           Auto Deco import is triggered when production reaches complete.
         </p>
       )}
 
-      {message ? <p className="text-xs text-cyan-100">{message}</p> : null}
+      {message ? <p className="text-xs" style={{ color: "var(--accent-light)" }}>{message}</p> : null}
     </div>
   );
 }

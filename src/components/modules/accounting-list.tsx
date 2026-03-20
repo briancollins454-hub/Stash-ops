@@ -8,45 +8,26 @@ export function AccountingList({
   records: AccountingRecord[];
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {records.map((record) => (
         <article
           key={record.id}
-          className="record-card grid gap-x-6 gap-y-5 px-4 py-4 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]"
+          className="card px-4 py-3.5"
         >
-          <div className="min-w-0">
-            <p className="eyebrow">Account</p>
-            <p className="mt-2 break-words text-lg font-semibold tracking-tight text-white">
-              {record.customer}
-            </p>
-            <p className="mt-1 break-words text-sm text-white/60">
-              {record.jobId} · {record.type}
-            </p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Amount</p>
-            <p className="mt-3 text-2xl font-semibold tracking-tight text-white">
-              {formatCurrency(record.amount)}
-            </p>
-            <p className="mt-2 text-sm text-white/60">{record.terms}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Sync status</p>
-            <div className="mt-3">
-              <span
-                className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${accountingTone(record.qboStatus)}`}
-              >
-                {record.qboStatus}
-              </span>
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{record.customer}</span>
+                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>•</span>
+                <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{record.jobId}</span>
+              </div>
+              <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>{record.type} · {record.terms}</p>
             </div>
-            <p className="mt-3 break-words text-sm text-white/60">{record.updatedAt}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Posting lane</p>
-            <p className="mt-3 break-words text-sm font-medium text-white">
-              QuickBooks Online
-            </p>
-            <p className="mt-2 text-sm text-white/60">Ready to reconcile</p>
+            <span className={`pill pill--dot shrink-0 ${accountingTone(record.qboStatus)}`}>{record.qboStatus}</span>
+            <div className="hidden min-w-[100px] text-right sm:block">
+              <p className="text-sm font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatCurrency(record.amount)}</p>
+              <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{record.updatedAt}</p>
+            </div>
           </div>
         </article>
       ))}

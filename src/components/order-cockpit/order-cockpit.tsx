@@ -32,31 +32,31 @@ function gateLabel(order: UnifiedOrderRecord) {
 
 export function OrderCockpit({ order }: OrderCockpitProps) {
   return (
-    <div className="space-y-6">
-      <section className="panel section-panel p-5 sm:p-6">
+    <div className="space-y-4">
+      <section className="surface-raised p-5 sm:p-6">
         <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-3">
             <p className="eyebrow">Unified order cockpit</p>
-            <h2 className="text-3xl font-semibold tracking-tight text-white">
+            <h2 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
               {order.internalOrderId}
             </h2>
-            <p className="text-sm text-white/72">{order.customer.company ?? order.customer.name}</p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{order.customer.company ?? order.customer.name}</p>
             <div className="flex flex-wrap gap-2">
-              <span className="data-pill">Origin: {order.origin}</span>
-              <span className="data-pill">Design: {order.designSetup.status}</span>
-              <span className="data-pill">Approval: {order.approval.status}</span>
-              <span className="data-pill">Purchasing: {order.purchasing.status}</span>
-              <span className="data-pill">Stock: {order.stock.status}</span>
-              <span className="data-pill">Production: {order.production.stage}</span>
+              <span className="pill pill--ghost">Origin: {order.origin}</span>
+              <span className="pill pill--ghost">Design: {order.designSetup.status}</span>
+              <span className="pill pill--ghost">Approval: {order.approval.status}</span>
+              <span className="pill pill--ghost">Purchasing: {order.purchasing.status}</span>
+              <span className="pill pill--ghost">Stock: {order.stock.status}</span>
+              <span className="pill pill--ghost">Production: {order.production.stage}</span>
             </div>
           </div>
-          <div className="record-card p-4 sm:p-5">
+          <div className="card p-4 sm:p-5">
             <p className="eyebrow">Flow gate</p>
-            <p className="mt-3 text-sm font-medium text-white">{gateLabel(order)}</p>
-            <div className="mt-4 border-t border-white/10 pt-3 text-xs text-white/58">
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{gateLabel(order)}</p>
+            <div className="mt-3 border-t pt-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-tertiary)" }}>
               Due: {formatDate(order.dueAt)}
             </div>
-            <div className="mt-2 text-xs text-white/58">
+            <div className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
               Blocked reason: {order.blockedReason ?? "No active blocker"}
             </div>
             <OrderFlowActions
@@ -68,20 +68,20 @@ export function OrderCockpit({ order }: OrderCockpitProps) {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <section className="panel section-panel p-5 sm:p-6">
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="surface p-5">
           <p className="eyebrow">Design setup</p>
-          <div className="mt-4 space-y-3">
-            <article className="record-card p-4">
-              <p className="font-medium text-white">{order.designSetup.productLabel}</p>
-              <p className="mt-1 text-sm text-white/62">
+          <div className="mt-4 space-y-2">
+            <article className="card p-4">
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{order.designSetup.productLabel}</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Studio: {order.designSetup.studioView.toUpperCase()} · Garment SKU:{" "}
                 {order.designSetup.garmentSku ?? "N/A"}
               </p>
-              <p className="mt-1 text-sm text-white/62">
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 3D model: {order.designSetup.model3dUrl ? "Connected" : "Fallback to 2D preview"}
               </p>
-              <p className="mt-2 text-xs text-white/58">
+              <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Last edit: {order.designSetup.lastEditedBy ?? "N/A"} ·{" "}
                 {formatDate(order.designSetup.lastEditedAt)}
               </p>
@@ -89,65 +89,65 @@ export function OrderCockpit({ order }: OrderCockpitProps) {
 
             {order.designSetup.placements.length > 0 ? (
               order.designSetup.placements.map((placement) => (
-                <article key={placement.placementId} className="record-card p-4">
+                <article key={placement.placementId} className="card p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <p className="font-medium text-white">{placement.location}</p>
-                    <span className="data-pill">{placement.method}</span>
+                    <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{placement.location}</p>
+                    <span className="pill pill--ghost">{placement.method}</span>
                   </div>
-                  <p className="mt-2 text-sm text-white/62">
+                  <p className="mt-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
                     {placement.widthMm}x{placement.heightMm}mm · Offset {placement.offsetXMm},{" "}
                     {placement.offsetYMm}mm
                   </p>
-                  <p className="mt-1 text-xs text-white/58">
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                     Spec: {placement.stitchOrFilm ?? "No method spec added"}
                   </p>
                 </article>
               ))
             ) : (
-              <article className="record-card p-4 text-sm text-white/62">
+              <article className="card p-4 text-sm" style={{ color: "var(--text-secondary)" }}>
                 No embellishments configured yet.
               </article>
             )}
 
             {order.artworkFiles.length === 0 ? (
-              <article className="record-card p-4 text-sm text-white/62">
+              <article className="card p-4 text-sm" style={{ color: "var(--text-secondary)" }}>
                 No artwork files attached yet.
               </article>
             ) : (
               order.artworkFiles.map((artwork) => (
-                <article key={artwork.artworkId} className="record-card p-4">
-                  <p className="font-medium text-white">{artwork.fileName}</p>
-                  <p className="mt-1 text-sm text-white/62">Revision {artwork.revision}</p>
+                <article key={artwork.artworkId} className="card p-4">
+                  <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{artwork.fileName}</p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>Revision {artwork.revision}</p>
                 </article>
               ))
             )}
           </div>
         </section>
 
-        <section className="panel section-panel p-5 sm:p-6">
+        <section className="surface p-5">
           <p className="eyebrow">Proof + purchasing + receiving</p>
-          <div className="mt-4 space-y-3">
-            <article className="record-card p-4">
-              <p className="text-sm font-medium text-white">Proof and approval</p>
-              <p className="mt-2 text-sm text-white/62">
+          <div className="mt-4 space-y-2">
+            <article className="card p-4">
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Proof and approval</p>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Status: {order.approval.status} · Version: {order.approval.proofVersion ?? "N/A"}
               </p>
-              <p className="mt-1 text-xs text-white/58">
+              <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Sent: {formatDate(order.approval.proofSentAt)} · Approved:{" "}
                 {formatDate(order.approval.approvedAt)}
               </p>
             </article>
 
-            <article className="record-card p-4">
-              <p className="text-sm font-medium text-white">Purchasing</p>
-              <p className="mt-2 text-sm text-white/62">
+            <article className="card p-4">
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Purchasing</p>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
                 {order.purchasing.status} · Supplier: {order.purchasing.supplierName ?? "N/A"}
               </p>
-              <p className="mt-1 text-sm text-white/62">
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 PO: {order.purchasing.supplierPoNumber ?? "N/A"} · ETA:{" "}
                 {formatDate(order.purchasing.expectedAt)}
               </p>
-              <p className="mt-1 text-xs text-white/58">
+              <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Ordered: {formatDate(order.purchasing.orderedAt)} · Received:{" "}
                 {formatDate(order.purchasing.receivedAt)}
               </p>
@@ -159,18 +159,18 @@ export function OrderCockpit({ order }: OrderCockpitProps) {
                 .sort((a, b) => (a.scannedAt < b.scannedAt ? 1 : -1))
                 .slice(0, 4)
                 .map((scan) => (
-                  <article key={scan.scanId} className="record-card p-4">
-                    <p className="text-sm font-medium text-white">
+                  <article key={scan.scanId} className="card p-4">
+                    <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                       Scan: {scan.quantity} x {scan.sku}
                     </p>
-                    <p className="mt-1 text-sm text-white/62">
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                       {scan.location ?? "Warehouse"} · {scan.scannedBy}
                     </p>
-                    <p className="mt-1 text-xs text-white/58">{formatDate(scan.scannedAt)}</p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>{formatDate(scan.scannedAt)}</p>
                   </article>
                 ))
             ) : (
-              <article className="record-card p-4 text-sm text-white/62">
+              <article className="card p-4 text-sm" style={{ color: "var(--text-secondary)" }}>
                 No receiving scans logged yet.
               </article>
             )}
@@ -178,17 +178,17 @@ export function OrderCockpit({ order }: OrderCockpitProps) {
         </section>
       </div>
 
-      <section className="panel section-panel p-5 sm:p-6">
+      <section className="surface p-5">
         <p className="eyebrow">Timeline</p>
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-2">
           {order.activityLog
             .slice()
             .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
             .slice(0, 10)
             .map((activity) => (
-              <article key={activity.activityId} className="record-card p-4">
-                <p className="text-sm font-medium text-white">{activity.message}</p>
-                <p className="mt-2 text-xs text-white/58">
+              <article key={activity.activityId} className="card p-4">
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{activity.message}</p>
+                <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {activity.actor} · {formatDate(activity.createdAt)}
                 </p>
               </article>
@@ -199,20 +199,20 @@ export function OrderCockpit({ order }: OrderCockpitProps) {
               .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
               .slice(0, 5)
               .map((communication) => (
-                <article key={communication.communicationId} className="record-card p-4">
-                  <p className="text-sm font-medium text-white">
+                <article key={communication.communicationId} className="card p-4">
+                  <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                     {communication.channel.toUpperCase()} {communication.direction}
                   </p>
-                  <p className="mt-1 break-words text-sm text-white/62">
+                  <p className="mt-1 truncate text-xs" style={{ color: "var(--text-secondary)" }}>
                     {communication.subject}
                   </p>
-                  <p className="mt-2 text-xs text-white/58">
+                  <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
                     {formatDate(communication.createdAt)}
                   </p>
                 </article>
               ))
           ) : (
-            <article className="record-card p-4 text-sm text-white/62">
+            <article className="card p-4 text-sm" style={{ color: "var(--text-secondary)" }}>
               No communication events attached yet.
             </article>
           )}

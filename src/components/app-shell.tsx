@@ -10,30 +10,86 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+/* Inline SVG icons — tiny, no dependency */
+const icons: Record<string, ReactNode> = {
+  grid: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  ),
+  layers: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2 2 7l10 5 10-5-10-5Z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" />
+    </svg>
+  ),
+  users: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  palette: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2Z" />
+    </svg>
+  ),
+  package: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m16.5 9.4-9-5.19" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  ),
+  warehouse: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z" /><path d="M6 18h12" /><path d="M6 14h12" /><path d="M6 10h12" />
+    </svg>
+  ),
+  zap: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  ),
+  mail: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </svg>
+  ),
+  settings: (
+    <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+};
+
 export function AppShell({ title, children }: AppShellProps) {
   const pathname = usePathname();
 
   return (
     <div className="shell-stage min-h-screen">
-      <div className="mx-auto grid min-h-screen max-w-[1780px] gap-5 px-4 py-4 xl:grid-cols-[280px_minmax(0,1fr)] xl:px-6 xl:py-6 2xl:grid-cols-[308px_minmax(0,1fr)]">
-        <aside className="rail-panel relative flex flex-col overflow-hidden p-5 xl:min-h-[calc(100vh-2rem)] xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)]">
-          <div className="pointer-events-none absolute -left-16 -top-16 h-60 w-60 rounded-full bg-[#c9a84c]/18 blur-[72px]" />
-          <div className="pointer-events-none absolute -bottom-20 right-[-28px] h-64 w-64 rounded-full bg-[#0ea5a0]/15 blur-[78px]" />
-
+      <div className="mx-auto grid min-h-screen max-w-[1780px] gap-4 px-4 py-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:px-5 xl:py-5">
+        {/* ── Sidebar ── */}
+        <aside className="nav-rail relative flex flex-col overflow-hidden p-4 xl:min-h-[calc(100vh-2.5rem)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)]">
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <div className="mb-7 flex items-start gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.35rem] border border-white/18 bg-[linear-gradient(140deg,#f2dab0,#caa74f)] text-lg font-semibold text-[#1a1f2c] shadow-[0_22px_44px_rgba(201,168,76,0.34)]">
-                ST
+            {/* Brand */}
+            <div className="mb-6 flex items-center gap-3 px-1">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-sm font-bold text-white shadow-[0_4px_16px_rgba(99,102,241,0.3)]">
+                S
               </div>
-              <div className="max-w-[13rem]">
-                <h1 className="text-3xl font-semibold tracking-tight text-white">
+              <div>
+                <h1 className="text-lg font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
                   Stash
                 </h1>
+                <span className="text-[10px] font-medium uppercase tracking-[0.1em]" style={{ color: "var(--text-tertiary)" }}>
+                  Operations
+                </span>
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
-              {navigationItems.map((item, index) => {
+            {/* Divider */}
+            <div className="mx-2 mb-3 h-px" style={{ background: "var(--border)" }} />
+
+            {/* Nav */}
+            <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+              {navigationItems.map((item) => {
                 const active =
                   item.href === "/"
                     ? pathname === "/"
@@ -43,38 +99,32 @@ export function AppShell({ title, children }: AppShellProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`rail-link ${
-                      active
-                        ? "rail-link--active"
-                        : "text-white/86 hover:border-white/18 hover:bg-white/[0.08]"
-                    }`}
+                    className={`nav-item ${active ? "nav-item--active" : ""}`}
                   >
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 font-mono text-[11px] tracking-[0.2em] text-white/46">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      <div>
-                        <span className="block text-[15px] font-medium text-white/95">
-                          {item.label}
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 text-white/60">
-                          {item.caption}
-                        </span>
-                      </div>
-                    </div>
+                    {icons[item.icon]}
+                    <span>{item.label}</span>
                   </Link>
                 );
               })}
+            </nav>
+
+            {/* Footer */}
+            <div className="mt-4 rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+              <p className="text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
+                Marx Corporate
+              </p>
+              <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+                Stash Ops v1.0
+              </p>
             </div>
           </div>
-
         </aside>
 
-        <main className="min-w-0 space-y-6 pb-10">
-          <header className="hero-command panel">
-            <div className="min-w-0 max-w-4xl">
-              <h1 className="display-title">{title}</h1>
-            </div>
+        {/* ── Main content ── */}
+        <main className="min-w-0 space-y-5 pb-10">
+          {/* Page header */}
+          <header className="flex items-center gap-4 px-1 pt-1">
+            <h1 className="page-title">{title}</h1>
           </header>
           {children}
         </main>

@@ -14,16 +14,16 @@ export function SectionCard({
   children,
 }: SectionCardProps) {
   return (
-    <section className="panel section-panel p-5 sm:p-6">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="min-w-0 sm:pr-12">
-          {kicker ? <p className="eyebrow">{kicker}</p> : null}
-          <h2 className="mt-2 break-words pb-[0.08em] text-2xl font-semibold leading-[1.16] tracking-tight text-white">
+    <section className="surface p-5">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          {kicker ? <p className="eyebrow mb-1.5">{kicker}</p> : null}
+          <h2 className="break-words text-lg font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
             {title}
           </h2>
         </div>
         {detail ? (
-          <span className="soft-tag max-w-full self-start whitespace-normal text-[0.66rem] leading-5">
+          <span className="pill pill--ghost shrink-0">
             {detail}
           </span>
         ) : null}

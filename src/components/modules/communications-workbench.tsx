@@ -3,49 +3,39 @@ import type { CommunicationSignal } from "@/lib/types";
 function signalTone(state: CommunicationSignal["state"]) {
   switch (state) {
     case "Resolved":
-      return "border-emerald-300/40 bg-emerald-300/18 text-emerald-50";
+      return "border-[#10b981]/25 bg-[#10b981]/10 text-[#6ee7b7]";
     case "Unread":
-      return "border-rose-200/40 bg-rose-300/16 text-rose-50";
+      return "border-[#ef4444]/25 bg-[#ef4444]/10 text-[#fca5a5]";
     case "Awaiting reply":
     default:
-      return "border-cyan-200/40 bg-cyan-300/18 text-cyan-50";
+      return "border-[#06b6d4]/25 bg-[#06b6d4]/10 text-[#67e8f9]";
   }
 }
 
 export function CommunicationsWorkbench({ items }: { items: CommunicationSignal[] }) {
   if (items.length === 0) {
-    return <article className="record-card p-5 text-sm text-white/66">No communications in this queue.</article>;
+    return <div className="surface p-5 text-sm" style={{ color: "var(--text-tertiary)" }}>No communications in this queue.</div>;
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {items.map((item) => (
         <article
           key={item.id}
-          className="record-card grid gap-x-6 gap-y-5 px-4 py-4 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]"
+          className="card px-4 py-3.5"
         >
-          <div className="min-w-0">
-            <p className="eyebrow">Job</p>
-            <p className="mt-2 text-lg font-semibold text-white">{item.jobId}</p>
-            <p className="mt-1 break-words text-sm text-white/62">{item.account}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Channel</p>
-            <p className="mt-2 text-sm font-medium text-white">
-              {item.channel} · {item.direction}
-            </p>
-            <p className="mt-1 text-sm text-white/62">{item.updatedAt}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Subject</p>
-            <p className="mt-2 break-words text-sm text-white/80">{item.subject}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">State</p>
-            <div className="mt-3">
-              <span className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${signalTone(item.state)}`}>
-                {item.state}
-              </span>
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-medium" style={{ color: "var(--accent-light)" }}>{item.jobId}</span>
+                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>•</span>
+                <span className="truncate text-sm font-medium" style={{ color: "var(--text-primary)" }}>{item.account}</span>
+              </div>
+              <p className="mt-0.5 truncate text-xs" style={{ color: "var(--text-secondary)" }}>{item.channel} · {item.direction} · {item.subject}</p>
+            </div>
+            <span className={`pill pill--dot shrink-0 ${signalTone(item.state)}`}>{item.state}</span>
+            <div className="hidden min-w-[80px] text-right sm:block">
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>{item.updatedAt}</p>
             </div>
           </div>
         </article>

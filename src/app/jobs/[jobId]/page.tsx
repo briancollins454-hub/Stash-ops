@@ -56,11 +56,11 @@ function formatDateTime(value: string | null | undefined): string {
 
 function stockStatusTone(status: string): string {
   switch (status) {
-    case "FULLY_RECEIVED": return "border-[#0ea5a0]/35 bg-[#0ea5a0]/18 text-[#b9fff5]";
+    case "FULLY_RECEIVED": return "border-[#10b981]/25 bg-[#10b981]/10 text-[#6ee7b7]";
     case "ORDERED":
-    case "AWAITING_ARRIVAL": return "border-[#e3c96e]/35 bg-[#e3c96e]/14 text-[#f6e8bc]";
-    case "STOCK_ISSUE": return "border-[#f97366]/35 bg-[#f97366]/14 text-[#ffd1c8]";
-    default: return "border-white/20 bg-white/[0.08] text-white/80";
+    case "AWAITING_ARRIVAL": return "border-[#f59e0b]/25 bg-[#f59e0b]/10 text-[#fcd34d]";
+    case "STOCK_ISSUE": return "border-[#ef4444]/25 bg-[#ef4444]/10 text-[#fca5a5]";
+    default: return "border-[#64748b]/20 bg-[#64748b]/8 text-[#94a3b8]";
   }
 }
 
@@ -78,7 +78,7 @@ function Field({ label, value }: { label: string; value: string | number | null 
   return (
     <div className="min-w-0">
       <p className="eyebrow">{label}</p>
-      <p className="mt-1 text-sm font-medium text-white">{value ?? "—"}</p>
+      <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{value ?? "—"}</p>
     </div>
   );
 }
@@ -107,17 +107,17 @@ function WorkflowTracker({ job }: { job: JobDetail }) {
         return (
           <div key={stage.key} className="flex items-center gap-2">
             {i > 0 && (
-              <div className={`h-px w-4 sm:w-6 ${isPast ? "bg-[#0ea5a0]" : "bg-white/15"}`} />
+              <div className={`h-px w-4 sm:w-6 ${isPast ? "bg-[#10b981]" : "bg-white/10"}`} />
             )}
             <span
-              className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] transition ${
+              className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] transition ${
                 isActive
-                  ? "border-[#0ea5a0]/50 bg-[#0ea5a0]/22 text-[#b9fff5] font-semibold"
+                  ? "border-[#6366f1]/40 bg-[#6366f1]/15 text-[#a5b4fc] font-semibold"
                   : isPast
-                    ? "border-[#0ea5a0]/25 bg-[#0ea5a0]/8 text-[#0ea5a0]/80"
+                    ? "border-[#10b981]/25 bg-[#10b981]/8 text-[#10b981]/80"
                     : isFuture
-                      ? "border-white/10 bg-white/[0.03] text-white/30"
-                      : "border-white/14 bg-white/[0.06] text-white/50"
+                      ? "border-white/6 bg-white/[0.02] text-white/25"
+                      : "border-white/10 bg-white/[0.04] text-white/40"
               }`}
             >
               {stage.label}
@@ -128,10 +128,10 @@ function WorkflowTracker({ job }: { job: JobDetail }) {
       {(job.lifecycle === "ON_HOLD" || job.lifecycle === "CANCELLED") && (
         <div className="flex items-center gap-2">
           <div className="h-px w-4 sm:w-6 bg-white/15" />
-          <span className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] font-semibold ${
+          <span className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold ${
             job.lifecycle === "ON_HOLD"
-              ? "border-[#fb923c]/35 bg-[#fb923c]/14 text-[#fed7aa]"
-              : "border-white/14 bg-white/[0.06] text-white/50"
+              ? "border-[#f97316]/25 bg-[#f97316]/10 text-[#fdba74]"
+              : "border-[#475569]/20 bg-[#475569]/8 text-[#64748b]"
           }`}>
             {humanLifecycle(job.lifecycle)}
           </span>
@@ -144,19 +144,19 @@ function WorkflowTracker({ job }: { job: JobDetail }) {
 function LineItemCard({ item, index }: { item: JobLineItem; index: number }) {
   const stock = item.stockRequirement;
   return (
-    <div className="record-card space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+    <div className="card space-y-4 px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="eyebrow">Line {index + 1}</p>
-          <p className="mt-1 text-base font-semibold text-white">{item.productTitle}</p>
+          <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{item.productTitle}</p>
           {item.variantTitle && (
-            <p className="mt-0.5 text-sm text-white/60">{item.variantTitle}</p>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>{item.variantTitle}</p>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="data-pill">Qty {item.quantity}</span>
+          <span className="pill pill--ghost">Qty {item.quantity}</span>
           {item.totalPriceMinor != null && (
-            <span className="data-pill">{formatCurrency(item.totalPriceMinor / 100)}</span>
+            <span className="pill pill--ghost">{formatCurrency(item.totalPriceMinor / 100)}</span>
           )}
         </div>
       </div>
@@ -173,7 +173,7 @@ function LineItemCard({ item, index }: { item: JobLineItem; index: number }) {
 
       {/* Stock requirement */}
       {stock && (
-        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-3">
+        <div className="rounded-xl p-4 space-y-3" style={{ border: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="eyebrow">Stock requirement</p>
             <StatusPill label={humanStatus(stock.status)} tone={stockStatusTone(stock.status)} />
@@ -211,10 +211,11 @@ export default async function JobDetailPage({
   return (
     <AppShell title={job.internalJobId}>
       {/* ── Back link ── */}
-      <div className="mb-4">
+      <div className="mb-3">
         <Link
           href="/jobs"
-          className="inline-flex items-center gap-1.5 text-sm text-white/50 transition hover:text-white"
+          className="inline-flex items-center gap-1.5 text-sm transition hover:text-white"
+          style={{ color: "var(--text-tertiary)" }}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -232,14 +233,14 @@ export default async function JobDetailPage({
             <StatusPill
               label={humanStatus(job.fulfillmentStatus)}
               tone={job.fulfillmentStatus === "FULFILLED"
-                ? "border-[#3b82f6]/35 bg-[#3b82f6]/16 text-[#d6e8ff]"
-                : "border-white/20 bg-white/[0.08] text-white/80"}
+                ? "border-[#6366f1]/25 bg-[#6366f1]/10 text-[#a5b4fc]"
+                : "border-[#64748b]/20 bg-[#64748b]/8 text-[#94a3b8]"}
             />
             {job.assignedDepartment && (
-              <StatusPill label={job.assignedDepartment} tone="border-[#c084fc]/30 bg-[#c084fc]/14 text-[#e9d5ff]" />
+              <StatusPill label={job.assignedDepartment} tone="border-[#a78bfa]/25 bg-[#a78bfa]/10 text-[#c4b5fd]" />
             )}
             {job.requiresReview && (
-              <StatusPill label="Needs review" tone="border-[#f97366]/35 bg-[#f97366]/14 text-[#ffd1c8]" />
+              <StatusPill label="Needs review" tone="border-[#ef4444]/25 bg-[#ef4444]/10 text-[#fca5a5]" />
             )}
           </div>
 
@@ -276,7 +277,7 @@ export default async function JobDetailPage({
                 <p className="eyebrow">External links</p>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {job.externalLinks.map((link) => (
-                    <span key={`${link.provider}-${link.externalId}`} className="data-pill">
+                    <span key={`${link.provider}-${link.externalId}`} className="pill pill--ghost">
                       {humanStatus(link.provider)}: {link.externalId}
                     </span>
                   ))}
@@ -289,13 +290,13 @@ export default async function JobDetailPage({
           {job.orderNotes && (
             <div className="min-w-0">
               <p className="eyebrow">Order notes</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-white/80">{job.orderNotes}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm" style={{ color: "var(--text-secondary)" }}>{job.orderNotes}</p>
             </div>
           )}
           {job.reviewReason && (
             <div className="min-w-0">
               <p className="eyebrow">Review reason</p>
-              <p className="mt-1 text-sm text-[#ffd1c8]">{job.reviewReason}</p>
+              <p className="mt-1 text-sm text-[#fca5a5]">{job.reviewReason}</p>
             </div>
           )}
         </div>
@@ -303,30 +304,30 @@ export default async function JobDetailPage({
 
       {/* ── Sub-status overview ── */}
       <SectionCard title="Status breakdown" kicker="Workflow tracks">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="record-card px-4 py-3 sm:px-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Classification</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.classificationStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.classificationStatus)}</p>
           </div>
-          <div className="record-card px-4 py-3 sm:px-5">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Configuration</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.configurationStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.configurationStatus)}</p>
           </div>
-          <div className="record-card px-4 py-3 sm:px-5">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Stock</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.stockStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.stockStatus)}</p>
           </div>
-          <div className="record-card px-4 py-3 sm:px-5">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Production</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.productionStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.productionStatus)}</p>
           </div>
-          <div className="record-card px-4 py-3 sm:px-5">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Approval</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.approvalStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.approvalStatus)}</p>
           </div>
-          <div className="record-card px-4 py-3 sm:px-5">
+          <div className="surface px-4 py-3">
             <p className="eyebrow">Fulfillment</p>
-            <p className="mt-1 text-sm font-medium text-white">{humanStatus(job.fulfillmentStatus)}</p>
+            <p className="mt-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{humanStatus(job.fulfillmentStatus)}</p>
           </div>
         </div>
       </SectionCard>
@@ -339,7 +340,7 @@ export default async function JobDetailPage({
         defaultOpen
       >
         {job.items.length === 0 ? (
-          <p className="text-sm text-white/50">No line items on this job.</p>
+          <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No line items on this job.</p>
         ) : (
           <div className="space-y-4">
             {job.items.map((item, i) => (
@@ -361,7 +362,7 @@ export default async function JobDetailPage({
           {job.productionNotes && (
             <div className="mt-4 min-w-0">
               <p className="eyebrow">Production notes</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-white/80">{job.productionNotes}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm" style={{ color: "var(--text-secondary)" }}>{job.productionNotes}</p>
             </div>
           )}
         </SectionCard>
@@ -397,16 +398,16 @@ export default async function JobDetailPage({
         detail={`${job.activityLogs.length} events`}
       >
         {job.activityLogs.length === 0 ? (
-          <p className="text-sm text-white/50">No activity recorded yet.</p>
+          <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No activity recorded yet.</p>
         ) : (
           <div className="space-y-2">
             {job.activityLogs.map((entry) => (
-              <div key={entry.id} className="record-card flex items-start gap-4 px-4 py-3 sm:px-5">
+              <div key={entry.id} className="card flex items-start gap-4 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white">{entry.message}</p>
-                  <p className="mt-0.5 text-xs text-white/40">{humanStatus(entry.eventType)}</p>
+                  <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{entry.message}</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>{humanStatus(entry.eventType)}</p>
                 </div>
-                <p className="shrink-0 text-xs text-white/40">
+                <p className="shrink-0 text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {formatDateTime(entry.createdAt)}
                 </p>
               </div>

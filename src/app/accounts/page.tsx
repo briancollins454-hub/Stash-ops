@@ -44,16 +44,16 @@ export default async function AccountsPage() {
         detail={`${formatCount(sourceGroups.size, "source group")} · ${formatCount(reviewNeeded, "awaiting review")}`}
         defaultOpen
       >
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {sortedGroups.map(([key, { label, count }]) => (
             <Link
               key={key}
               href={`/jobs?source=${encodeURIComponent(key)}`}
-              className="record-card block p-4 transition-all hover:ring-1 hover:ring-white/25 sm:p-5"
+              className="card block p-4"
             >
               <p className="eyebrow">Source profile</p>
-              <p className="mt-2 text-base font-semibold text-white">{label}</p>
-              <p className="mt-3 text-sm text-white/68">{formatCount(count, "job")} linked</p>
+              <p className="mt-1.5 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{label}</p>
+              <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>{formatCount(count, "job")} linked</p>
             </Link>
           ))}
         </div>

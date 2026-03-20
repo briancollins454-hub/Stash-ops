@@ -14,66 +14,80 @@ export function OrdersTable({
 }: OrdersTableProps) {
   if (orders.length === 0) {
     return (
-      <article className="record-card p-5 text-sm text-white/66">
+      <div className="surface p-6 text-center text-sm" style={{ color: "var(--text-tertiary)" }}>
         {emptyMessage}
-      </article>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {orders.map((order) => (
         <Link
           key={order.id}
           href={`/jobs/${order.id}`}
-          className="record-card block cursor-pointer grid gap-x-6 gap-y-5 px-4 py-4 transition hover:ring-1 hover:ring-white/20 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]"
+          className="card card--accent-left group block px-4 py-3.5 sm:px-5"
         >
-          <div className="min-w-0 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="eyebrow">Job</p>
-                <p className="mt-2 break-words text-xl font-semibold tracking-tight text-white">
+          <div className="flex items-center gap-4">
+            {/* Job ID + Company */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2.5">
+                <span className="font-mono text-xs font-medium" style={{ color: "var(--accent-light)" }}>
                   {order.id}
-                </p>
+                </span>
+                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>•</span>
+                <span className="truncate text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  {order.company}
+                </span>
               </div>
-              <span
-                className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${orderTone(order.status)}`}
-              >
-                {order.status}
-              </span>
+              <p className="mt-0.5 truncate text-xs" style={{ color: "var(--text-secondary)" }}>
+                {order.customer}
+              </p>
             </div>
-            <div className="min-w-0">
-              <p className="break-words font-medium text-white">{order.company}</p>
-              <p className="mt-1 break-words text-sm text-white/60">{order.customer}</p>
-            </div>
-          </div>
 
-          <div className="min-w-0">
-            <p className="eyebrow">Current handoff</p>
-            <p className="mt-3 break-words text-sm font-medium text-white">
-              {order.artStatus}
-            </p>
-            <p className="mt-2 break-words text-sm text-white/60">{order.channel}</p>
-          </div>
+            {/* Status */}
+            <span className={`pill pill--dot shrink-0 ${orderTone(order.status)}`}>
+              {order.status}
+            </span>
 
-          <div className="min-w-0">
-            <p className="eyebrow">Delivery</p>
-            <p className="mt-3 text-sm font-medium text-white">
-              Due {order.dueDate}
-            </p>
-            <p className="mt-2 break-words text-sm text-white/60">Owner {order.assignee}</p>
-          </div>
-
-          <div className="min-w-0">
-            <p className="eyebrow">Value</p>
-            <p className="mt-3 text-2xl font-semibold tracking-tight text-white">
-              {formatCurrency(order.value)}
-            </p>
-            <div className="mt-4 flex justify-start">
-              <span className="rounded-full border border-white/14 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/68">
+            {/* Handoff */}
+            <div className="hidden min-w-[120px] sm:block">
+              <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                {order.artStatus}
+              </p>
+              <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
                 {order.channel}
-              </span>
+              </p>
             </div>
+
+            {/* Due date */}
+            <div className="hidden min-w-[100px] lg:block">
+              <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                {order.dueDate}
+              </p>
+              <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                {order.assignee}
+              </p>
+            </div>
+
+            {/* Value */}
+            <div className="hidden min-w-[80px] text-right xl:block">
+              <p className="text-sm font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                {formatCurrency(order.value)}
+              </p>
+            </div>
+
+            {/* Arrow */}
+            <svg
+              className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ color: "var(--text-tertiary)" }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
           </div>
         </Link>
       ))}

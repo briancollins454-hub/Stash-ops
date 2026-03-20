@@ -18,13 +18,13 @@ export default async function ArtworkTemplatesPage() {
         title="Logo & template sets"
         detail={`${formatCount(templates.length, "template")} · ${formatCount(products.length, "product")}`}
       >
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
           {templates.map((template) => (
-            <article key={template.id} className="record-card p-4 sm:p-5">
+            <article key={template.id} className="card p-4">
               <p className="eyebrow">Template</p>
-              <p className="mt-2 text-base font-semibold text-white">{template.name}</p>
-              <p className="mt-2 break-words text-sm text-white/68">{template.description}</p>
-              <p className="mt-3 text-xs text-white/56">
+              <p className="mt-1.5 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{template.name}</p>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>{template.description}</p>
+              <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 {formatCount(template.layers.length, "layer")}
               </p>
             </article>
@@ -37,14 +37,14 @@ export default async function ArtworkTemplatesPage() {
         title="Garment profiles"
         detail={formatCount(products.length, "product")}
       >
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {products.map((product) => (
-            <article key={product.id} className="record-card p-4 sm:p-5">
+            <article key={product.id} className="card p-4">
               <p className="eyebrow">{product.brand}</p>
-              <p className="mt-2 text-base font-semibold text-white">{product.name}</p>
-              <p className="mt-2 text-sm text-white/68">{product.sku}</p>
-              <p className="mt-2 text-sm text-white/62">Colour: {product.garmentColor}</p>
-              <p className="mt-3 text-xs text-white/56">
+              <p className="mt-1.5 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{product.name}</p>
+              <p className="mt-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>{product.sku}</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>Colour: {product.garmentColor}</p>
+              <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Default area {product.decorationArea.width} x {product.decorationArea.height}
               </p>
             </article>

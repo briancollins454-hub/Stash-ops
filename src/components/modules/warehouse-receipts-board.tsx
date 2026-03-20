@@ -3,47 +3,40 @@ import type { WarehouseReceiptTask } from "@/lib/types";
 function receiptTone(status: WarehouseReceiptTask["status"]) {
   switch (status) {
     case "Complete":
-      return "border-emerald-300/40 bg-emerald-300/18 text-emerald-50";
+      return "border-[#10b981]/25 bg-[#10b981]/10 text-[#6ee7b7]";
     case "Partial receipt":
-      return "border-cyan-200/40 bg-cyan-300/18 text-cyan-50";
+      return "border-[#06b6d4]/25 bg-[#06b6d4]/10 text-[#67e8f9]";
     case "Pending receipt":
     default:
-      return "border-amber-200/40 bg-amber-300/16 text-amber-50";
+      return "border-[#f59e0b]/25 bg-[#f59e0b]/10 text-[#fcd34d]";
   }
 }
 
 export function WarehouseReceiptsBoard({ tasks }: { tasks: WarehouseReceiptTask[] }) {
   if (tasks.length === 0) {
-    return <article className="record-card p-5 text-sm text-white/66">No warehouse receipts pending.</article>;
+    return <div className="surface p-5 text-sm" style={{ color: "var(--text-tertiary)" }}>No warehouse receipts pending.</div>;
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {tasks.map((task) => (
         <article
           key={task.id}
-          className="record-card grid gap-x-6 gap-y-5 px-4 py-4 sm:px-5 sm:py-5 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]"
+          className="card px-4 py-3.5"
         >
-          <div className="min-w-0">
-            <p className="eyebrow">Job</p>
-            <p className="mt-2 text-lg font-semibold text-white">{task.jobId}</p>
-            <p className="mt-1 break-words text-sm text-white/62">{task.account}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Receipt</p>
-            <p className="mt-2 text-sm font-medium text-white">
-              {task.receivedQty}/{task.expectedQty} scanned
-            </p>
-            <p className="mt-1 text-sm text-white/62">{task.branch}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="eyebrow">Warehouse state</p>
-            <div className="mt-3">
-              <span className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${receiptTone(task.status)}`}>
-                {task.status}
-              </span>
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-medium" style={{ color: "var(--accent-light)" }}>{task.jobId}</span>
+                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>•</span>
+                <span className="truncate text-sm font-medium" style={{ color: "var(--text-primary)" }}>{task.account}</span>
+              </div>
+              <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>{task.receivedQty}/{task.expectedQty} scanned · {task.branch}</p>
             </div>
-            <p className="mt-3 text-sm text-white/62">{task.lastScan}</p>
+            <span className={`pill pill--dot shrink-0 ${receiptTone(task.status)}`}>{task.status}</span>
+            <div className="hidden min-w-[80px] text-right sm:block">
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>{task.lastScan}</p>
+            </div>
           </div>
         </article>
       ))}

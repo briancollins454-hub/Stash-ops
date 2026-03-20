@@ -32,7 +32,7 @@ export default async function DashboardPage() {
     <AppShell title={shellCopy.dashboard.title}>
       <MetricGrid metrics={metrics} />
 
-      <div className="grid gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-4 2xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard
           kicker="Intake"
           title="Needs attention"
@@ -49,7 +49,7 @@ export default async function DashboardPage() {
         </SectionCard>
       </div>
 
-      <div className="grid gap-6 2xl:grid-cols-[0.96fr_1.04fr]">
+      <div className="grid gap-4 2xl:grid-cols-[0.96fr_1.04fr]">
         <SectionCard
           kicker="Warehouse"
           title="Pending scan-in"

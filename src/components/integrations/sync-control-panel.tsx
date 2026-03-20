@@ -126,31 +126,31 @@ export function SyncControlPanel() {
           return (
             <article
               key={provider}
-              className="record-card p-4"
+              className="card p-4"
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-white/90">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-primary)" }}>
                   {provider}
                 </p>
-                <span className="data-pill">
+                <span className="pill pill--ghost">
                   {providerState?.running ? "running" : "idle"}
                 </span>
               </div>
-              <p className="mt-3 text-xs text-white/62">
+              <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Queue {providerState?.queued ?? 0} · Success{" "}
                 {providerState?.successfulRuns ?? 0}/{providerState?.totalRuns ?? 0}
               </p>
-              <p className="mt-1 text-xs text-white/52">
+              <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Last success {formatDate(providerState?.lastSuccessAt)}
               </p>
               {providerState?.lastError ? (
-                <p className="mt-2 text-xs text-rose-300">{providerState.lastError}</p>
+                <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>{providerState.lastError}</p>
               ) : null}
               <button
                 type="button"
                 onClick={() => triggerSync(provider)}
                 disabled={busyProvider === provider}
-                className="ui-control mt-3 rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/80 transition hover:bg-white/[0.16] disabled:cursor-not-allowed disabled:opacity-50"
+                className="pill pill--ghost mt-3 transition hover:border-[rgba(255,255,255,0.14)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busyProvider === provider ? "Queueing..." : "Sync now"}
               </button>
@@ -159,7 +159,7 @@ export function SyncControlPanel() {
                   type="button"
                   onClick={triggerShopifyBackfill}
                   disabled={busyProvider === provider}
-                  className="ui-control mt-2 rounded-full border border-cyan-200/35 bg-cyan-300/16 px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-cyan-50 transition hover:bg-cyan-300/24 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="btn btn--primary mt-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busyProvider === provider
                     ? "Queueing..."
@@ -171,13 +171,13 @@ export function SyncControlPanel() {
         })}
       </div>
 
-      <article className="record-card p-4">
+      <article className="surface p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-white">Recent sync jobs</p>
+          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent sync jobs</p>
           <button
             type="button"
             onClick={() => void refreshStatus()}
-            className="ui-control rounded-full border border-white/20 bg-white/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/80 transition hover:bg-white/[0.16]"
+            className="pill pill--ghost transition hover:border-[rgba(255,255,255,0.14)]"
           >
             Refresh
           </button>
@@ -186,21 +186,21 @@ export function SyncControlPanel() {
           {recentJobs.slice(0, 8).map((job) => (
             <div
               key={job.jobId}
-              className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-xs text-white/72"
+              className="card px-3 py-2 text-xs" style={{ color: "var(--text-secondary)" }}
             >
-              <span className="font-semibold text-white/90">{job.provider}</span> · {job.status} ·{" "}
+              <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{job.provider}</span> · {job.status} ·{" "}
               {job.trigger} · {formatDate(job.createdAt)}
-              {job.note ? <span className="block mt-1 text-white/56">{job.note}</span> : null}
-              {job.error ? <span className="block mt-1 text-rose-300">{job.error}</span> : null}
+              {job.note ? <span className="block mt-1" style={{ color: "var(--text-tertiary)" }}>{job.note}</span> : null}
+              {job.error ? <span className="block mt-1" style={{ color: "var(--danger)" }}>{job.error}</span> : null}
             </div>
           ))}
           {recentJobs.length === 0 ? (
-            <p className="text-xs text-white/52">No sync jobs yet.</p>
+            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>No sync jobs yet.</p>
           ) : null}
         </div>
       </article>
 
-      {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+      {error ? <p className="text-xs" style={{ color: "var(--danger)" }}>{error}</p> : null}
     </div>
   );
 }

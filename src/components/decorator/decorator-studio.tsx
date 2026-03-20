@@ -281,8 +281,8 @@ export function DecoratorStudio({
 
   if (!hasStudioData) {
     return (
-      <section className="panel studio-glass-panel p-6">
-        <p className="text-sm text-white/70">
+      <section className="surface p-6">
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           Decorator data is not available yet.
         </p>
       </section>
@@ -291,28 +291,28 @@ export function DecoratorStudio({
 
   return (
     <div className="space-y-5">
-      <section className="panel studio-glass-panel p-4 sm:p-6">
+      <section className="surface-raised p-4 sm:p-6">
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="min-w-0">
             <p className="eyebrow">Design Operating Room</p>
-            <h2 className="mt-3 break-words pl-[0.02em] pb-[0.16em] text-[clamp(2.1rem,4.4vw,4.2rem)] leading-[1.12] tracking-[-0.02em] text-white [font-family:var(--font-display)]">
+            <h2 className="mt-3 break-words pb-[0.16em] text-[clamp(1.8rem,4vw,3.2rem)] leading-[1.12] tracking-[-0.02em] [font-family:var(--font-display)]" style={{ color: "var(--text-primary)" }}>
               Precision designer. No Deco UI.
             </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/68">
+            <p className="mt-4 max-w-2xl text-sm leading-7" style={{ color: "var(--text-secondary)" }}>
               Keep the entire customization experience inside Stash while your
               backend controls proof payloads, approvals, and production data.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <span className="data-pill">{product.sku}</span>
-              <span className="data-pill">{templateSignal.proofVersion}</span>
-              <span className="data-pill">{templateSignal.printMethod}</span>
-              <span className="data-pill">{layers.length} layers</span>
+              <span className="pill pill--ghost">{product.sku}</span>
+              <span className="pill pill--ghost">{templateSignal.proofVersion}</span>
+              <span className="pill pill--ghost">{templateSignal.printMethod}</span>
+              <span className="pill pill--ghost">{layers.length} layers</span>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
-            <div className="studio-glass-tile rounded-[1.4rem] px-4 py-3">
+            <div className="card px-4 py-3">
               <p className="eyebrow">Coverage</p>
-              <p className="mt-2 text-2xl font-semibold text-white">
+              <p className="mt-2 text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
                 {coverageScore}%
               </p>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/12">
@@ -325,12 +325,12 @@ export function DecoratorStudio({
                 />
               </div>
             </div>
-            <div className="studio-glass-tile rounded-[1.4rem] px-4 py-3">
+            <div className="card px-4 py-3">
               <p className="eyebrow">Opacity Average</p>
-              <p className="mt-2 text-2xl font-semibold text-white">
+              <p className="mt-2 text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
                 {averageOpacity}%
               </p>
-              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-white/58">
+              <p className="mt-2 text-xs uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                 {theme.proofLabel}
               </p>
             </div>
@@ -340,7 +340,7 @@ export function DecoratorStudio({
 
       <div className="grid gap-5 xl:grid-cols-[270px_minmax(0,1fr)] 2xl:grid-cols-[290px_minmax(0,1fr)_320px]">
         <aside className="space-y-4">
-          <div className="panel studio-glass-panel p-4">
+          <div className="surface p-4">
             <p className="eyebrow">Garments</p>
             <div className="mt-4 space-y-2.5">
               {products.map((item) => {
@@ -363,25 +363,25 @@ export function DecoratorStudio({
                       })
                     }
                     className={cx(
-                      "ui-control w-full rounded-[1.2rem] border px-3.5 py-3 text-left transition",
+                      "w-full rounded-xl border px-3.5 py-3 text-left transition",
                       active
-                        ? "border-white/26 bg-white/[0.15] shadow-[0_14px_28px_rgba(2,8,22,0.35),inset_0_1px_0_rgba(255,255,255,0.22)]"
-                        : "border-white/12 bg-white/[0.06] hover:border-white/20 hover:bg-white/[0.1]",
+                        ? "border-[var(--border-active)] bg-[var(--bg-surface-hover)]"
+                        : "border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface-hover)]",
                     )}
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className="mt-0.5 h-10 w-10 rounded-[0.85rem] border border-white/18"
+                        className="mt-0.5 h-10 w-10 rounded-xl border border-white/18"
                         style={{ background: itemTheme.garment }}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="break-words text-sm font-semibold leading-5 text-white">
+                        <p className="truncate text-sm font-semibold leading-5" style={{ color: "var(--text-primary)" }}>
                           {item.name}
                         </p>
-                        <p className="mt-0.5 break-words text-xs leading-5 text-white/62">
+                        <p className="mt-0.5 truncate text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
                           {item.brand} · {item.garmentColor}
                         </p>
-                        <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/52">
+                        <p className="mt-1.5 text-[11px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                           {item.sku}
                         </p>
                       </div>
@@ -392,7 +392,7 @@ export function DecoratorStudio({
             </div>
           </div>
 
-          <div className="panel studio-glass-panel p-4">
+          <div className="surface p-4">
             <p className="eyebrow">Templates</p>
             <div className="mt-4 space-y-2.5">
               {templates.map((template) => {
@@ -406,17 +406,17 @@ export function DecoratorStudio({
                     type="button"
                     onClick={() => applyTemplate(template.id)}
                     className={cx(
-                      "ui-control w-full rounded-[1.2rem] border px-3.5 py-3 text-left transition",
+                      "w-full rounded-xl border px-3.5 py-3 text-left transition",
                       active
-                        ? "border-white/26 bg-white/[0.15] shadow-[0_14px_28px_rgba(2,8,22,0.35),inset_0_1px_0_rgba(255,255,255,0.22)]"
-                        : "border-white/12 bg-white/[0.06] hover:border-white/20 hover:bg-white/[0.1]",
+                        ? "border-[var(--border-active)] bg-[var(--bg-surface-hover)]"
+                        : "border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface-hover)]",
                     )}
                   >
-                    <p className="break-words text-sm font-semibold text-white">{template.name}</p>
-                    <p className="mt-1 break-words text-xs leading-5 text-white/62">
+                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{template.name}</p>
+                    <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
                       {template.description}
                     </p>
-                    <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/52">
+                    <p className="mt-1.5 text-[11px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                       {signal.printMethod}
                     </p>
                   </button>
@@ -563,10 +563,10 @@ export function DecoratorStudio({
         </section>
 
         <aside className="space-y-4 xl:col-span-2 2xl:col-span-1">
-          <div className="panel studio-glass-panel p-4">
+          <div className="surface p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="eyebrow">Layers</p>
-              <span className="data-pill">
+              <span className="pill pill--ghost">
                 {selectedLayerIndex}/{layers.length}
               </span>
             </div>
@@ -577,22 +577,22 @@ export function DecoratorStudio({
                   type="button"
                   onClick={() => setSelectedLayerId(layer.id)}
                   className={cx(
-                    "ui-control w-full rounded-[1.1rem] border px-3.5 py-3 text-left transition",
+                    "w-full rounded-xl border px-3.5 py-3 text-left transition",
                     layer.id === selectedLayerId
-                      ? "border-white/26 bg-white/[0.15] shadow-[0_12px_26px_rgba(2,8,22,0.34),inset_0_1px_0_rgba(255,255,255,0.22)]"
-                      : "border-white/12 bg-white/[0.06] hover:border-white/20 hover:bg-white/[0.1]",
+                      ? "border-[var(--border-active)] bg-[var(--bg-surface-hover)]"
+                      : "border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface-hover)]",
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="break-words text-sm font-semibold text-white">
+                      <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                         {layer.name}
                       </p>
-                      <p className="mt-0.5 break-words text-[11px] uppercase tracking-[0.18em] text-white/54">
+                      <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                         {layer.type}
                       </p>
                     </div>
-                    <span className="text-[11px] font-mono uppercase tracking-[0.18em] text-white/54">
+                    <span className="text-[11px] font-mono uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                       {String(index + 1).padStart(2, "0")}
                     </span>
                   </div>
@@ -601,13 +601,13 @@ export function DecoratorStudio({
             </div>
           </div>
 
-          <div className="panel studio-glass-panel p-4">
+          <div className="surface p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="eyebrow">Selected Layer</p>
               <button
                 type="button"
                 onClick={centerSelectedLayer}
-                className="ui-control rounded-full border border-white/20 bg-white/[0.1] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/78 transition hover:border-white/32 hover:bg-white/[0.2] hover:text-white"
+                className="pill pill--ghost transition hover:border-[rgba(255,255,255,0.14)] hover:text-[var(--text-primary)]"
               >
                 Center
               </button>
@@ -615,14 +615,14 @@ export function DecoratorStudio({
 
             {selectedLayer ? (
               <div className="mt-4 space-y-4">
-                <div className="rounded-[1.15rem] border border-white/16 bg-white/[0.08] px-3.5 py-3">
-                  <p className="text-sm font-semibold text-white">
+                <div className="card px-3.5 py-3">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                     {selectedLayer.name}
                   </p>
-                  <p className="mt-1 break-words text-xs text-white/62">
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                     {selectedLayer.content}
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em] text-white/52">
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
                     <span>x {Math.round(selectedLayer.x)}</span>
                     <span>y {Math.round(selectedLayer.y)}</span>
                     <span>w {Math.round(selectedLayer.width)}</span>
@@ -630,9 +630,9 @@ export function DecoratorStudio({
                 </div>
 
                 <label className="block">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/82">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
                     <span>Width</span>
-                    <span className="data-pill">{Math.round(selectedLayer.width)} px</span>
+                    <span className="pill pill--ghost">{Math.round(selectedLayer.width)} px</span>
                   </div>
                   <input
                     type="range"
@@ -666,9 +666,9 @@ export function DecoratorStudio({
                 </label>
 
                 <label className="block">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/82">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
                     <span>Rotation</span>
-                    <span className="data-pill">{selectedLayer.rotation} deg</span>
+                    <span className="pill pill--ghost">{selectedLayer.rotation} deg</span>
                   </div>
                   <input
                     type="range"
@@ -692,9 +692,9 @@ export function DecoratorStudio({
                 </label>
 
                 <label className="block">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/82">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
                     <span>Opacity</span>
-                    <span className="data-pill">{Math.round(selectedLayer.opacity * 100)}%</span>
+                    <span className="pill pill--ghost">{Math.round(selectedLayer.opacity * 100)}%</span>
                   </div>
                   <input
                     type="range"
@@ -721,24 +721,24 @@ export function DecoratorStudio({
             ) : null}
           </div>
 
-          <div className="panel studio-glass-panel p-4">
+          <div className="surface p-4">
             <p className="eyebrow">Production Packet</p>
-              <div className="mt-4 space-y-2.5 text-sm text-white/68">
-                <div className="flex flex-col gap-1.5 rounded-[1rem] border border-white/16 bg-white/[0.08] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 space-y-2.5 text-sm" style={{ color: "var(--text-secondary)" }}>
+                <div className="card flex flex-col gap-1.5 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <span>Decoration Area</span>
-                  <span className="break-words font-medium text-white sm:max-w-[65%] sm:text-right">
+                  <span className="font-medium sm:max-w-[65%] sm:text-right" style={{ color: "var(--text-primary)" }}>
                     {areaWidthLabel} x {areaHeightLabel}
                   </span>
                 </div>
-                <div className="flex flex-col gap-1.5 rounded-[1rem] border border-white/16 bg-white/[0.08] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="card flex flex-col gap-1.5 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <span>Template</span>
-                  <span className="break-words font-medium text-white sm:max-w-[65%] sm:text-right">
+                  <span className="font-medium sm:max-w-[65%] sm:text-right" style={{ color: "var(--text-primary)" }}>
                     {activeTemplate.name}
                   </span>
                 </div>
-                <div className="flex flex-col gap-1.5 rounded-[1rem] border border-white/16 bg-white/[0.08] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="card flex flex-col gap-1.5 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                   <span>Proof Version</span>
-                  <span className="break-words font-medium text-white sm:max-w-[65%] sm:text-right">
+                  <span className="font-medium sm:max-w-[65%] sm:text-right" style={{ color: "var(--text-primary)" }}>
                     {templateSignal.proofVersion}
                   </span>
                 </div>

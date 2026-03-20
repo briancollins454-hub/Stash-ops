@@ -7,12 +7,12 @@ import {
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
-  variable: "--font-space-grotesk",
+  variable: "--font-plus-jakarta",
   subsets: ["latin"],
 });
 
 const playfair = Playfair_Display({
-  variable: "--font-fraunces",
+  variable: "--font-playfair",
   subsets: ["latin"],
 });
 

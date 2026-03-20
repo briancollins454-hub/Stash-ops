@@ -156,7 +156,7 @@ export function CreateOrderForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="record-card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4"
+      className="surface grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4"
     >
       <input
         required
@@ -165,7 +165,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, customerName: event.target.value }))
         }
         placeholder="Customer name"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.company}
@@ -173,7 +173,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, company: event.target.value }))
         }
         placeholder="Company"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         type="email"
@@ -182,7 +182,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, email: event.target.value }))
         }
         placeholder="Customer email"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.owner}
@@ -190,7 +190,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, owner: event.target.value }))
         }
         placeholder="Owner (optional)"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
 
       <input
@@ -200,7 +200,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, productTitle: event.target.value }))
         }
         placeholder="Product title"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.sku}
@@ -208,7 +208,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, sku: event.target.value }))
         }
         placeholder="SKU"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         required
@@ -219,7 +219,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, quantity: event.target.value }))
         }
         placeholder="Qty"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         required
@@ -231,7 +231,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, unitPrice: event.target.value }))
         }
         placeholder="Unit price"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
 
       <select
@@ -242,13 +242,13 @@ export function CreateOrderForm() {
             decorationMethod: event.target.value as DecorationMethod,
           }))
         }
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white"
+        className="input"
       >
         {decorationMethods.map((method) => (
           <option
             key={method}
             value={method}
-            className="bg-[#0d1625] text-white"
+            className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
           >
             {method}
           </option>
@@ -260,7 +260,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, placement: event.target.value }))
         }
         placeholder="Placement (front, left chest...)"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.city}
@@ -268,7 +268,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, city: event.target.value }))
         }
         placeholder="City"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.state}
@@ -276,7 +276,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, state: event.target.value }))
         }
         placeholder="State"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         value={form.postcode}
@@ -284,7 +284,7 @@ export function CreateOrderForm() {
           setForm((current) => ({ ...current, postcode: event.target.value }))
         }
         placeholder="Postcode"
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/45"
+        className="input"
       />
       <input
         type="datetime-local"
@@ -292,26 +292,26 @@ export function CreateOrderForm() {
         onChange={(event) =>
           setForm((current) => ({ ...current, dueAt: event.target.value }))
         }
-        className="ui-control rounded-xl border border-white/16 bg-white/[0.06] px-3 py-2 text-sm text-white"
+        className="input"
       />
 
       <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center gap-3 pt-1">
         <button
           type="submit"
           disabled={isSaving}
-          className="ui-control rounded-full border border-cyan-200/35 bg-cyan-300/18 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-50 transition hover:bg-cyan-300/26 disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn--primary disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSaving ? "Creating..." : "Create Order"}
         </button>
         {createdOrderId ? (
           <a
             href={`/orders/${createdOrderId}`}
-            className="data-pill underline-offset-4 hover:underline"
+            className="pill pill--ghost underline-offset-4 hover:underline"
           >
             Created {createdOrderId} - open order
           </a>
         ) : null}
-        {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+        {error ? <p className="text-xs" style={{ color: "var(--danger)" }}>{error}</p> : null}
       </div>
     </form>
   );
