@@ -6,7 +6,8 @@ import { createInboxEvent } from "./event-inbox-service";
 
 // ── DecoNetwork API client ──
 //
-// DecoNetwork authenticates via Username/Password query params (not Basic Auth).
+// DecoNetwork uses session-based authentication. We login first to get a
+// session cookie, then include it in all subsequent API requests.
 // Available APIs (from Deco admin Reports panel):
 //   /api/json/manage_orders/find          — search orders
 //   /api/json/manage_orders/create        — create order
@@ -21,18 +22,63 @@ function baseUrl(): string {
   return env.DECO_BASE_URL!.replace(/\/+$/, "");
 }
 
+// ── Session management ──
+// Cache the session cookie so we don't login on every API call.
+// Expires after 25 minutes (DecoNetwork sessions typically last 30 min).
+
+let sessionCookie: string | null = null;
+let sessionExpiresAt = 0;
+const SESSION_TTL_MS = 25 * 60 * 1000; // 25 minutes
+
+async function ensureSession(): Promise<string> {
+  if (sessionCookie && Date.now() < sessionExpiresAt) {
+    return sessionCookie;
+  }
+
+  const loginUrl = `${baseUrl()}/admin/login`;
+  const body = new URLSearchParams();
+  body.set("Username", env.DECO_USERNAME!);
+  body.set("Password", env.DECO_PASSWORD!);
+
+  const response = await fetch(loginUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+    redirect: "manual", // Don't follow redirect — we just need the Set-Cookie
+  });
+
+  // Collect Set-Cookie headers
+  const setCookies = response.headers.getSetCookie?.() ?? [];
+  const cookieParts: string[] = [];
+  for (const sc of setCookies) {
+    const name_val = sc.split(";")[0]; // Take "name=value" before attributes
+    if (name_val) cookieParts.push(name_val);
+  }
+
+  // Fallback: try raw header if getSetCookie is not available
+  if (cookieParts.length === 0) {
+    const raw = response.headers.get("set-cookie");
+    if (raw) {
+      cookieParts.push(raw.split(";")[0]);
+    }
+  }
+
+  if (cookieParts.length === 0) {
+    throw new Error(`Deco login failed — no session cookie returned (status ${response.status})`);
+  }
+
+  sessionCookie = cookieParts.join("; ");
+  sessionExpiresAt = Date.now() + SESSION_TTL_MS;
+  logger.info("Deco session established");
+  return sessionCookie;
+}
+
 /** Build base auth query params required by every Deco API call */
 function authParams(): URLSearchParams {
   const params = new URLSearchParams();
   params.set("Username", env.DECO_USERNAME!);
   params.set("Password", env.DECO_PASSWORD!);
   return params;
-}
-
-function getHeaders(): Record<string, string> {
-  return {
-    Accept: "application/json",
-  };
 }
 
 function jsonHeaders(): Record<string, string> {
@@ -43,18 +89,32 @@ function jsonHeaders(): Record<string, string> {
 }
 
 async function decoFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const cookie = await ensureSession();
   const url = `${baseUrl()}${path}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), env.DECO_SYNC_TIMEOUT_MS);
 
   try {
+    const incomingHeaders = (options?.headers as Record<string, string> | undefined) ?? {};
     const response = await fetch(url, {
       ...options,
-      headers: { ...(options?.headers as Record<string, string> | undefined) },
+      headers: {
+        ...incomingHeaders,
+        Cookie: cookie,
+        Accept: "application/json",
+      },
       signal: controller.signal,
     });
 
     const text = await response.text();
+
+    // If we get a 401/403 or HTML redirect to login, invalidate session and retry once
+    if (response.status === 401 || response.status === 403 ||
+        (text.trimStart().startsWith("<!DOCTYPE") && text.includes("login"))) {
+      sessionCookie = null;
+      sessionExpiresAt = 0;
+      throw new Error(`Deco session expired for ${path} — will retry on next call`);
+    }
 
     if (!response.ok) {
       throw new Error(`Deco API ${options?.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 300)}`);
@@ -65,7 +125,17 @@ async function decoFetch<T>(path: string, options?: RequestInit): Promise<T> {
       throw new Error(`Deco API returned HTML instead of JSON for ${path} — endpoint may not exist`);
     }
 
-    return text ? (JSON.parse(text) as T) : ({} as T);
+    // Check for Deco-level auth errors in JSON response
+    const parsed = text ? (JSON.parse(text) as T) : ({} as T);
+    const responseStatus = (parsed as Record<string, unknown>)?.response_status as { code?: number } | undefined;
+    if (responseStatus?.code === 30001) {
+      // Auth failed at Deco level — also pass credentials as query params as fallback
+      sessionCookie = null;
+      sessionExpiresAt = 0;
+      throw new Error("Deco API authentication failed (code 30001). Check DECO_USERNAME and DECO_PASSWORD.");
+    }
+
+    return parsed;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(`Deco API request timed out after ${env.DECO_SYNC_TIMEOUT_MS}ms: ${path}`);
@@ -254,10 +324,6 @@ export async function syncDecoOrders(options?: {
 
   const rawOrders = await decoFetch<DecoOrderResponse[]>(
     `/api/json/manage_orders/find?${params.toString()}`,
-    {
-      method: "GET",
-      headers: getHeaders(),
-    },
   );
 
   // Deco returns an empty body or empty array when no results
@@ -318,7 +384,6 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
 
   const rawProducts = await decoFetch<DecoProductResponse[]>(
     `/api/json/manage_products/find?${params.toString()}`,
-    { method: "GET", headers: getHeaders() },
   );
 
   const products = Array.isArray(rawProducts) ? rawProducts : [];
@@ -385,7 +450,6 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 
   const rawInventory = await decoFetch<DecoInventoryResponse[]>(
     `/api/json/manage_inventory/find?${params.toString()}`,
-    { method: "GET", headers: getHeaders() },
   );
 
   const items = Array.isArray(rawInventory) ? rawInventory : [];
@@ -452,7 +516,6 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
 
   const rawOrders = await decoFetch<DecoOrderResponse[]>(
     `/api/json/manage_orders/find?${params.toString()}`,
-    { method: "GET", headers: getHeaders() },
   );
 
   const ordersList = Array.isArray(rawOrders) ? rawOrders : [];
