@@ -739,8 +739,14 @@ export default function QuoteBuilderPage() {
                     <div className="flex gap-2">
                       <input
                         value={item.productTitle}
-                        onChange={(e) => updateLineItem(item.id, { productTitle: e.target.value })}
-                        placeholder="Product name or search Deco catalog..."
+                        onChange={(e) => {
+                          updateLineItem(item.id, { productTitle: e.target.value });
+                          if (e.target.value.trim().length >= 2) {
+                            setShowProductPicker(item.id);
+                            setProductSearch(e.target.value.trim());
+                          }
+                        }}
+                        placeholder="Product name or code..."
                         className="input w-full"
                       />
                       <button
