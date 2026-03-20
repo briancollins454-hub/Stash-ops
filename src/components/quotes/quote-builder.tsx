@@ -811,7 +811,7 @@ export default function QuoteBuilderPage() {
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
-                                    {prod.price !== undefined && (
+                                    {prod.price != null && (
                                       <span style={{ color: "var(--text-secondary)" }}>
                                         £{prod.price.toFixed(2)}
                                       </span>
