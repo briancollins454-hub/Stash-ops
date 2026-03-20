@@ -96,6 +96,7 @@ export default function QuoteBuilderPage() {
   // ── Customer state ──
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [customerCompany, setCustomerCompany] = useState("");
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [accountSearch, setAccountSearch] = useState("");
@@ -218,13 +219,40 @@ export default function QuoteBuilderPage() {
         items.map((item) => ({ ...item, decorationMethod: acct.defaultDecorationMethod! })),
       );
     }
+    // Auto-fill contact info from linked DecoCustomer
+    if (acct.decoCustomerId) {
+      fetch(`/api/quotes/customers?decoCustomerId=${encodeURIComponent(acct.decoCustomerId)}`)
+        .then((res) => res.json())
+        .then((data: { items?: Array<{ email?: string; phone?: string; company?: string; address1?: string; address2?: string; city?: string; state?: string; postcode?: string; country?: string }> }) => {
+          const c = data.items?.[0];
+          if (!c) return;
+          if (c.email) setCustomerEmail(c.email);
+          if (c.phone) setCustomerPhone(c.phone);
+          if (c.company) setCustomerCompany(c.company);
+          if (c.address1) setAddrLine1(c.address1);
+          if (c.address2) setAddrLine2(c.address2);
+          if (c.city) setAddrCity(c.city);
+          if (c.state) setAddrState(c.state);
+          if (c.postcode) setAddrPostcode(c.postcode);
+          if (c.country) setAddrCountry(c.country);
+        })
+        .catch(() => { /* ignore fetch errors – fields stay empty */ });
+    }
   }
 
   function clearAccount() {
     setSelectedAccount(null);
     setAccountSearch("");
     setCustomerName("");
+    setCustomerEmail("");
+    setCustomerPhone("");
     setCustomerCompany("");
+    setAddrLine1("");
+    setAddrLine2("");
+    setAddrCity("");
+    setAddrState("");
+    setAddrPostcode("");
+    setAddrCountry("GB");
   }
 
   function updateLineItem(id: string, patch: Partial<LineItem>) {
@@ -285,6 +313,7 @@ export default function QuoteBuilderPage() {
     const payload = {
       customerName: customerName.trim(),
       customerEmail: customerEmail.trim() || undefined,
+      customerPhone: customerPhone.trim() || undefined,
       customerCompany: customerCompany.trim() || undefined,
       accountId: selectedAccount?.id,
       shippingAddress: addrLine1.trim()
@@ -366,6 +395,7 @@ export default function QuoteBuilderPage() {
                 setStep("Customer");
                 setCustomerName("");
                 setCustomerEmail("");
+                setCustomerPhone("");
                 setCustomerCompany("");
                 setSelectedAccount(null);
                 setAccountSearch("");
@@ -552,7 +582,19 @@ export default function QuoteBuilderPage() {
                   className="input w-full"
                 />
               </div>
-              <div className="space-y-1 sm:col-span-2">
+              <div className="space-y-1">
+                <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="Phone number"
+                  className="input w-full"
+                />
+              </div>
+              <div className="space-y-1">
                 <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
                   Company
                 </label>

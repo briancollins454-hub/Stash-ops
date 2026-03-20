@@ -73,6 +73,7 @@ export type ShopifyFulfillmentPayload = {
 export type ManualOrderInput = {
   customerName: string;
   customerEmail?: string;
+  customerPhone?: string;
   sourceGroupLabel?: string;
   note?: string;
   lineItems: Array<{
@@ -436,6 +437,7 @@ export async function createManualJob(input: ManualOrderInput): Promise<{ jobId:
         sourceGroupType: sourceGroup.type,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
+        customerPhone: input.customerPhone,
         currencyCode: "GBP",
         metadata: {
           note: input.note ?? null,

@@ -223,6 +223,7 @@ model Job {
   customerName          String?
   customerEmail         String?
   customerCompany       String?
+  customerPhone         String?
   schoolName            String?
   clubName              String?
   leaversYear           String?

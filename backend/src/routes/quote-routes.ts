@@ -11,6 +11,7 @@ const quoteCreateSchema = z.object({
   customerName: z.string().min(1),
   customerEmail: z.string().email().optional(),
   customerCompany: z.string().optional(),
+  customerPhone: z.string().optional(),
   accountId: z.string().optional(),
   shippingAddress: z
     .object({
@@ -165,9 +166,18 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     const query = z
       .object({
         q: z.string().optional(),
+        decoCustomerId: z.string().optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
       })
       .parse(request.query);
+
+    // Look up a single customer by decoCustomerId
+    if (query.decoCustomerId) {
+      const customer = await prisma.decoCustomer.findUnique({
+        where: { decoCustomerId: query.decoCustomerId },
+      });
+      return { total: customer ? 1 : 0, items: customer ? [customer] : [] };
+    }
 
     const limit = query.limit ?? 50;
     const searchTerm = query.q?.trim() ?? "";
@@ -210,6 +220,7 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     const manualInput = {
       customerName: body.customerName,
       customerEmail: body.customerEmail,
+      customerPhone: body.customerPhone,
       sourceGroupLabel: body.customerCompany,
       note: [
         body.note ?? "",
@@ -244,6 +255,7 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
           requiresReview: false,
           reviewReason: null,
           customerCompany: body.customerCompany ?? undefined,
+          customerPhone: body.customerPhone ?? undefined,
         },
       });
     }
