@@ -750,6 +750,12 @@ export type DecoWebhookPayload = {
 
 // ── Product detail (live API call) ──
 
+export type ProductImage = {
+  url: string;
+  color?: string;           // colour name if colour-specific
+  type: "front" | "gallery"; // front = colour swatch, gallery = lifestyle/detail
+};
+
 export type DecoProductDetail = {
   productId: number;
   productCode: string;
@@ -767,7 +773,99 @@ export type DecoProductDetail = {
     sku: string;
     dnSkuId: string;
   }>;
+  images: ProductImage[];
 };
+
+/**
+ * Fetch product images from the supplier's website.
+ * Currently supports Ralawise (covers ~4000 products).
+ * Returns colour-specific front images and gallery/lifestyle images.
+ */
+async function fetchSupplierProductImages(
+  productCode: string,
+  supplier: string,
+): Promise<ProductImage[]> {
+  if (supplier.toLowerCase() !== "ralawise") return [];
+
+  try {
+    // Step 1: Search Ralawise for the product page URL
+    const searchRes = await fetch(
+      `https://shop.ralawise.com/search?q=${encodeURIComponent(productCode)}`,
+      { headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(10_000) },
+    );
+    const searchText = await searchRes.text();
+    let pageUrl: string | null = null;
+
+    // Ralawise search returns JSON with a redirect URL
+    try {
+      const searchData = JSON.parse(searchText) as { Success?: boolean; Data?: string };
+      if (searchData.Success && searchData.Data) {
+        pageUrl = searchData.Data;
+      }
+    } catch {
+      // Not JSON — might be an HTML search results page
+    }
+
+    if (!pageUrl) return [];
+
+    // Step 2: Fetch the product page
+    const pageRes = await fetch(pageUrl, {
+      headers: { "User-Agent": "StashOps/1.0" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const html = await pageRes.text();
+
+    const images: ProductImage[] = [];
+    const codeLower = productCode.toLowerCase();
+
+    // Extract colour-specific front images: {code}_{colour}_ft.jpg with alt="ColourName"
+    const frontPattern = new RegExp(
+      `<img[^>]*src="([^"]*${codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^"]*_ft\\.jpg(?:\\?[^"]*)?)"[^>]*alt="([^"]*)"`,
+      "gi",
+    );
+    const seen = new Set<string>();
+    let match;
+    while ((match = frontPattern.exec(html)) !== null) {
+      const [, rawUrl, alt] = match;
+      let url = rawUrl;
+      // Strip ?width= query params — we want the full-resolution image
+      url = url.replace(/\?.*$/, "");
+      if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({ url, color: alt, type: "front" });
+      }
+    }
+
+    // Extract gallery/lifestyle images: {code}_ls{nn}_{year}.jpg
+    const galleryPattern = new RegExp(
+      `"([^"]*${codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^"]*_ls\\d+[^"]*\\.jpg)"`,
+      "gi",
+    );
+    while ((match = galleryPattern.exec(html)) !== null) {
+      let url = match[1];
+      url = url.replace(/\?.*$/, "");
+      if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({ url, type: "gallery" });
+      }
+    }
+
+    // Fallback: OG image if no other images found
+    if (images.length === 0) {
+      const ogMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
+      if (ogMatch) {
+        images.push({ url: ogMatch[1], type: "gallery" });
+      }
+    }
+
+    return images;
+  } catch (err) {
+    logger.warn({ err, productCode, supplier }, "Failed to fetch supplier product images");
+    return [];
+  }
+}
 
 /**
  * Fetch detailed product info (colors, sizes, per-SKU pricing) from Deco API.
@@ -804,6 +902,12 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
     throw new Error(`Product ${decoProductId} not found in DecoNetwork`);
   }
 
+  // Fetch supplier images in parallel (non-blocking — empty array on failure)
+  const images = await fetchSupplierProductImages(
+    p.product_code ?? "",
+    p.supplier ?? "",
+  );
+
   return {
     productId: p.product_id ?? 0,
     productCode: p.product_code ?? "",
@@ -827,6 +931,7 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
         sku: s.sku ?? "",
         dnSkuId: s.dn_sku_id ?? "",
       })),
+    images,
   };
 }
 

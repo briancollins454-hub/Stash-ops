@@ -42,6 +42,11 @@ type DecoProductDetail = {
     sku: string;
     dnSkuId: string;
   }>;
+  images?: Array<{
+    url: string;
+    color?: string;
+    type: "front" | "gallery";
+  }>;
 };
 
 type InventoryItem = {
@@ -1020,34 +1025,93 @@ export default function QuoteBuilderPage() {
                 {/* ── Rich Product Card (when detail is loaded) ── */}
                 {detail && (
                   <div className="space-y-4 border rounded-xl p-4" style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}>
-                    {/* Product header */}
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-2xl">
-                            {detail.category?.toLowerCase().includes("polo") ? "👕" :
-                             detail.category?.toLowerCase().includes("hoodie") || detail.category?.toLowerCase().includes("sweat") ? "🧥" :
-                             detail.category?.toLowerCase().includes("cap") || detail.category?.toLowerCase().includes("hat") ? "🧢" :
-                             detail.category?.toLowerCase().includes("bag") ? "👜" :
-                             detail.category?.toLowerCase().includes("jacket") ? "🧥" :
-                             detail.category?.toLowerCase().includes("trouser") || detail.category?.toLowerCase().includes("pant") ? "👖" :
-                             "👕"}
-                          </span>
-                          <div>
-                            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                              {detail.productName}
-                            </div>
-                            <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                              {detail.productCode} · {detail.supplier}{detail.brand ? ` / ${detail.brand}` : ""} · {detail.category}
-                            </div>
+                    {/* Product header with image */}
+                    <div className="flex items-start gap-4">
+                      {/* Product image */}
+                      {(() => {
+                        const selectedColor = detail.colors.find((c) => c.id === item.selectedColorId);
+                        const colorImage = selectedColor
+                          ? detail.images?.find(
+                              (img) =>
+                                img.type === "front" &&
+                                img.color?.toLowerCase() === selectedColor.name.toLowerCase(),
+                            )
+                          : undefined;
+                        const displayImage = colorImage ?? detail.images?.[0];
+
+                        return displayImage ? (
+                          <div
+                            className="shrink-0 rounded-lg overflow-hidden border"
+                            style={{ borderColor: "var(--border)", width: 96, height: 96, background: "#fff" }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={displayImage.url}
+                              alt={detail.productName}
+                              className="w-full h-full object-contain"
+                            />
                           </div>
+                        ) : (
+                          <div
+                            className="shrink-0 flex items-center justify-center rounded-lg border"
+                            style={{ borderColor: "var(--border)", width: 96, height: 96, background: "rgba(255,255,255,0.05)" }}
+                          >
+                            <span className="text-3xl">
+                              {detail.category?.toLowerCase().includes("polo") ? "👕" :
+                               detail.category?.toLowerCase().includes("hoodie") || detail.category?.toLowerCase().includes("sweat") ? "🧥" :
+                               detail.category?.toLowerCase().includes("cap") || detail.category?.toLowerCase().includes("hat") ? "🧢" :
+                               detail.category?.toLowerCase().includes("bag") ? "👜" :
+                               detail.category?.toLowerCase().includes("jacket") ? "🧥" :
+                               detail.category?.toLowerCase().includes("trouser") || detail.category?.toLowerCase().includes("pant") ? "👖" :
+                               "👕"}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Product info */}
+                      <div className="flex-1 flex items-start justify-between min-w-0">
+                        <div>
+                          <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                            {detail.productName}
+                          </div>
+                          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                            {detail.productCode} · {detail.supplier}{detail.brand ? ` / ${detail.brand}` : ""} · {detail.category}
+                          </div>
+                          {/* Image thumbnail strip */}
+                          {(detail.images?.length ?? 0) > 1 && (
+                            <div className="flex gap-1.5 mt-2">
+                              {detail.images!.slice(0, 6).map((img, imgIdx) => (
+                                <div
+                                  key={imgIdx}
+                                  className="rounded border overflow-hidden"
+                                  style={{ width: 36, height: 36, borderColor: "var(--border)", background: "#fff" }}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={img.url}
+                                    alt={img.color ?? `view ${imgIdx + 1}`}
+                                    className="w-full h-full object-contain"
+                                  />
+                                </div>
+                              ))}
+                              {(detail.images?.length ?? 0) > 6 && (
+                                <div
+                                  className="rounded border flex items-center justify-center text-[9px]"
+                                  style={{ width: 36, height: 36, borderColor: "var(--border)", color: "var(--text-tertiary)" }}
+                                >
+                                  +{detail.images!.length - 6}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold font-mono" style={{ color: "var(--accent-light)" }}>
-                          £{parseFloat(item.unitPrice || "0").toFixed(2)}
+                        <div className="text-right shrink-0">
+                          <div className="text-lg font-semibold font-mono" style={{ color: "var(--accent-light)" }}>
+                            £{parseFloat(item.unitPrice || "0").toFixed(2)}
+                          </div>
+                          <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>per unit</div>
                         </div>
-                        <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>per unit</div>
                       </div>
                     </div>
 
