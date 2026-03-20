@@ -122,14 +122,33 @@ type DecoProductResponse = {
   Sku?: string;
   Category?: string;
   Active?: boolean;
+  Price?: number;
+  Sizes?: string;
+  Colors?: string;
 };
 
 type DecoInventoryResponse = {
   ProductId?: number;
   Sku?: string;
+  ProductName?: string;
   QuantityOnHand?: number;
   QuantityAvailable?: number;
   QuantityOnOrder?: number;
+};
+
+type DecoCustomerResponse = {
+  CustomerId?: number;
+  CustomerName?: string;
+  Email?: string;
+  Phone?: string;
+  CompanyName?: string;
+  Address1?: string;
+  Address2?: string;
+  City?: string;
+  State?: string;
+  PostCode?: string;
+  Country?: string;
+  Active?: boolean;
 };
 
 // ── Normalised types (used internally) ──
@@ -282,6 +301,7 @@ export async function syncDecoOrders(options?: {
 
 /**
  * Fetch products from DecoNetwork using /api/json/manage_products/find
+ * Persists to DecoProduct table.
  */
 export async function syncDecoProducts(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
@@ -299,8 +319,33 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
 
   for (const product of products) {
     try {
-      // Log product data for future use — products don't map 1:1 to our model yet
-      logger.debug({ productId: product.ProductId, sku: product.Sku, name: product.ProductName }, "Deco product synced");
+      const decoProductId = String(product.ProductId ?? "");
+      if (!decoProductId) continue;
+
+      await prisma.decoProduct.upsert({
+        where: { decoProductId },
+        update: {
+          name: product.ProductName ?? "Unknown",
+          sku: product.Sku ?? null,
+          category: product.Category ?? null,
+          price: product.Price ?? null,
+          sizes: product.Sizes ?? null,
+          colors: product.Colors ?? null,
+          active: product.Active !== false,
+          lastSyncedAt: new Date(),
+        },
+        create: {
+          decoProductId,
+          name: product.ProductName ?? "Unknown",
+          sku: product.Sku ?? null,
+          category: product.Category ?? null,
+          price: product.Price ?? null,
+          sizes: product.Sizes ?? null,
+          colors: product.Colors ?? null,
+          active: product.Active !== false,
+        },
+      });
+
       synced++;
     } catch (error) {
       errors++;
@@ -320,6 +365,7 @@ export async function syncDecoProducts(): Promise<DecoSyncResult> {
 
 /**
  * Fetch inventory from DecoNetwork using /api/json/manage_inventory/find
+ * Persists to DecoInventory table.
  */
 export async function syncDecoInventory(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
@@ -337,12 +383,29 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 
   for (const item of items) {
     try {
-      logger.debug({
-        productId: item.ProductId,
-        sku: item.Sku,
-        onHand: item.QuantityOnHand,
-        available: item.QuantityAvailable,
-      }, "Deco inventory item synced");
+      const decoProductId = String(item.ProductId ?? "");
+      if (!decoProductId) continue;
+
+      await prisma.decoInventory.upsert({
+        where: { decoProductId },
+        update: {
+          sku: item.Sku ?? null,
+          productName: item.ProductName ?? null,
+          quantityOnHand: item.QuantityOnHand ?? 0,
+          quantityAvailable: item.QuantityAvailable ?? 0,
+          quantityOnOrder: item.QuantityOnOrder ?? 0,
+          lastSyncedAt: new Date(),
+        },
+        create: {
+          decoProductId,
+          sku: item.Sku ?? null,
+          productName: item.ProductName ?? null,
+          quantityOnHand: item.QuantityOnHand ?? 0,
+          quantityAvailable: item.QuantityAvailable ?? 0,
+          quantityOnOrder: item.QuantityOnOrder ?? 0,
+        },
+      });
+
       synced++;
     } catch (error) {
       errors++;
@@ -358,6 +421,101 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 
   logger.info({ synced, errors, total: items.length }, "Deco inventory sync complete");
   return { provider: "deco", operation: "inventory", synced, errors, total: items.length };
+}
+
+/**
+ * Fetch customers from DecoNetwork using /api/json/manage_customers/find
+ * Persists to DecoCustomer table and optionally links to Account records.
+ */
+export async function syncDecoCustomers(): Promise<DecoSyncResult> {
+  if (!isDecoConfigured()) {
+    throw new Error("DecoNetwork is not configured.");
+  }
+
+  const rawCustomers = await decoFetch<DecoCustomerResponse[]>(
+    `/api/json/manage_customers/find?Username=${encodeURIComponent(env.DECO_USERNAME!)}&Password=${encodeURIComponent(env.DECO_PASSWORD!)}&Limit=500`,
+    { method: "GET", headers: headers() },
+  );
+
+  const customers = Array.isArray(rawCustomers) ? rawCustomers : [];
+  let synced = 0;
+  let errors = 0;
+
+  for (const customer of customers) {
+    try {
+      const decoCustomerId = String(customer.CustomerId ?? "");
+      if (!decoCustomerId) continue;
+
+      await prisma.decoCustomer.upsert({
+        where: { decoCustomerId },
+        update: {
+          name: customer.CustomerName ?? "Unknown",
+          email: customer.Email ?? null,
+          phone: customer.Phone ?? null,
+          company: customer.CompanyName ?? null,
+          address1: customer.Address1 ?? null,
+          address2: customer.Address2 ?? null,
+          city: customer.City ?? null,
+          state: customer.State ?? null,
+          postcode: customer.PostCode ?? null,
+          country: customer.Country ?? null,
+          active: customer.Active !== false,
+          lastSyncedAt: new Date(),
+        },
+        create: {
+          decoCustomerId,
+          name: customer.CustomerName ?? "Unknown",
+          email: customer.Email ?? null,
+          phone: customer.Phone ?? null,
+          company: customer.CompanyName ?? null,
+          address1: customer.Address1 ?? null,
+          address2: customer.Address2 ?? null,
+          city: customer.City ?? null,
+          state: customer.State ?? null,
+          postcode: customer.PostCode ?? null,
+          country: customer.Country ?? null,
+          active: customer.Active !== false,
+        },
+      });
+
+      // Auto-link to Account if decoCustomerId matches
+      const existingAccount = await prisma.account.findFirst({
+        where: { decoCustomerId },
+      });
+
+      if (!existingAccount && customer.CustomerName) {
+        // Check if there's an account with matching name that has no Deco link
+        const matchByName = await prisma.account.findFirst({
+          where: {
+            name: { equals: customer.CustomerName, mode: "insensitive" },
+            decoCustomerId: null,
+          },
+        });
+
+        if (matchByName) {
+          await prisma.account.update({
+            where: { id: matchByName.id },
+            data: { decoCustomerId },
+          });
+          logger.info({ accountId: matchByName.id, decoCustomerId, name: customer.CustomerName }, "Auto-linked Deco customer to account");
+        }
+      }
+
+      synced++;
+    } catch (error) {
+      errors++;
+      logger.warn({ customerId: customer.CustomerId, err: error }, "Failed to process Deco customer");
+    }
+  }
+
+  await prisma.syncCursor.upsert({
+    where: { provider: "deco:customers" },
+    update: { cursor: new Date().toISOString(), updatedAt: new Date() },
+    create: { provider: "deco:customers", cursor: new Date().toISOString() },
+  });
+
+  logger.info({ synced, errors, total: customers.length }, "Deco customer sync complete");
+  return { provider: "deco", operation: "customers", synced, errors, total: customers.length };
 }
 
 // ── Push / update operations (outbound from Stash → Deco) ──

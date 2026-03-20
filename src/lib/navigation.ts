@@ -1,6 +1,7 @@
 export const navigationItems = [
   { href: "/", label: "Dashboard", caption: "Overview", icon: "grid" },
   { href: "/jobs", label: "Jobs", caption: "All jobs", icon: "layers" },
+  { href: "/quotes", label: "Quotes", caption: "Create & price", icon: "file-text" },
   { href: "/accounts", label: "Accounts", caption: "Clients & rules", icon: "users" },
   { href: "/artwork-templates", label: "Artwork", caption: "Templates & logos", icon: "palette" },
   { href: "/designer", label: "Decorator", caption: "Design studio", icon: "pen" },

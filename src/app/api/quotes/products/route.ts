@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+
+export async function GET(request: Request) {
+  if (!isBackendApiConfigured()) {
+    return NextResponse.json({ error: "Backend API is not configured." }, { status: 503 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const q = searchParams.get("q") ?? "";
+
+  try {
+    const payload = await fetchBackendJson<{ total: number; items: unknown[] }>(
+      `/api/v1/quotes/products?q=${encodeURIComponent(q)}&limit=200`,
+    );
+    return NextResponse.json(payload);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to fetch products." },
+      { status: 502 },
+    );
+  }
+}

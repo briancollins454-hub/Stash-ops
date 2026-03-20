@@ -596,7 +596,7 @@ export async function projectIntegrations(): Promise<IntegrationHealth[]> {
   const shopifyCount = orders.filter((order) => order.origin === "shopify").length;
   const qboMismatchCount = accounting.filter((record) => record.qboStatus === "Mismatch").length;
   const highPriorityThreadCount = threads.filter((thread) => thread.priority === "High").length;
-  const decoConfigured = isDecoConnectorConfigured();
+  const decoConfigured = isDecoConnectorConfigured() || isBackendApiConfigured();
   const shopifyConfigured = isShopifyConnectorConfigured();
   const qboConfigured = isQboConnectorConfigured();
   const gmailConfigured = isGmailConnectorConfigured();
@@ -613,13 +613,13 @@ export async function projectIntegrations(): Promise<IntegrationHealth[]> {
           ? "Connector not configured"
           : stockRiskCount > 0
           ? `${stockRiskCount} orders waiting stock confirmation`
-          : "Realtime stock snapshots",
+          : "Syncing customers, products, inventory & orders",
       notes:
         !decoConfigured
-          ? "Set DECO_ORDER_UPSERT_URL to enable live sync."
+          ? "Set DECO_BASE_URL, DECO_USERNAME, DECO_PASSWORD on backend."
           : stockRiskCount > 0
           ? "Stock shortages are reflected and linked to purchasing actions."
-          : "No current stock synchronization blockers.",
+          : "Full bidirectional sync via backend API.",
     },
     {
       name: "Shopify",

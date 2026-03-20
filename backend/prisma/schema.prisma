@@ -579,3 +579,67 @@ model AccountProductRule {
 
   @@index([accountId, priority, active])
 }
+
+// ── Deco catalog models ──
+
+model DecoCustomer {
+  id              String   @id @default(cuid())
+  decoCustomerId  String   @unique
+  name            String
+  email           String?
+  phone           String?
+  company         String?
+  address1        String?
+  address2        String?
+  city            String?
+  state           String?
+  postcode        String?
+  country         String?
+  active          Boolean  @default(true)
+  metadata        Json?
+  lastSyncedAt    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([name])
+  @@index([email])
+  @@index([company])
+}
+
+model DecoProduct {
+  id             String          @id @default(cuid())
+  decoProductId  String          @unique
+  name           String
+  sku            String?
+  category       String?
+  price          Float?
+  sizes          String?
+  colors         String?
+  active         Boolean         @default(true)
+  metadata       Json?
+  lastSyncedAt   DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  inventory      DecoInventory[]
+
+  @@index([sku])
+  @@index([name])
+  @@index([category])
+}
+
+model DecoInventory {
+  id               String      @id @default(cuid())
+  decoProductId    String
+  sku              String?
+  productName      String?
+  quantityOnHand   Int         @default(0)
+  quantityAvailable Int        @default(0)
+  quantityOnOrder  Int         @default(0)
+  lastSyncedAt     DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  product          DecoProduct? @relation(fields: [decoProductId], references: [decoProductId], onDelete: Cascade)
+
+  @@unique([decoProductId])
+  @@index([sku])
+}

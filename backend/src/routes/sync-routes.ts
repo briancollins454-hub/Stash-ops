@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma";
 import { eventInboxQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
-import { syncDecoOrders, syncDecoProducts, syncDecoInventory, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
+import { syncDecoOrders, syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs } from "../services/account-seed-service";
 
 const backfillSchema = z.object({
@@ -97,6 +97,27 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, ...result };
   });
 
+  app.post("/sync/deco/customers", async () => {
+    if (!isDecoConfigured()) {
+      return { ok: false, error: "DecoNetwork is not configured." };
+    }
+    const result = await syncDecoCustomers();
+    return { ok: true, ...result };
+  });
+
+  app.post("/sync/deco/all", async () => {
+    if (!isDecoConfigured()) {
+      return { ok: false, error: "DecoNetwork is not configured." };
+    }
+    const [customers, products, inventory, orders] = await Promise.all([
+      syncDecoCustomers(),
+      syncDecoProducts(),
+      syncDecoInventory(),
+      syncDecoOrders(),
+    ]);
+    return { ok: true, customers, products, inventory, orders };
+  });
+
   app.post("/sync/deco/push/:jobId", async (request) => {
     const { jobId } = request.params as { jobId: string };
 
@@ -138,7 +159,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
   // ── Unified sync status ──
 
   app.get("/sync/status", async () => {
-    const [received, processed, failed, queueCounts, cursors] = await Promise.all([
+    const [received, processed, failed, queueCounts, cursors, decoProductCount, decoInventoryCount, decoCustomerCount] = await Promise.all([
       prisma.eventInbox.count({ where: { status: EventStatus.RECEIVED } }),
       prisma.eventInbox.count({ where: { status: EventStatus.PROCESSED } }),
       prisma.eventInbox.count({ where: { status: EventStatus.FAILED } }),
@@ -146,12 +167,20 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       prisma.syncCursor.findMany({
         orderBy: { provider: "asc" },
       }),
+      prisma.decoProduct.count(),
+      prisma.decoInventory.count(),
+      prisma.decoCustomer.count(),
     ]);
 
     return {
       ok: true,
       shopify: { configured: isShopifyConfigured() },
-      deco: { configured: isDecoConfigured() },
+      deco: {
+        configured: isDecoConfigured(),
+        products: decoProductCount,
+        inventory: decoInventoryCount,
+        customers: decoCustomerCount,
+      },
       events: { received, processed, failed },
       queue: queueCounts,
       cursors,
