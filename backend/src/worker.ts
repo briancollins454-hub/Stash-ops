@@ -122,7 +122,7 @@ async function processDecoSync(payload: DecoSyncJobPayload, job: { updateProgres
 
   if (task === "orders" || task === "all") {
     await job.updateProgress({ phase: "orders" });
-    await safe("orders", () => syncDecoOrders({ since, limit }));
+    await safe("orders", () => syncDecoOrders({ since, limit, includeWorkflow: false }));
   }
   if (task === "products" || task === "all") {
     await job.updateProgress({ phase: "products" });

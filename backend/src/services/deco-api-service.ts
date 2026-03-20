@@ -231,6 +231,7 @@ export type DecoSyncResult = {
 export async function syncDecoOrders(options?: {
   since?: string;
   limit?: number;
+  includeWorkflow?: boolean;
 }): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured. Set DECO_BASE_URL, DECO_USERNAME, and DECO_PASSWORD.");
@@ -262,17 +263,20 @@ export async function syncDecoOrders(options?: {
     const batchLimit = Math.min(BATCH_SIZE, limit - offset);
 
     let data: { total?: number; orders?: DecoRawOrder[] };
+    const fetchParams: Record<string, string> = {
+      limit: String(batchLimit),
+      offset: String(offset),
+      field: "1",
+      condition: "4",
+      date1: dateFilter,
+    };
+    if (options?.includeWorkflow !== false) {
+      fetchParams.include_workflow_data = "1";
+    }
     try {
       data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
         "/api/json/manage_orders/find",
-        {
-          limit: String(batchLimit),
-          offset: String(offset),
-          field: "1",
-          condition: "4",
-          date1: dateFilter,
-          include_workflow_data: "1",
-        },
+        fetchParams,
       );
     } catch (err) {
       logger.error({ offset, err }, "Deco order fetch failed mid-pagination, saving progress");
