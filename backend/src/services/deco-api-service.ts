@@ -6,9 +6,11 @@ import { createInboxEvent } from "./event-inbox-service";
 
 // ── DecoNetwork API client ──
 //
-// DecoNetwork uses session-based authentication. We login first to get a
-// session cookie, then include it in all subsequent API requests.
-// Available APIs (from Deco admin Reports panel):
+// DecoNetwork uses query-parameter authentication with lowercase field names.
+// Every request must include: username, password, skip_login_token=1
+// Search endpoints also require: field, condition, date1/string/criteria
+//
+// Available APIs:
 //   /api/json/manage_orders/find          — search orders
 //   /api/json/manage_orders/create        — create order
 //   /api/json/manage_orders/update_order_status — update order status
@@ -22,117 +24,64 @@ function baseUrl(): string {
   return env.DECO_BASE_URL!.replace(/\/+$/, "");
 }
 
-// ── Session management ──
-// Cache the session cookie so we don't login on every API call.
-// Expires after 25 minutes (DecoNetwork sessions typically last 30 min).
-
-let sessionCookie: string | null = null;
-let sessionExpiresAt = 0;
-const SESSION_TTL_MS = 25 * 60 * 1000; // 25 minutes
-
-async function ensureSession(): Promise<string> {
-  if (sessionCookie && Date.now() < sessionExpiresAt) {
-    return sessionCookie;
-  }
-
-  const loginUrl = `${baseUrl()}/admin/login`;
-  const body = new URLSearchParams();
-  body.set("Username", env.DECO_USERNAME!);
-  body.set("Password", env.DECO_PASSWORD!);
-
-  const response = await fetch(loginUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-    redirect: "manual", // Don't follow redirect — we just need the Set-Cookie
-  });
-
-  // Collect Set-Cookie headers
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  const cookieParts: string[] = [];
-  for (const sc of setCookies) {
-    const name_val = sc.split(";")[0]; // Take "name=value" before attributes
-    if (name_val) cookieParts.push(name_val);
-  }
-
-  // Fallback: try raw header if getSetCookie is not available
-  if (cookieParts.length === 0) {
-    const raw = response.headers.get("set-cookie");
-    if (raw) {
-      cookieParts.push(raw.split(";")[0]);
-    }
-  }
-
-  if (cookieParts.length === 0) {
-    throw new Error(`Deco login failed — no session cookie returned (status ${response.status})`);
-  }
-
-  sessionCookie = cookieParts.join("; ");
-  sessionExpiresAt = Date.now() + SESSION_TTL_MS;
-  logger.info("Deco session established");
-  return sessionCookie;
-}
-
-/** Build base auth query params required by every Deco API call */
+/** Build base auth query params required by every Deco API call (lowercase) */
 function authParams(): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("Username", env.DECO_USERNAME!);
-  params.set("Password", env.DECO_PASSWORD!);
+  params.set("username", env.DECO_USERNAME!);
+  params.set("password", env.DECO_PASSWORD!);
+  params.set("skip_login_token", "1");
   return params;
 }
 
-function jsonHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-}
+/**
+ * Low-level Deco API fetch. Builds full URL from path + params,
+ * handles timeouts, JSON parsing, and Deco-level error codes.
+ */
+async function decoFetch<T>(path: string, extraParams?: Record<string, string>, options?: RequestInit): Promise<T> {
+  const params = authParams();
+  if (extraParams) {
+    for (const [k, v] of Object.entries(extraParams)) {
+      params.set(k, v);
+    }
+  }
 
-async function decoFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const cookie = await ensureSession();
-  const url = `${baseUrl()}${path}`;
+  const url = `${baseUrl()}${path}?${params.toString()}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), env.DECO_SYNC_TIMEOUT_MS);
 
   try {
-    const incomingHeaders = (options?.headers as Record<string, string> | undefined) ?? {};
     const response = await fetch(url, {
       ...options,
-      headers: {
-        ...incomingHeaders,
-        Cookie: cookie,
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json", ...(options?.headers as Record<string, string> ?? {}) },
       signal: controller.signal,
     });
 
     const text = await response.text();
 
-    // If we get a 401/403 or HTML redirect to login, invalidate session and retry once
-    if (response.status === 401 || response.status === 403 ||
-        (text.trimStart().startsWith("<!DOCTYPE") && text.includes("login"))) {
-      sessionCookie = null;
-      sessionExpiresAt = 0;
-      throw new Error(`Deco session expired for ${path} — will retry on next call`);
+    // Detect HTML responses (login redirects, 404 pages)
+    if (text.trimStart().startsWith("<!DOCTYPE") || text.trimStart().startsWith("<html")) {
+      throw new Error(`Deco API returned HTML instead of JSON for ${path} — endpoint may not exist`);
     }
 
     if (!response.ok) {
       throw new Error(`Deco API ${options?.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 300)}`);
     }
 
-    // Detect HTML responses (e.g. login pages for unsupported endpoints)
-    if (text.trimStart().startsWith("<!DOCTYPE") || text.trimStart().startsWith("<html")) {
-      throw new Error(`Deco API returned HTML instead of JSON for ${path} — endpoint may not exist`);
-    }
-
-    // Check for Deco-level auth errors in JSON response
     const parsed = text ? (JSON.parse(text) as T) : ({} as T);
-    const responseStatus = (parsed as Record<string, unknown>)?.response_status as { code?: number } | undefined;
-    if (responseStatus?.code === 30001) {
-      // Auth failed at Deco level — also pass credentials as query params as fallback
-      sessionCookie = null;
-      sessionExpiresAt = 0;
-      throw new Error("Deco API authentication failed (code 30001). Check DECO_USERNAME and DECO_PASSWORD.");
+
+    // Check for Deco-level error codes
+    const rs = (parsed as Record<string, unknown>)?.response_status as { code?: number; description?: string } | undefined;
+    if (rs?.code && rs.code !== 10001) {
+      if (rs.code === 30001 || rs.code === 10002) {
+        throw new Error("Deco API authentication failed. Check DECO_USERNAME and DECO_PASSWORD.");
+      }
+      if (rs.code === 10005) {
+        throw new Error("Deco API access denied. Ensure API is enabled in DecoNetwork settings.");
+      }
+      if (rs.code === 50002) {
+        throw new Error(`Deco API: No conditions specified for ${path}. Add field/condition params.`);
+      }
+      throw new Error(`Deco API error (code ${rs.code}): ${rs.description ?? "Unknown error"}`);
     }
 
     return parsed;
@@ -147,87 +96,82 @@ async function decoFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ── DecoNetwork response types ──
-// These match the actual JSON shapes returned by the Deco API.
+// These match the actual JSON shapes returned by the Deco API (snake_case).
 
-type DecoOrderResponse = {
-  OrderId?: number;
-  OrderNumber?: string;
-  JobNumber?: string;
-  DateOrdered?: string;
-  DateUpdated?: string;
-  Status?: string;
-  CustomerName?: string;
-  CustomerEmail?: string;
-  CustomerId?: number;
-  TotalAmount?: number;
-  Currency?: string;
-  Items?: DecoOrderItemResponse[];
-  PurchaseOrders?: DecoPOResponse[];
-  Shipments?: DecoShipmentResponse[];
-  WorkflowStatus?: string;
+type DecoRawOrder = {
+  order_id?: number;
+  job_name?: string;
+  customer_id?: number;
+  customer_po_number?: string;
+  order_status?: number;
+  order_status_name?: string;
+  date_ordered?: string;
+  date_modified?: string;
+  date_due?: string;
+  date_scheduled?: string;
+  date_shipped?: string;
+  date_completed?: string;
+  billable_amount?: number;
+  billing_details?: {
+    user_id?: number;
+    company?: string;
+    firstname?: string;
+    lastname?: string;
+    email?: string;
+    ph_number?: string;
+    country_code?: string;
+    state?: string;
+    city?: string;
+    street?: string;
+    postcode?: string;
+  };
+  order_lines?: DecoRawOrderLine[];
+  notes?: Array<{ content?: string }>;
 };
 
-type DecoOrderItemResponse = {
-  ItemId?: number;
-  ProductId?: number;
-  ProductName?: string;
-  Sku?: string;
-  Quantity?: number;
-  UnitPrice?: number;
-  DecorationMethod?: string;
-  DesignId?: number;
-  Status?: string;
+type DecoRawOrderLine = {
+  item_type?: number;
+  product_name?: string;
+  product_code?: string;
+  sku?: string;
+  qty?: string | number;
+  product_color?: { name?: string };
+  barcode?: string;
+  ean?: string;
+  production_status?: number;
+  workflow_items?: DecoRawWorkflowItem[];
+  fields?: Array<{ options?: Array<{ option_id?: number; code?: string; name?: string }> }>;
 };
 
-type DecoPOResponse = {
-  PurchaseOrderId?: number;
-  SupplierName?: string;
-  Status?: string;
-  DateCreated?: string;
-  DateExpected?: string;
-  Items?: Array<{ Sku?: string; Quantity?: number; ReceivedQuantity?: number }>;
+type DecoRawWorkflowItem = {
+  option_id?: number;
+  vendor_sku?: string;
+  barcode?: string;
+  ean?: string;
+  qty_to_fulfill?: number;
+  procurement_status?: number;
+  production_status?: number;
+  shipping_status?: number;
 };
 
-type DecoShipmentResponse = {
-  ShipmentId?: number;
-  TrackingNumber?: string;
-  Status?: string;
-  DateShipped?: string;
+type DecoRawProduct = {
+  product_id?: number;
+  product_name?: string;
+  sku?: string;
+  category?: string;
+  active?: boolean;
+  price?: number;
+  sizes?: string;
+  colors?: string;
 };
 
-type DecoProductResponse = {
-  ProductId?: number;
-  ProductName?: string;
-  Sku?: string;
-  Category?: string;
-  Active?: boolean;
-  Price?: number;
-  Sizes?: string;
-  Colors?: string;
-};
-
-type DecoInventoryResponse = {
-  ProductId?: number;
-  Sku?: string;
-  ProductName?: string;
-  QuantityOnHand?: number;
-  QuantityAvailable?: number;
-  QuantityOnOrder?: number;
-};
-
-type DecoCustomerResponse = {
-  CustomerId?: number;
-  CustomerName?: string;
-  Email?: string;
-  Phone?: string;
-  CompanyName?: string;
-  Address1?: string;
-  Address2?: string;
-  City?: string;
-  State?: string;
-  PostCode?: string;
-  Country?: string;
-  Active?: boolean;
+type DecoRawInventory = {
+  product_id?: number;
+  sku?: string;
+  product_name?: string;
+  qty_on_hand?: number;
+  qty_available?: number;
+  qty_on_order?: number;
 };
 
 // ── Normalised types (used internally) ──
@@ -243,28 +187,29 @@ export type DecoOrder = {
   totalAmount?: number;
   dateOrdered?: string;
   dateUpdated?: string;
-  items: DecoOrderItemResponse[];
-  purchaseOrders: DecoPOResponse[];
-  shipments: DecoShipmentResponse[];
+  items: DecoRawOrderLine[];
   workflowStatus?: string;
 };
 
-function normaliseOrder(raw: DecoOrderResponse): DecoOrder {
+function normaliseOrder(raw: DecoRawOrder): DecoOrder {
+  const billing = raw.billing_details;
+  const custName = billing?.company
+    || `${billing?.firstname ?? ""} ${billing?.lastname ?? ""}`.trim()
+    || "Unknown";
+
   return {
-    id: raw.OrderId ?? 0,
-    orderNumber: raw.OrderNumber ?? raw.JobNumber,
-    jobNumber: raw.JobNumber,
-    customerId: raw.CustomerId,
-    customerName: raw.CustomerName,
-    customerEmail: raw.CustomerEmail,
-    status: raw.Status,
-    totalAmount: raw.TotalAmount,
-    dateOrdered: raw.DateOrdered,
-    dateUpdated: raw.DateUpdated,
-    items: raw.Items ?? [],
-    purchaseOrders: raw.PurchaseOrders ?? [],
-    shipments: raw.Shipments ?? [],
-    workflowStatus: raw.WorkflowStatus,
+    id: raw.order_id ?? 0,
+    orderNumber: String(raw.order_id ?? ""),
+    jobNumber: String(raw.order_id ?? ""),
+    customerId: raw.customer_id ?? billing?.user_id,
+    customerName: custName,
+    customerEmail: billing?.email,
+    status: raw.order_status_name ?? String(raw.order_status ?? ""),
+    totalAmount: raw.billable_amount,
+    dateOrdered: raw.date_ordered,
+    dateUpdated: raw.date_modified,
+    items: raw.order_lines ?? [],
+    workflowStatus: raw.order_status_name,
   };
 }
 
@@ -280,14 +225,12 @@ export type DecoSyncResult = {
 
 /**
  * Fetch orders from DecoNetwork using /api/json/manage_orders/find
- * Supports filtering by date, pagination via limit/offset.
+ * Uses field=1 (Date Ordered), condition=4 (>=), date1 filter.
+ * Supports pagination via limit/offset.
  */
 export async function syncDecoOrders(options?: {
   since?: string;
   limit?: number;
-  includeWorkflow?: boolean;
-  includePurchaseOrders?: boolean;
-  includeShipments?: boolean;
 }): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured. Set DECO_BASE_URL, DECO_USERNAME, and DECO_PASSWORD.");
@@ -299,40 +242,44 @@ export async function syncDecoOrders(options?: {
 
   const since = options?.since ?? cursor?.cursor ?? undefined;
   const limit = options?.limit ?? 100;
+  const BATCH_SIZE = 100;
+  let allOrders: DecoRawOrder[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  // Build query params for the Deco Order Management API
-  const params = authParams();
-  params.set("Limit", String(limit));
-  params.set("Offset", "0");
-  params.set("SortBy", "Date Ordered");
+  // Default to 90 days ago if no cursor
+  const defaultSince = new Date();
+  defaultSince.setDate(defaultSince.getDate() - 90);
+  const dateFilter = since ?? `${defaultSince.toISOString().split("T")[0]} 00:00:00`;
 
-  if (since) {
-    params.set("Field", "Date Updated");
-    params.set("Condition", ">=");
-    params.set("Date1", since);
+  while (hasMore && offset < limit) {
+    const batchLimit = Math.min(BATCH_SIZE, limit - offset);
+    const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
+      "/api/json/manage_orders/find",
+      {
+        limit: String(batchLimit),
+        offset: String(offset),
+        field: "1", // Date Ordered
+        condition: "4", // >=
+        date1: dateFilter,
+        include_workflow_data: "1",
+      },
+    );
+
+    const batch = data.orders ?? [];
+    allOrders = [...allOrders, ...batch];
+    if (batch.length < batchLimit || allOrders.length >= (data.total ?? 0)) {
+      hasMore = false;
+    } else {
+      offset += batch.length;
+    }
   }
 
-  if (options?.includeWorkflow !== false) {
-    params.set("IncludeWorkflowInformation", "true");
-  }
-  if (options?.includePurchaseOrders) {
-    params.set("IncludePurchaseOrderInformation", "true");
-  }
-  if (options?.includeShipments) {
-    params.set("IncludeShipments", "true");
-  }
-
-  const rawOrders = await decoFetch<DecoOrderResponse[]>(
-    `/api/json/manage_orders/find?${params.toString()}`,
-  );
-
-  // Deco returns an empty body or empty array when no results
-  const ordersList = Array.isArray(rawOrders) ? rawOrders : [];
   let synced = 0;
   let errors = 0;
   let latestUpdate: string | undefined;
 
-  for (const rawOrder of ordersList) {
+  for (const rawOrder of allOrders) {
     try {
       const order = normaliseOrder(rawOrder);
       if (!order.id) continue;
@@ -354,7 +301,7 @@ export async function syncDecoOrders(options?: {
       }
     } catch (error) {
       errors++;
-      logger.warn({ decoOrderId: rawOrder.OrderId, err: error }, "Failed to queue Deco order sync event");
+      logger.warn({ decoOrderId: rawOrder.order_id, err: error }, "Failed to queue Deco order sync event");
     }
   }
 
@@ -366,63 +313,67 @@ export async function syncDecoOrders(options?: {
     });
   }
 
-  logger.info({ synced, errors, total: ordersList.length }, "Deco order sync complete");
-  return { provider: "deco", operation: "orders", synced, errors, total: ordersList.length };
+  logger.info({ synced, errors, total: allOrders.length }, "Deco order sync complete");
+  return { provider: "deco", operation: "orders", synced, errors, total: allOrders.length };
 }
 
 /**
  * Fetch products from DecoNetwork using /api/json/manage_products/find
  * Persists to DecoProduct table.
+ * Note: Deco requires field/condition params even for products.
  */
 export async function syncDecoProducts(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  const params = authParams();
-  params.set("Limit", "500");
-
-  const rawProducts = await decoFetch<DecoProductResponse[]>(
-    `/api/json/manage_products/find?${params.toString()}`,
+  const data = await decoFetch<{ total?: number; products?: DecoRawProduct[] }>(
+    "/api/json/manage_products/find",
+    {
+      limit: "500",
+      field: "1",
+      condition: "4",
+      date1: "2000-01-01 00:00:00",
+    },
   );
 
-  const products = Array.isArray(rawProducts) ? rawProducts : [];
+  const products = data.products ?? [];
   let synced = 0;
   let errors = 0;
 
   for (const product of products) {
     try {
-      const decoProductId = String(product.ProductId ?? "");
+      const decoProductId = String(product.product_id ?? "");
       if (!decoProductId) continue;
 
       await prisma.decoProduct.upsert({
         where: { decoProductId },
         update: {
-          name: product.ProductName ?? "Unknown",
-          sku: product.Sku ?? null,
-          category: product.Category ?? null,
-          price: product.Price ?? null,
-          sizes: product.Sizes ?? null,
-          colors: product.Colors ?? null,
-          active: product.Active !== false,
+          name: product.product_name ?? "Unknown",
+          sku: product.sku ?? null,
+          category: product.category ?? null,
+          price: product.price ?? null,
+          sizes: product.sizes ?? null,
+          colors: product.colors ?? null,
+          active: product.active !== false,
           lastSyncedAt: new Date(),
         },
         create: {
           decoProductId,
-          name: product.ProductName ?? "Unknown",
-          sku: product.Sku ?? null,
-          category: product.Category ?? null,
-          price: product.Price ?? null,
-          sizes: product.Sizes ?? null,
-          colors: product.Colors ?? null,
-          active: product.Active !== false,
+          name: product.product_name ?? "Unknown",
+          sku: product.sku ?? null,
+          category: product.category ?? null,
+          price: product.price ?? null,
+          sizes: product.sizes ?? null,
+          colors: product.colors ?? null,
+          active: product.active !== false,
         },
       });
 
       synced++;
     } catch (error) {
       errors++;
-      logger.warn({ productId: product.ProductId, err: error }, "Failed to process Deco product");
+      logger.warn({ productId: product.product_id, err: error }, "Failed to process Deco product");
     }
   }
 
@@ -445,46 +396,49 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
     throw new Error("DecoNetwork is not configured.");
   }
 
-  const params = authParams();
-  params.set("Limit", "500");
-
-  const rawInventory = await decoFetch<DecoInventoryResponse[]>(
-    `/api/json/manage_inventory/find?${params.toString()}`,
+  const data = await decoFetch<{ total?: number; inventories?: DecoRawInventory[] }>(
+    "/api/json/manage_inventory/find",
+    {
+      limit: "500",
+      field: "1",
+      condition: "4",
+      date1: "2000-01-01 00:00:00",
+    },
   );
 
-  const items = Array.isArray(rawInventory) ? rawInventory : [];
+  const items = data.inventories ?? [];
   let synced = 0;
   let errors = 0;
 
   for (const item of items) {
     try {
-      const decoProductId = String(item.ProductId ?? "");
+      const decoProductId = String(item.product_id ?? "");
       if (!decoProductId) continue;
 
       await prisma.decoInventory.upsert({
         where: { decoProductId },
         update: {
-          sku: item.Sku ?? null,
-          productName: item.ProductName ?? null,
-          quantityOnHand: item.QuantityOnHand ?? 0,
-          quantityAvailable: item.QuantityAvailable ?? 0,
-          quantityOnOrder: item.QuantityOnOrder ?? 0,
+          sku: item.sku ?? null,
+          productName: item.product_name ?? null,
+          quantityOnHand: item.qty_on_hand ?? 0,
+          quantityAvailable: item.qty_available ?? 0,
+          quantityOnOrder: item.qty_on_order ?? 0,
           lastSyncedAt: new Date(),
         },
         create: {
           decoProductId,
-          sku: item.Sku ?? null,
-          productName: item.ProductName ?? null,
-          quantityOnHand: item.QuantityOnHand ?? 0,
-          quantityAvailable: item.QuantityAvailable ?? 0,
-          quantityOnOrder: item.QuantityOnOrder ?? 0,
+          sku: item.sku ?? null,
+          productName: item.product_name ?? null,
+          quantityOnHand: item.qty_on_hand ?? 0,
+          quantityAvailable: item.qty_available ?? 0,
+          quantityOnOrder: item.qty_on_order ?? 0,
         },
       });
 
       synced++;
     } catch (error) {
       errors++;
-      logger.warn({ productId: item.ProductId, err: error }, "Failed to process Deco inventory item");
+      logger.warn({ productId: item.product_id, err: error }, "Failed to process Deco inventory item");
     }
   }
 
@@ -501,7 +455,7 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 /**
  * Extract unique customers from Deco orders and persist to DecoCustomer table.
  * DecoNetwork has no dedicated customer management API, so we pull customer
- * info from the order data (CustomerId, CustomerName, CustomerEmail).
+ * info from the order data (customer_id, billing_details).
  */
 export async function syncDecoCustomers(): Promise<DecoSyncResult> {
   if (!isDecoConfigured()) {
@@ -509,29 +463,31 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
   }
 
   // Fetch a large batch of orders to extract customer data
-  const params = authParams();
-  params.set("Limit", "500");
-  params.set("Offset", "0");
-  params.set("SortBy", "Date Ordered");
+  const defaultSince = new Date();
+  defaultSince.setDate(defaultSince.getDate() - 365);
+  const dateFilter = `${defaultSince.toISOString().split("T")[0]} 00:00:00`;
 
-  const rawOrders = await decoFetch<DecoOrderResponse[]>(
-    `/api/json/manage_orders/find?${params.toString()}`,
+  const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
+    "/api/json/manage_orders/find",
+    {
+      limit: "500",
+      offset: "0",
+      field: "1",
+      condition: "4",
+      date1: dateFilter,
+    },
   );
 
-  const ordersList = Array.isArray(rawOrders) ? rawOrders : [];
+  const ordersList = data.orders ?? [];
 
-  // De-duplicate customers by CustomerId
-  const customerMap = new Map<string, DecoCustomerResponse>();
+  // De-duplicate customers by customer_id
+  const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
   for (const order of ordersList) {
-    const customerId = order.CustomerId;
+    const customerId = order.customer_id ?? order.billing_details?.user_id;
     if (!customerId) continue;
     const key = String(customerId);
-    if (!customerMap.has(key)) {
-      customerMap.set(key, {
-        CustomerId: customerId,
-        CustomerName: order.CustomerName,
-        Email: order.CustomerEmail,
-      });
+    if (!customerMap.has(key) && order.billing_details) {
+      customerMap.set(key, { id: customerId, billing: order.billing_details });
     }
   }
 
@@ -539,40 +495,40 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
   let synced = 0;
   let errors = 0;
 
-  for (const customer of customers) {
+  for (const { id, billing } of customers) {
     try {
-      const decoCustomerId = String(customer.CustomerId ?? "");
-      if (!decoCustomerId) continue;
+      const decoCustomerId = String(id);
+      const name = billing.company
+        || `${billing.firstname ?? ""} ${billing.lastname ?? ""}`.trim()
+        || "Unknown";
 
       await prisma.decoCustomer.upsert({
         where: { decoCustomerId },
         update: {
-          name: customer.CustomerName ?? "Unknown",
-          email: customer.Email ?? null,
-          phone: customer.Phone ?? null,
-          company: customer.CompanyName ?? null,
-          address1: customer.Address1 ?? null,
-          address2: customer.Address2 ?? null,
-          city: customer.City ?? null,
-          state: customer.State ?? null,
-          postcode: customer.PostCode ?? null,
-          country: customer.Country ?? null,
-          active: customer.Active !== false,
+          name,
+          email: billing.email ?? null,
+          phone: billing.ph_number ?? null,
+          company: billing.company ?? null,
+          address1: billing.street ?? null,
+          city: billing.city ?? null,
+          state: billing.state ?? null,
+          postcode: billing.postcode ?? null,
+          country: billing.country_code ?? null,
+          active: true,
           lastSyncedAt: new Date(),
         },
         create: {
           decoCustomerId,
-          name: customer.CustomerName ?? "Unknown",
-          email: customer.Email ?? null,
-          phone: customer.Phone ?? null,
-          company: customer.CompanyName ?? null,
-          address1: customer.Address1 ?? null,
-          address2: customer.Address2 ?? null,
-          city: customer.City ?? null,
-          state: customer.State ?? null,
-          postcode: customer.PostCode ?? null,
-          country: customer.Country ?? null,
-          active: customer.Active !== false,
+          name,
+          email: billing.email ?? null,
+          phone: billing.ph_number ?? null,
+          company: billing.company ?? null,
+          address1: billing.street ?? null,
+          city: billing.city ?? null,
+          state: billing.state ?? null,
+          postcode: billing.postcode ?? null,
+          country: billing.country_code ?? null,
+          active: true,
         },
       });
 
@@ -581,11 +537,10 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
         where: { decoCustomerId },
       });
 
-      if (!existingAccount && customer.CustomerName) {
-        // Check if there's an account with matching name that has no Deco link
+      if (!existingAccount && name) {
         const matchByName = await prisma.account.findFirst({
           where: {
-            name: { equals: customer.CustomerName, mode: "insensitive" },
+            name: { equals: name, mode: "insensitive" },
             decoCustomerId: null,
           },
         });
@@ -595,14 +550,14 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
             where: { id: matchByName.id },
             data: { decoCustomerId },
           });
-          logger.info({ accountId: matchByName.id, decoCustomerId, name: customer.CustomerName }, "Auto-linked Deco customer to account");
+          logger.info({ accountId: matchByName.id, decoCustomerId, name }, "Auto-linked Deco customer to account");
         }
       }
 
       synced++;
     } catch (error) {
       errors++;
-      logger.warn({ customerId: customer.CustomerId, err: error }, "Failed to process Deco customer");
+      logger.warn({ customerId: id, err: error }, "Failed to process Deco customer");
     }
   }
 
@@ -640,14 +595,8 @@ export async function updateDecoOrderStatus(
     await decoFetch<unknown>(
       "/api/json/manage_orders/update_order_status",
       {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify({
-          Username: env.DECO_USERNAME,
-          Password: env.DECO_PASSWORD,
-          OrderId: decoOrderId,
-          Status: status,
-        }),
+        order_id: decoOrderId,
+        status,
       },
     );
 
@@ -677,36 +626,34 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Job has no linked Deco customer." };
   }
 
-  // DecoNetwork order creation — the exact endpoint depends on your Deco setup.
-  // This creates an order via the Deco API.
-  const payload = {
-    Username: env.DECO_USERNAME,
-    Password: env.DECO_PASSWORD,
-    CustomerId: job.account.decoCustomerId,
-    ExternalReference: job.internalJobId,
-    CustomerName: job.customerName,
-    Notes: job.orderNotes,
-    Items: job.items.map((item) => ({
-      Sku: item.sku,
-      ProductName: item.productTitle,
-      Quantity: item.quantity,
-      DecorationMethod: item.decorationMethod,
-      UnitPrice: item.unitPriceMinor ? item.unitPriceMinor / 100 : undefined,
+  // DecoNetwork order creation via the Deco API.
+  const orderPayload = {
+    customer_id: job.account.decoCustomerId,
+    external_reference: job.internalJobId,
+    customer_name: job.customerName,
+    notes: job.orderNotes,
+    items: job.items.map((item) => ({
+      sku: item.sku,
+      product_name: item.productTitle,
+      quantity: item.quantity,
+      decoration_method: item.decorationMethod,
+      unit_price: item.unitPriceMinor ? item.unitPriceMinor / 100 : undefined,
     })),
   };
 
   try {
-    const result = await decoFetch<{ OrderId?: number; JobNumber?: string; OrderNumber?: string }>(
+    const result = await decoFetch<{ order_id?: number; job_number?: string; order_number?: string }>(
       "/api/json/manage_orders/create",
+      undefined,
       {
         method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderPayload),
       },
     );
 
-    const decoOrderId = result.OrderId ? String(result.OrderId) : undefined;
-    const decoJobNumber = result.JobNumber ?? result.OrderNumber ?? undefined;
+    const decoOrderId = result.order_id ? String(result.order_id) : undefined;
+    const decoJobNumber = result.job_number ?? result.order_number ?? undefined;
 
     // Update job with Deco references
     await prisma.$transaction(async (tx) => {
