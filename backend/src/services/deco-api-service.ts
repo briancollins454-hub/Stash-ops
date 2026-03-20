@@ -279,6 +279,9 @@ export async function syncDecoOrders(options?: {
   let errors = 0;
   let latestUpdate: string | undefined;
 
+  // Also extract customers inline from order billing_details
+  const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
+
   for (const rawOrder of allOrders) {
     try {
       const order = normaliseOrder(rawOrder);
@@ -296,6 +299,12 @@ export async function syncDecoOrders(options?: {
 
       synced++;
 
+      // Collect customer data from billing_details
+      const customerId = rawOrder.customer_id ?? rawOrder.billing_details?.user_id;
+      if (customerId && rawOrder.billing_details && !customerMap.has(String(customerId))) {
+        customerMap.set(String(customerId), { id: customerId, billing: rawOrder.billing_details });
+      }
+
       if (order.dateUpdated && (!latestUpdate || order.dateUpdated > latestUpdate)) {
         latestUpdate = order.dateUpdated;
       }
@@ -303,6 +312,26 @@ export async function syncDecoOrders(options?: {
       errors++;
       logger.warn({ decoOrderId: rawOrder.order_id, err: error }, "Failed to queue Deco order sync event");
     }
+  }
+
+  // Upsert extracted customers
+  let customersExtracted = 0;
+  for (const [decoCustomerId, { billing }] of customerMap) {
+    try {
+      const name = billing.company
+        || `${billing.firstname ?? ""} ${billing.lastname ?? ""}`.trim()
+        || "Unknown";
+
+      await prisma.decoCustomer.upsert({
+        where: { decoCustomerId },
+        update: { name, email: billing.email ?? null, phone: billing.ph_number ?? null, company: billing.company ?? null, address1: billing.street ?? null, city: billing.city ?? null, state: billing.state ?? null, postcode: billing.postcode ?? null, country: billing.country_code ?? null, active: true, lastSyncedAt: new Date() },
+        create: { decoCustomerId, name, email: billing.email ?? null, phone: billing.ph_number ?? null, company: billing.company ?? null, address1: billing.street ?? null, city: billing.city ?? null, state: billing.state ?? null, postcode: billing.postcode ?? null, country: billing.country_code ?? null, active: true },
+      });
+      customersExtracted++;
+    } catch { /* skip duplicate */ }
+  }
+  if (customersExtracted > 0) {
+    logger.info({ customersExtracted }, "Extracted customers from order batch");
   }
 
   if (latestUpdate) {
@@ -453,105 +482,28 @@ export async function syncDecoInventory(): Promise<DecoSyncResult> {
 }
 
 /**
- * Extract unique customers from Deco orders and persist to DecoCustomer table.
- * DecoNetwork has no dedicated customer management API, so we pull customer
- * info from the order data (customer_id, billing_details).
+ * Link existing DecoCustomer records (populated by order sync) to Accounts.
+ * Customers are extracted inline during syncDecoOrders — this function just
+ * handles the account-matching pass.
  */
 export async function syncDecoCustomers(): Promise<DecoSyncResult> {
-  if (!isDecoConfigured()) {
-    throw new Error("DecoNetwork is not configured.");
-  }
+  const unlinked = await prisma.decoCustomer.findMany({
+    where: { active: true },
+  });
 
-  // Paginate through all orders to extract customer data
-  const BATCH = 100;
-  let allOrders: DecoRawOrder[] = [];
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
-      "/api/json/manage_orders/find",
-      {
-        limit: String(BATCH),
-        offset: String(offset),
-        field: "1",
-        condition: "4",
-        date1: "2000-01-01 00:00:00",
-      },
-    );
-
-    const batch = data.orders ?? [];
-    allOrders = [...allOrders, ...batch];
-    if (batch.length < BATCH || allOrders.length >= (data.total ?? 0)) {
-      hasMore = false;
-    } else {
-      offset += batch.length;
-    }
-  }
-
-  const ordersList = allOrders;
-
-  // De-duplicate customers by customer_id
-  const customerMap = new Map<string, { id: number; billing: NonNullable<DecoRawOrder["billing_details"]> }>();
-  for (const order of ordersList) {
-    const customerId = order.customer_id ?? order.billing_details?.user_id;
-    if (!customerId) continue;
-    const key = String(customerId);
-    if (!customerMap.has(key) && order.billing_details) {
-      customerMap.set(key, { id: customerId, billing: order.billing_details });
-    }
-  }
-
-  const customers = Array.from(customerMap.values());
   let synced = 0;
   let errors = 0;
 
-  for (const { id, billing } of customers) {
+  for (const customer of unlinked) {
     try {
-      const decoCustomerId = String(id);
-      const name = billing.company
-        || `${billing.firstname ?? ""} ${billing.lastname ?? ""}`.trim()
-        || "Unknown";
-
-      await prisma.decoCustomer.upsert({
-        where: { decoCustomerId },
-        update: {
-          name,
-          email: billing.email ?? null,
-          phone: billing.ph_number ?? null,
-          company: billing.company ?? null,
-          address1: billing.street ?? null,
-          city: billing.city ?? null,
-          state: billing.state ?? null,
-          postcode: billing.postcode ?? null,
-          country: billing.country_code ?? null,
-          active: true,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          decoCustomerId,
-          name,
-          email: billing.email ?? null,
-          phone: billing.ph_number ?? null,
-          company: billing.company ?? null,
-          address1: billing.street ?? null,
-          city: billing.city ?? null,
-          state: billing.state ?? null,
-          postcode: billing.postcode ?? null,
-          country: billing.country_code ?? null,
-          active: true,
-        },
-      });
-
-      // Auto-link to Account if decoCustomerId matches
       const existingAccount = await prisma.account.findFirst({
-        where: { decoCustomerId },
+        where: { decoCustomerId: customer.decoCustomerId },
       });
 
-      if (!existingAccount && name) {
+      if (!existingAccount && customer.name) {
         const matchByName = await prisma.account.findFirst({
           where: {
-            name: { equals: name, mode: "insensitive" },
+            name: { equals: customer.name, mode: "insensitive" },
             decoCustomerId: null,
           },
         });
@@ -559,16 +511,15 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
         if (matchByName) {
           await prisma.account.update({
             where: { id: matchByName.id },
-            data: { decoCustomerId },
+            data: { decoCustomerId: customer.decoCustomerId },
           });
-          logger.info({ accountId: matchByName.id, decoCustomerId, name }, "Auto-linked Deco customer to account");
+          logger.info({ accountId: matchByName.id, decoCustomerId: customer.decoCustomerId, name: customer.name }, "Auto-linked Deco customer to account");
+          synced++;
         }
       }
-
-      synced++;
     } catch (error) {
       errors++;
-      logger.warn({ customerId: id, err: error }, "Failed to process Deco customer");
+      logger.warn({ customerId: customer.decoCustomerId, err: error }, "Failed to link Deco customer");
     }
   }
 
@@ -578,8 +529,8 @@ export async function syncDecoCustomers(): Promise<DecoSyncResult> {
     create: { provider: "deco:customers", cursor: new Date().toISOString() },
   });
 
-  logger.info({ synced, errors, total: customers.length }, "Deco customer sync complete");
-  return { provider: "deco", operation: "customers", synced, errors, total: customers.length };
+  logger.info({ synced, errors, total: unlinked.length }, "Deco customer link pass complete");
+  return { provider: "deco", operation: "customers", synced, errors, total: unlinked.length };
 }
 
 // ── Push / update operations (outbound from Stash → Deco) ──

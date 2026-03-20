@@ -77,8 +77,8 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     if (!isDecoConfigured()) {
       return { ok: false, error: "DecoNetwork is not configured." };
     }
-    const body = (request.body ?? {}) as { since?: string };
-    const result = await syncDecoOrders({ since: body.since });
+    const body = (request.body ?? {}) as { since?: string; limit?: number };
+    const result = await syncDecoOrders({ since: body.since, limit: body.limit });
     return { ok: true, ...result };
   });
 
