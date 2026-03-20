@@ -25,6 +25,25 @@ type DecoProduct = {
   colors?: string;
 };
 
+type DecoProductDetail = {
+  productId: number;
+  productCode: string;
+  productName: string;
+  supplier: string;
+  brand: string;
+  category: string;
+  colors: Array<{ id: number; name: string }>;
+  sizes: Array<{ id: number; name: string; code: string }>;
+  skus: Array<{
+    sizeId: number;
+    colorId: number;
+    price: number;
+    cost: number;
+    sku: string;
+    dnSkuId: string;
+  }>;
+};
+
 type InventoryItem = {
   decoProductId?: string;
   sku: string;
@@ -42,8 +61,14 @@ type LineItem = {
   quantity: number;
   decorationMethod: string;
   placement: string;
+  placements: string[];
   unitPrice: string;
   decoProductId?: string;
+  // Rich product detail (fetched from Deco API)
+  productDetail?: DecoProductDetail;
+  productDetailLoading?: boolean;
+  selectedColorId?: number;
+  sizeQuantities?: Record<number, number>; // sizeId → quantity
 };
 
 const DECORATION_METHODS = [
@@ -59,6 +84,16 @@ const DECORATION_METHODS = [
 const STEPS = ["Customer", "Products", "Review"] as const;
 type Step = (typeof STEPS)[number];
 
+const PLACEMENTS = [
+  { key: "front", label: "Front", icon: "👕" },
+  { key: "back", label: "Back", icon: "🔙" },
+  { key: "left_chest", label: "Left Chest", icon: "◀" },
+  { key: "right_chest", label: "Right Chest", icon: "▶" },
+  { key: "left_sleeve", label: "Left Sleeve", icon: "🦾" },
+  { key: "right_sleeve", label: "Right Sleeve", icon: "💪" },
+  { key: "collar", label: "Collar", icon: "⬆" },
+] as const;
+
 function emptyLine(): LineItem {
   return {
     id: crypto.randomUUID(),
@@ -68,8 +103,11 @@ function emptyLine(): LineItem {
     quantity: 1,
     decorationMethod: "dtf",
     placement: "front",
+    placements: ["front"],
     unitPrice: "",
     decoProductId: undefined,
+    selectedColorId: undefined,
+    sizeQuantities: undefined,
   };
 }
 
@@ -276,14 +314,102 @@ export default function QuoteBuilderPage() {
       productTitle: product.name,
       decoProductId: product.decoProductId,
       unitPrice: product.price ? String(product.price) : "",
+      productDetailLoading: true,
     });
     setShowProductPicker(null);
     setProductSearch("");
+
+    // Fetch rich product detail (colors, sizes, per-SKU pricing)
+    if (product.decoProductId) {
+      fetch(`/api/quotes/products/${encodeURIComponent(product.decoProductId)}`)
+        .then((res) => res.json())
+        .then((detail: DecoProductDetail & { error?: string }) => {
+          if (detail.error || !detail.colors) {
+            updateLineItem(lineId, { productDetailLoading: false });
+            return;
+          }
+          const firstColor = detail.colors[0];
+          // Find price from first available SKU
+          const firstSku = detail.skus[0];
+          const initSizeQtys: Record<number, number> = {};
+          for (const sz of detail.sizes) {
+            if (sz.code !== "MS") initSizeQtys[sz.id] = 0;
+          }
+          updateLineItem(lineId, {
+            productDetail: detail,
+            productDetailLoading: false,
+            selectedColorId: firstColor?.id,
+            sizeQuantities: initSizeQtys,
+            unitPrice: firstSku?.price ? String(firstSku.price) : "",
+            variantTitle: firstColor?.name ?? "",
+          });
+        })
+        .catch(() => {
+          updateLineItem(lineId, { productDetailLoading: false });
+        });
+    }
   }
 
   function getInventoryForSku(sku: string): InventoryItem | undefined {
     if (!sku) return undefined;
     return inventory.find((i) => i.sku.toLowerCase() === sku.toLowerCase());
+  }
+
+  /** Get per-SKU price for a given color and size from product detail */
+  function getSkuPrice(detail: DecoProductDetail, colorId: number, sizeId: number): number | undefined {
+    const sku = detail.skus.find((s) => s.colorId === colorId && s.sizeId === sizeId);
+    return sku?.price;
+  }
+
+  /** Calculate total quantity from sizes grid */
+  function calcSizeQuantitiesTotal(sizeQtys: Record<number, number> | undefined): number {
+    if (!sizeQtys) return 0;
+    return Object.values(sizeQtys).reduce((sum, q) => sum + q, 0);
+  }
+
+  /** Toggle a placement on/off for a line item */
+  function togglePlacement(lineId: string, placementKey: string) {
+    setLineItems((items) =>
+      items.map((item) => {
+        if (item.id !== lineId) return item;
+        const current = item.placements ?? [item.placement];
+        const next = current.includes(placementKey)
+          ? current.filter((p) => p !== placementKey)
+          : [...current, placementKey];
+        const result = next.length > 0 ? next : ["front"];
+        return { ...item, placements: result, placement: result[0] };
+      }),
+    );
+  }
+
+  /** Select a color for a line item and update unit price from SKU data */
+  function selectColor(lineId: string, colorId: number) {
+    setLineItems((items) =>
+      items.map((item) => {
+        if (item.id !== lineId || !item.productDetail) return item;
+        const color = item.productDetail.colors.find((c) => c.id === colorId);
+        // Find price for this color (use first available size)
+        const sku = item.productDetail.skus.find((s) => s.colorId === colorId);
+        return {
+          ...item,
+          selectedColorId: colorId,
+          variantTitle: color?.name ?? "",
+          unitPrice: sku?.price ? String(sku.price) : item.unitPrice,
+        };
+      }),
+    );
+  }
+
+  /** Update size quantity and recalculate total */
+  function updateSizeQty(lineId: string, sizeId: number, qty: number) {
+    setLineItems((items) =>
+      items.map((item) => {
+        if (item.id !== lineId) return item;
+        const newSizeQtys = { ...(item.sizeQuantities ?? {}), [sizeId]: Math.max(0, qty) };
+        const totalQty = Object.values(newSizeQtys).reduce((sum, q) => sum + q, 0);
+        return { ...item, sizeQuantities: newSizeQtys, quantity: Math.max(1, totalQty) };
+      }),
+    );
   }
 
   function calcLineTotal(item: LineItem): number {
@@ -330,16 +456,29 @@ export default function QuoteBuilderPage() {
       dueAt: dueAt || undefined,
       lineItems: lineItems
         .filter((item) => item.productTitle.trim())
-        .map((item) => ({
-          sku: item.sku.trim() || undefined,
-          productTitle: item.productTitle.trim(),
-          variantTitle: item.variantTitle.trim() || undefined,
-          quantity: item.quantity,
-          decorationMethod: item.decorationMethod || undefined,
-          placement: item.placement.trim() || undefined,
-          unitPricePounds: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
-          decoProductId: item.decoProductId,
-        })),
+        .map((item) => {
+          // Build variant title with size breakdown
+          let variant = item.variantTitle.trim();
+          if (item.sizeQuantities && item.productDetail) {
+            const sizeBreakdown = item.productDetail.sizes
+              .filter((s) => s.code !== "MS" && (item.sizeQuantities?.[s.id] ?? 0) > 0)
+              .map((s) => `${s.code}×${item.sizeQuantities![s.id]}`)
+              .join(", ");
+            if (sizeBreakdown) {
+              variant = variant ? `${variant} (${sizeBreakdown})` : sizeBreakdown;
+            }
+          }
+          return {
+            sku: item.sku.trim() || undefined,
+            productTitle: item.productTitle.trim(),
+            variantTitle: variant || undefined,
+            quantity: item.quantity,
+            decorationMethod: item.decorationMethod || undefined,
+            placement: (item.placements ?? [item.placement]).join(", ") || undefined,
+            unitPricePounds: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
+            decoProductId: item.decoProductId,
+          };
+        }),
     };
 
     try {
@@ -715,8 +854,10 @@ export default function QuoteBuilderPage() {
           {/* Line items */}
           {lineItems.map((item, idx) => {
             const inv = getInventoryForSku(item.sku);
+            const detail = item.productDetail;
+            const sizeTotalQty = calcSizeQuantitiesTotal(item.sizeQuantities);
             return (
-              <div key={item.id} className="surface p-5 space-y-3">
+              <div key={item.id} className="surface p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="eyebrow">Item {idx + 1}</h3>
                   {lineItems.length > 1 && (
@@ -864,88 +1005,316 @@ export default function QuoteBuilderPage() {
                       onChange={(e) => updateLineItem(item.id, { variantTitle: e.target.value })}
                       placeholder="Size / colour"
                       className="input w-full"
+                      readOnly={!!detail}
                     />
                   </div>
                 </div>
 
-                {/* Quantity, price, decoration */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
-                      Qty *
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) =>
-                        updateLineItem(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })
-                      }
-                      className="input w-full"
-                    />
+                {/* Loading product detail */}
+                {item.productDetailLoading && (
+                  <div className="flex items-center gap-2 text-xs py-2" style={{ color: "var(--text-tertiary)" }}>
+                    <span className="animate-spin">⟳</span> Loading product details from Deco...
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
-                      Unit Price (£)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={item.unitPrice}
-                      onChange={(e) => updateLineItem(item.id, { unitPrice: e.target.value })}
-                      placeholder="0.00"
-                      className="input w-full"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
-                      Decoration
-                    </label>
-                    <select
-                      value={item.decorationMethod}
-                      onChange={(e) => updateLineItem(item.id, { decorationMethod: e.target.value })}
-                      className="input w-full"
-                    >
-                      {DECORATION_METHODS.map((m) => (
-                        <option
-                          key={m.key}
-                          value={m.key}
-                          className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                        >
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
-                      Placement
-                    </label>
-                    <select
-                      value={item.placement}
-                      onChange={(e) => updateLineItem(item.id, { placement: e.target.value })}
-                      className="input w-full"
-                    >
-                      <option value="front">Front</option>
-                      <option value="back">Back</option>
-                      <option value="left_chest">Left Chest</option>
-                      <option value="right_chest">Right Chest</option>
-                      <option value="left_sleeve">Left Sleeve</option>
-                      <option value="right_sleeve">Right Sleeve</option>
-                      <option value="collar">Collar</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
-                      Line Total
-                    </label>
-                    <div className="input w-full flex items-center font-mono text-sm" style={{ color: "var(--text-secondary)" }}>
-                      £{calcLineTotal(item).toFixed(2)}
+                )}
+
+                {/* ── Rich Product Card (when detail is loaded) ── */}
+                {detail && (
+                  <div className="space-y-4 border rounded-xl p-4" style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                    {/* Product header */}
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl">
+                            {detail.category?.toLowerCase().includes("polo") ? "👕" :
+                             detail.category?.toLowerCase().includes("hoodie") || detail.category?.toLowerCase().includes("sweat") ? "🧥" :
+                             detail.category?.toLowerCase().includes("cap") || detail.category?.toLowerCase().includes("hat") ? "🧢" :
+                             detail.category?.toLowerCase().includes("bag") ? "👜" :
+                             detail.category?.toLowerCase().includes("jacket") ? "🧥" :
+                             detail.category?.toLowerCase().includes("trouser") || detail.category?.toLowerCase().includes("pant") ? "👖" :
+                             "👕"}
+                          </span>
+                          <div>
+                            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                              {detail.productName}
+                            </div>
+                            <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                              {detail.productCode} · {detail.supplier}{detail.brand ? ` / ${detail.brand}` : ""} · {detail.category}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold font-mono" style={{ color: "var(--accent-light)" }}>
+                          £{parseFloat(item.unitPrice || "0").toFixed(2)}
+                        </div>
+                        <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>per unit</div>
+                      </div>
+                    </div>
+
+                    {/* Colour selector */}
+                    {detail.colors.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                          Colour ({detail.colors.length} available)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {detail.colors.map((color) => {
+                            const isActive = item.selectedColorId === color.id;
+                            const colorPrice = getSkuPrice(detail, color.id, detail.sizes[0]?.id ?? 0);
+                            return (
+                              <button
+                                key={color.id}
+                                onClick={() => selectColor(item.id, color.id)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all border"
+                                style={{
+                                  borderColor: isActive ? "var(--accent)" : "var(--border)",
+                                  background: isActive ? "var(--accent-soft)" : "transparent",
+                                  color: isActive ? "var(--accent-light)" : "var(--text-secondary)",
+                                  boxShadow: isActive ? "0 0 0 1px var(--accent)" : "none",
+                                }}
+                              >
+                                <span
+                                  className="inline-block w-3 h-3 rounded-full mr-1.5 border align-middle"
+                                  style={{
+                                    borderColor: "var(--border)",
+                                    background: color.name.toLowerCase() === "black" ? "#111" :
+                                      color.name.toLowerCase() === "white" ? "#f8f8f8" :
+                                      color.name.toLowerCase() === "navy" ? "#1a237e" :
+                                      color.name.toLowerCase() === "red" ? "#c62828" :
+                                      color.name.toLowerCase() === "royal" || color.name.toLowerCase() === "royal blue" ? "#1565c0" :
+                                      color.name.toLowerCase() === "grey" || color.name.toLowerCase() === "gray" ? "#9e9e9e" :
+                                      color.name.toLowerCase() === "bottle" || color.name.toLowerCase() === "bottle green" ? "#1b5e20" :
+                                      color.name.toLowerCase() === "green" ? "#2e7d32" :
+                                      color.name.toLowerCase() === "yellow" ? "#f9a825" :
+                                      color.name.toLowerCase() === "orange" ? "#e65100" :
+                                      color.name.toLowerCase() === "pink" ? "#ec407a" :
+                                      color.name.toLowerCase() === "purple" ? "#7b1fa2" :
+                                      color.name.toLowerCase() === "sky" || color.name.toLowerCase() === "sky blue" ? "#4fc3f7" :
+                                      color.name.toLowerCase() === "burgundy" || color.name.toLowerCase() === "maroon" ? "#880e4f" :
+                                      color.name.toLowerCase() === "charcoal" ? "#424242" :
+                                      "var(--border)",
+                                  }}
+                                />
+                                {color.name}
+                                {colorPrice != null && (
+                                  <span className="ml-1 opacity-60">£{colorPrice.toFixed(2)}</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Size / Quantity Grid */}
+                    {detail.sizes.length > 0 && item.sizeQuantities && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                            Size Breakdown
+                          </label>
+                          <span className="text-xs font-mono" style={{ color: sizeTotalQty > 0 ? "var(--accent-light)" : "var(--text-tertiary)" }}>
+                            Total: {sizeTotalQty}
+                          </span>
+                        </div>
+                        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(detail.sizes.filter(s => s.code !== "MS").length, 8)}, 1fr)` }}>
+                          {detail.sizes
+                            .filter((s) => s.code !== "MS")
+                            .map((size) => {
+                              const qty = item.sizeQuantities?.[size.id] ?? 0;
+                              const skuPrice = item.selectedColorId
+                                ? getSkuPrice(detail, item.selectedColorId, size.id)
+                                : undefined;
+                              return (
+                                <div key={size.id} className="text-center space-y-1">
+                                  <div className="text-[10px] font-bold" style={{ color: "var(--text-tertiary)" }}>
+                                    {size.code}
+                                  </div>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={qty}
+                                    onChange={(e) => updateSizeQty(item.id, size.id, parseInt(e.target.value) || 0)}
+                                    className="input w-full text-center text-sm font-mono"
+                                    style={{ padding: "4px 2px" }}
+                                  />
+                                  {skuPrice != null && (
+                                    <div className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                      £{skuPrice.toFixed(2)}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Decoration Placement (visual multi-select) */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Decoration Placements (select all that apply)
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {PLACEMENTS.map((p) => {
+                          const isActive = (item.placements ?? [item.placement]).includes(p.key);
+                          return (
+                            <button
+                              key={p.key}
+                              onClick={() => togglePlacement(item.id, p.key)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all border"
+                              style={{
+                                borderColor: isActive ? "var(--accent)" : "var(--border)",
+                                background: isActive ? "var(--accent-soft)" : "transparent",
+                                color: isActive ? "var(--accent-light)" : "var(--text-secondary)",
+                              }}
+                            >
+                              <span className="text-base">{p.icon}</span>
+                              {p.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Fallback: simple fields when no product detail */}
+                {!detail && !item.productDetailLoading && (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Qty *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) =>
+                          updateLineItem(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })
+                        }
+                        className="input w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Unit Price (£)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={item.unitPrice}
+                        onChange={(e) => updateLineItem(item.id, { unitPrice: e.target.value })}
+                        placeholder="0.00"
+                        className="input w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Decoration
+                      </label>
+                      <select
+                        value={item.decorationMethod}
+                        onChange={(e) => updateLineItem(item.id, { decorationMethod: e.target.value })}
+                        className="input w-full"
+                      >
+                        {DECORATION_METHODS.map((m) => (
+                          <option
+                            key={m.key}
+                            value={m.key}
+                            className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                          >
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Placement
+                      </label>
+                      <select
+                        value={item.placement}
+                        onChange={(e) => updateLineItem(item.id, { placement: e.target.value })}
+                        className="input w-full"
+                      >
+                        <option value="front">Front</option>
+                        <option value="back">Back</option>
+                        <option value="left_chest">Left Chest</option>
+                        <option value="right_chest">Right Chest</option>
+                        <option value="left_sleeve">Left Sleeve</option>
+                        <option value="right_sleeve">Right Sleeve</option>
+                        <option value="collar">Collar</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Line Total
+                      </label>
+                      <div className="input w-full flex items-center font-mono text-sm" style={{ color: "var(--text-secondary)" }}>
+                        £{calcLineTotal(item).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* When detail loaded: show summary row with decoration, qty, total */}
+                {detail && (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Decoration
+                      </label>
+                      <select
+                        value={item.decorationMethod}
+                        onChange={(e) => updateLineItem(item.id, { decorationMethod: e.target.value })}
+                        className="input w-full"
+                      >
+                        {DECORATION_METHODS.map((m) => (
+                          <option
+                            key={m.key}
+                            value={m.key}
+                            className="bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                          >
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Unit Price (£)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={item.unitPrice}
+                        onChange={(e) => updateLineItem(item.id, { unitPrice: e.target.value })}
+                        placeholder="0.00"
+                        className="input w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Total Qty
+                      </label>
+                      <div className="input w-full flex items-center font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                        {item.quantity}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" style={{ color: "var(--text-tertiary)" }}>
+                        Line Total
+                      </label>
+                      <div className="input w-full flex items-center font-mono text-sm font-bold" style={{ color: "var(--accent-light)" }}>
+                        £{calcLineTotal(item).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Inventory info */}
                 {inv && (
@@ -1089,7 +1458,17 @@ export default function QuoteBuilderPage() {
                         {item.variantTitle && `${item.variantTitle} · `}
                         {DECORATION_METHODS.find((m) => m.key === item.decorationMethod)?.label ??
                           item.decorationMethod}
-                        {item.placement && ` · ${item.placement}`}
+                        {(item.placements ?? [item.placement]).length > 0 && (
+                          <> · {(item.placements ?? [item.placement]).map((p) =>
+                            PLACEMENTS.find((pl) => pl.key === p)?.label ?? p
+                          ).join(", ")}</>
+                        )}
+                        {item.sizeQuantities && Object.values(item.sizeQuantities).some((q) => q > 0) && item.productDetail && (
+                          <> · Sizes: {item.productDetail.sizes
+                            .filter((s) => s.code !== "MS" && (item.sizeQuantities?.[s.id] ?? 0) > 0)
+                            .map((s) => `${s.code}×${item.sizeQuantities![s.id]}`)
+                            .join(", ")}</>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">

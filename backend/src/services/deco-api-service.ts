@@ -748,6 +748,88 @@ export type DecoWebhookPayload = {
   timestamp?: string;
 };
 
+// ── Product detail (live API call) ──
+
+export type DecoProductDetail = {
+  productId: number;
+  productCode: string;
+  productName: string;
+  supplier: string;
+  brand: string;
+  category: string;
+  colors: Array<{ id: number; name: string }>;
+  sizes: Array<{ id: number; name: string; code: string }>;
+  skus: Array<{
+    sizeId: number;
+    colorId: number;
+    price: number;
+    cost: number;
+    sku: string;
+    dnSkuId: string;
+  }>;
+};
+
+/**
+ * Fetch detailed product info (colors, sizes, per-SKU pricing) from Deco API.
+ * Calls manage_products/get?id=X — NOT cached, hits Deco live each time.
+ */
+export async function fetchDecoProductDetail(decoProductId: string): Promise<DecoProductDetail> {
+  if (!isDecoConfigured()) {
+    throw new Error("DecoNetwork is not configured.");
+  }
+
+  const data = await decoFetch<{
+    product?: {
+      product_id?: number;
+      product_code?: string;
+      product_name?: string;
+      supplier?: string;
+      brand?: string;
+      categories?: Array<{ name?: string }>;
+      colors?: Array<{ id?: number; name?: string }>;
+      sizes?: Array<{ id?: number; name?: string; code?: string }>;
+      skus?: Array<{
+        size_id?: number;
+        color_id?: number;
+        price?: number;
+        cost?: number;
+        sku?: string;
+        dn_sku_id?: string;
+      }>;
+    };
+  }>("/api/json/manage_products/get", { id: decoProductId });
+
+  const p = data.product;
+  if (!p) {
+    throw new Error(`Product ${decoProductId} not found in DecoNetwork`);
+  }
+
+  return {
+    productId: p.product_id ?? 0,
+    productCode: p.product_code ?? "",
+    productName: p.product_name ?? "",
+    supplier: p.supplier ?? "",
+    brand: p.brand ?? "",
+    category: p.categories?.[0]?.name ?? "",
+    colors: (p.colors ?? [])
+      .filter((c) => c.id != null && c.name)
+      .map((c) => ({ id: c.id!, name: c.name! })),
+    sizes: (p.sizes ?? [])
+      .filter((s) => s.id != null && s.name)
+      .map((s) => ({ id: s.id!, name: s.name!, code: s.code ?? s.name! })),
+    skus: (p.skus ?? [])
+      .filter((s) => s.size_id != null && s.color_id != null)
+      .map((s) => ({
+        sizeId: s.size_id!,
+        colorId: s.color_id!,
+        price: s.price ?? 0,
+        cost: s.cost ?? 0,
+        sku: s.sku ?? "",
+        dnSkuId: s.dn_sku_id ?? "",
+      })),
+  };
+}
+
 export async function processDecoWebhook(
   topic: string,
   payload: DecoWebhookPayload,
