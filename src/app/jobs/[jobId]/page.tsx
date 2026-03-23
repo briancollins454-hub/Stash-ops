@@ -6,6 +6,7 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { formatCurrency } from "@/lib/format";
 import { orderTone } from "@/lib/presentation";
 import { getJob } from "@/lib/data-repository";
+import { JobActions } from "@/components/jobs/job-actions";
 import type { JobDetail, JobLineItem, OrderStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -301,6 +302,23 @@ export default async function JobDetailPage({
           )}
         </div>
       </SectionCard>
+
+      {/* ── Actions ── */}
+      <JobActions
+        jobId={job.id}
+        lifecycle={job.lifecycle}
+        classificationStatus={job.classificationStatus}
+        configurationStatus={job.configurationStatus}
+        stockStatus={job.stockStatus}
+        productionStatus={job.productionStatus}
+        approvalStatus={job.approvalStatus}
+        fulfillmentStatus={job.fulfillmentStatus}
+        assignedDepartment={job.assignedDepartment}
+        requiresReview={job.requiresReview}
+        source={job.source}
+        shopifyOrderId={null}
+        totalItems={job.items.reduce((sum, i) => sum + i.quantity, 0)}
+      />
 
       {/* ── Sub-status overview ── */}
       <SectionCard title="Status breakdown" kicker="Workflow tracks">

@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
-import { WarehouseReceiptsBoard } from "@/components/modules/warehouse-receipts-board";
+import { WarehouseScanIn } from "@/components/modules/warehouse-scan-in";
 import { formatCount, shellCopy } from "@/lib/content";
 import { listWarehouseReceiptTasks } from "@/lib/data-repository";
 
@@ -17,7 +17,7 @@ export default async function WarehousePage() {
         title="Receipt & scan"
         detail={`${formatCount(tasks.length, "receipt")} · ${formatCount(pending.length, "open")}`}
       >
-        <WarehouseReceiptsBoard tasks={tasks} />
+        <WarehouseScanIn tasks={tasks} />
       </SectionCard>
     </AppShell>
   );

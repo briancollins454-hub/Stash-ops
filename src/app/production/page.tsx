@@ -1,8 +1,10 @@
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
-import { ProductionBoard } from "@/components/modules/production-board";
+import { ProductionActions } from "@/components/modules/production-actions";
 import { formatCount, shellCopy } from "@/lib/content";
 import { listProductionJobs } from "@/lib/data-repository";
+
+export const dynamic = "force-dynamic";
 
 export default async function ProductionPage() {
   const productionJobs = await listProductionJobs();
@@ -14,7 +16,7 @@ export default async function ProductionPage() {
         title="Job routing"
         detail={formatCount(productionJobs.length, "active job")}
       >
-        <ProductionBoard jobs={productionJobs} />
+        <ProductionActions jobs={productionJobs} />
       </SectionCard>
     </AppShell>
   );
