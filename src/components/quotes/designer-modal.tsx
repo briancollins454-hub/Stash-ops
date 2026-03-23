@@ -1011,14 +1011,14 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                     onMouseEnter={(e) => e.currentTarget.style.borderColor = "rgba(99,102,241,0.4)"}
                     onMouseLeave={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"}>
                     <input ref={fileInputRef} type="file" multiple
-                      accept="image/*,.dst,.pes,.jef,.exp,.vp3,.hus,.pdf" className="hidden"
+                      accept="image/*,.dst,.pes,.jef,.exp,.vp3,.hus,.pdf,.eps,.ai" className="hidden"
                       onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = ""; }} />
                     <div className="text-2xl mb-1">📁</div>
                     <div className="text-[11px] font-medium" style={{ color: "rgba(255,255,255,0.5)" }}>
                       Upload artwork
                     </div>
                     <div className="text-[9px] mt-1" style={{ color: "rgba(255,255,255,0.25)" }}>
-                      PNG · JPG · SVG · PDF · DST · PES · JEF
+                      PNG · JPG · SVG · PDF · EPS · AI · DST · PES · JEF
                     </div>
                   </div>
 
