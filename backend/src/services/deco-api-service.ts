@@ -778,17 +778,34 @@ export type DecoProductDetail = {
 
 /**
  * Fetch product images from the supplier's website.
- * Currently supports Ralawise (covers ~4000 products).
- * Returns colour-specific front images and gallery/lifestyle images.
+ * Supports:
+ *   - Ralawise (~3000 products) — search API + page scrape
+ *   - PenCarrie (~450 products) — cross-listed on Ralawise
+ *   - Uneek Clothing (~600 products) — public API at api.uneekclothing.com
+ *   - The Magic Touch — consumables, no standardised imagery (returns [])
  */
 async function fetchSupplierProductImages(
   productCode: string,
   supplier: string,
 ): Promise<ProductImage[]> {
-  if (supplier.toLowerCase() !== "ralawise") return [];
+  const s = supplier.toLowerCase();
 
+  // PenCarrie products are cross-listed on Ralawise
+  if (s.includes("ralawise") || s.includes("pencarrie")) {
+    return fetchRalawiseImages(productCode);
+  }
+
+  if (s.includes("uneek")) {
+    return fetchUneekImages(productCode);
+  }
+
+  // Magic Touch and unknown suppliers — no standardised product imagery
+  return [];
+}
+
+/** Ralawise: search API returns JSON redirect → scrape page for colour + gallery images */
+async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]> {
   try {
-    // Step 1: Search Ralawise for the product page URL
     const searchRes = await fetch(
       `https://shop.ralawise.com/search?q=${encodeURIComponent(productCode)}`,
       { headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(10_000) },
@@ -796,7 +813,6 @@ async function fetchSupplierProductImages(
     const searchText = await searchRes.text();
     let pageUrl: string | null = null;
 
-    // Ralawise search returns JSON with a redirect URL
     try {
       const searchData = JSON.parse(searchText) as { Success?: boolean; Data?: string };
       if (searchData.Success && searchData.Data) {
@@ -808,7 +824,6 @@ async function fetchSupplierProductImages(
 
     if (!pageUrl) return [];
 
-    // Step 2: Fetch the product page
     const pageRes = await fetch(pageUrl, {
       headers: { "User-Agent": "StashOps/1.0" },
       signal: AbortSignal.timeout(15_000),
@@ -817,19 +832,18 @@ async function fetchSupplierProductImages(
 
     const images: ProductImage[] = [];
     const codeLower = productCode.toLowerCase();
+    const escaped = codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Extract colour-specific front images: {code}_{colour}_ft.jpg with alt="ColourName"
+    // Colour-specific front images: {code}_{colour}_ft.jpg with alt="ColourName"
     const frontPattern = new RegExp(
-      `<img[^>]*src="([^"]*${codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^"]*_ft\\.jpg(?:\\?[^"]*)?)"[^>]*alt="([^"]*)"`,
+      `<img[^>]*src="([^"]*${escaped}[^"]*_ft\\.jpg(?:\\?[^"]*)?)"[^>]*alt="([^"]*)"`,
       "gi",
     );
     const seen = new Set<string>();
     let match;
     while ((match = frontPattern.exec(html)) !== null) {
       const [, rawUrl, alt] = match;
-      let url = rawUrl;
-      // Strip ?width= query params — we want the full-resolution image
-      url = url.replace(/\?.*$/, "");
+      let url = rawUrl.replace(/\?.*$/, "");
       if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
       if (!seen.has(url)) {
         seen.add(url);
@@ -837,14 +851,13 @@ async function fetchSupplierProductImages(
       }
     }
 
-    // Extract gallery/lifestyle images: {code}_ls{nn}_{year}.jpg
+    // Gallery/lifestyle images: {code}_ls{nn}_{year}.jpg
     const galleryPattern = new RegExp(
-      `"([^"]*${codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^"]*_ls\\d+[^"]*\\.jpg)"`,
+      `"([^"]*${escaped}[^"]*_ls\\d+[^"]*\\.jpg)"`,
       "gi",
     );
     while ((match = galleryPattern.exec(html)) !== null) {
-      let url = match[1];
-      url = url.replace(/\?.*$/, "");
+      let url = match[1].replace(/\?.*$/, "");
       if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
       if (!seen.has(url)) {
         seen.add(url);
@@ -852,7 +865,7 @@ async function fetchSupplierProductImages(
       }
     }
 
-    // Fallback: OG image if no other images found
+    // Fallback: OG image
     if (images.length === 0) {
       const ogMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
       if (ogMatch) {
@@ -862,7 +875,107 @@ async function fetchSupplierProductImages(
 
     return images;
   } catch (err) {
-    logger.warn({ err, productCode, supplier }, "Failed to fetch supplier product images");
+    logger.warn({ err, productCode }, "Failed to fetch Ralawise product images");
+    return [];
+  }
+}
+
+/**
+ * Uneek Clothing: public API at api.uneekclothing.com/Nav.
+ * 1. Scan categories to find the product's internal ID by code
+ * 2. Get model photo from category listing (HighResolutionImage)
+ * 3. Fetch variant data for colour-specific images
+ */
+async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
+  const API = "https://api.uneekclothing.com/Nav";
+  const CDN = "https://images.uneekclothing.com";
+  const headers = {
+    "User-Agent": "StashOps/1.0",
+    Accept: "application/json",
+    Origin: "https://www.uneekclothing.com",
+  };
+
+  try {
+    // Find product ID by scanning categories (17 categories cover all ~143 products)
+    let productId: number | null = null;
+    let modelImage: string | null = null;
+
+    for (let catId = 1; catId <= 21; catId++) {
+      const res = await fetch(
+        `${API}/GetProductsByCategoryId?categoryId=${catId}`,
+        { headers, signal: AbortSignal.timeout(8_000) },
+      );
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        products?: Array<{
+          Id?: number;
+          Code?: string;
+          HighResolutionImage?: string;
+          LowResolutionImage?: string;
+        }>;
+      };
+      const found = data.products?.find(
+        (p) => p.Code?.toUpperCase() === productCode.toUpperCase(),
+      );
+      if (found?.Id) {
+        productId = found.Id;
+        modelImage = found.HighResolutionImage || found.LowResolutionImage || null;
+        break;
+      }
+    }
+
+    if (!productId) return [];
+
+    const images: ProductImage[] = [];
+
+    // Add model/lifestyle image if available
+    if (modelImage) {
+      images.push({ url: modelImage, type: "gallery" });
+    }
+
+    // Fetch variant data for colour-specific images
+    const varRes = await fetch(
+      `${API}/GetVariantByProductId/${productId}`,
+      { headers, signal: AbortSignal.timeout(10_000) },
+    );
+    if (varRes.ok) {
+      const varData = (await varRes.json()) as {
+        variants?: Array<{
+          colour?: { code?: string; description?: string };
+          images?: Array<{ url?: string; priority?: number }>;
+        }>;
+      };
+
+      // Deduplicate by colour code (variants share colours across sizes)
+      const seenColours = new Set<string>();
+      for (const v of varData.variants ?? []) {
+        const cc = v.colour?.code;
+        if (!cc || seenColours.has(cc)) continue;
+        seenColours.add(cc);
+
+        // Pick the high-res image (priority 1) from variant images
+        const hiRes = v.images?.find((i) => i.priority === 1 && i.url);
+        if (hiRes?.url) {
+          images.push({
+            url: hiRes.url,
+            color: v.colour?.description ?? cc,
+            type: "front",
+          });
+        } else {
+          // Fallback: construct CDN URL from known pattern
+          const url = `${CDN}/colour-highres/${productCode.toUpperCase()}-${cc}-H.jpg`;
+          images.push({
+            url,
+            color: v.colour?.description ?? cc,
+            type: "front",
+          });
+        }
+      }
+    }
+
+    return images;
+  } catch (err) {
+    logger.warn({ err, productCode }, "Failed to fetch Uneek product images");
     return [];
   }
 }
