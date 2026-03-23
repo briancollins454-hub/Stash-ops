@@ -803,7 +803,7 @@ async function fetchSupplierProductImages(
   return [];
 }
 
-/** Ralawise: search API returns JSON redirect → scrape page for colour + gallery images */
+/** Ralawise: search API → product page → parse Colours JSON + lifestyle images */
 async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]> {
   try {
     const searchRes = await fetch(
@@ -814,9 +814,22 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     let pageUrl: string | null = null;
 
     try {
-      const searchData = JSON.parse(searchText) as { Success?: boolean; Data?: string };
+      const searchData = JSON.parse(searchText) as {
+        Success?: boolean;
+        Data?: string;
+        Entries?: Array<{ EntryCode?: string; DetailUrl?: string }>;
+      };
+      // Direct redirect response
       if (searchData.Success && searchData.Data) {
         pageUrl = searchData.Data;
+      }
+      // Entries-based response — find exact code match
+      if (!pageUrl && searchData.Entries?.length) {
+        const exact = searchData.Entries.find(
+          (e) => e.EntryCode?.toUpperCase() === productCode.toUpperCase(),
+        );
+        const entry = exact ?? searchData.Entries[0];
+        if (entry?.DetailUrl) pageUrl = entry.DetailUrl;
       }
     } catch {
       // Not JSON — might be an HTML search results page
@@ -833,65 +846,83 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     const images: ProductImage[] = [];
     const codeLower = productCode.toLowerCase();
     const escaped = codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    // Colour-specific front images: {code}_{colour}_ft.jpg with alt="ColourName"
-    const frontPattern = new RegExp(
-      `<img[^>]*src="([^"]*${escaped}[^"]*_ft\\.jpg(?:\\?[^"]*)?)"[^>]*alt="([^"]*)"`,
-      "gi",
-    );
     const seen = new Set<string>();
-    let match;
-    while ((match = frontPattern.exec(html)) !== null) {
-      const [, rawUrl, alt] = match;
-      let url = rawUrl.replace(/\?.*$/, "");
-      if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
-      if (!seen.has(url)) {
-        seen.add(url);
-        images.push({ url, color: alt, type: "front" });
-      }
-    }
 
-    // Back images: {code}_{colour}_bk.jpg — probe by replacing _ft with _bk in found front URLs
-    for (const frontImg of images.filter((i) => i.type === "front")) {
-      const backUrl = frontImg.url.replace(/_ft\.jpg$/i, "_bk.jpg");
-      if (backUrl !== frontImg.url && !seen.has(backUrl)) {
-        try {
-          const probe = await fetch(backUrl, { method: "HEAD", headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(5_000) });
-          if (probe.ok) {
-            seen.add(backUrl);
-            images.push({ url: backUrl, color: frontImg.color, type: "back" });
+    // --- Strategy 1: Parse structured Colours JSON from the page ---
+    // Ralawise embeds a JSON array in a Colours attribute with all colour data
+    const coloursMatch = html.match(/Colours:\s*'(\[.*?\])'/s);
+    if (coloursMatch) {
+      try {
+        const colourGroups = JSON.parse(coloursMatch[1]) as Array<{
+          Colours?: Array<{
+            ColourName?: string;
+            ImageUrls?: string[];
+          }>;
+        }>;
+        for (const group of colourGroups) {
+          for (const colour of group.Colours ?? []) {
+            const colorName = (colour.ColourName ?? "").replace(/[*†]+$/g, "").trim();
+            for (const url of colour.ImageUrls ?? []) {
+              if (!seen.has(url)) {
+                seen.add(url);
+                images.push({ url, color: colorName, type: "front" });
+              }
+            }
           }
-        } catch { /* back image doesn't exist for this colour */ }
+        }
+      } catch {
+        // Malformed JSON — fall through to regex strategy
       }
     }
 
-    // Side images: {code}_{colour}_sd.jpg — probe by replacing _ft with _sd
-    for (const frontImg of images.filter((i) => i.type === "front")) {
-      const sideUrl = frontImg.url.replace(/_ft\.jpg$/i, "_sd.jpg");
-      if (sideUrl !== frontImg.url && !seen.has(sideUrl)) {
-        try {
-          const probe = await fetch(sideUrl, { method: "HEAD", headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(5_000) });
-          if (probe.ok) {
-            seen.add(sideUrl);
-            images.push({ url: sideUrl, color: frontImg.color, type: "side" });
-          }
-        } catch { /* side image doesn't exist for this colour */ }
+    // --- Strategy 2: Regex fallback for pages without Colours JSON ---
+    // Matches both _ft.jpg and _ft2.jpg patterns with alt="ColourName"
+    if (images.length === 0) {
+      const frontPattern = new RegExp(
+        `<img[^>]*src="([^"]*${escaped}[^"]*_ft\\d?\\.jpg(?:\\?[^"]*)?)"[^>]*alt="([^"]*)"`,
+        "gi",
+      );
+      let match;
+      while ((match = frontPattern.exec(html)) !== null) {
+        const [, rawUrl, alt] = match;
+        let url = rawUrl.replace(/\?.*$/, "");
+        if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
+        const colorName = alt.replace(/[*†]+$/g, "").trim();
+        if (!seen.has(url)) {
+          seen.add(url);
+          images.push({ url, color: colorName, type: "front" });
+        }
+      }
+
+      // Also try data-image attributes (used on some product pages)
+      const dataImgPattern = new RegExp(
+        `data-image="([^"]*${escaped}[^"]*_ft\\d?\\.jpg[^"]*)"[^>]*alt="([^"]*)"`,
+        "gi",
+      );
+      while ((match = dataImgPattern.exec(html)) !== null) {
+        let url = match[1].replace(/\?.*$/, "");
+        if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
+        const colorName = match[2].replace(/[*†]+$/g, "").trim();
+        if (!seen.has(url)) {
+          seen.add(url);
+          images.push({ url, color: colorName, type: "front" });
+        }
       }
     }
 
-    // Gallery/lifestyle images: {code}_ls{nn}_{year}.jpg
-    // ls20 = front flat, ls21 = side, ls22 = back — classify them properly
+    // --- Lifestyle / generic view images ---
+    // ls20=front, ls21=side, ls22=back (no colour info — used as fallbacks)
     const galleryPattern = new RegExp(
       `"([^"]*${escaped}[^"]*_ls(\\d+)[^"]*\\.jpg)"`,
       "gi",
     );
+    let match;
     while ((match = galleryPattern.exec(html)) !== null) {
       let url = match[1].replace(/\?.*$/, "");
       const lsNum = match[2];
       if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
       if (!seen.has(url)) {
         seen.add(url);
-        // Ralawise convention: ls20=front, ls21=side, ls22=back
         let imgType: ProductImage["type"] = "gallery";
         if (lsNum === "20") imgType = "front";
         else if (lsNum === "21") imgType = "side";
