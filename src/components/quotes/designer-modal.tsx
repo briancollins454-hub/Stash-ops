@@ -289,6 +289,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   const previewInputRef = useRef<HTMLInputElement>(null);
   const [rightPanel, setRightPanel] = useState<"process" | "artwork" | "notes">("process");
   const [failedPreviews, setFailedPreviews] = useState<Set<string>>(() => new Set());
+  const [convertingZones, setConvertingZones] = useState<Set<string>>(() => new Set());
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{
@@ -353,6 +354,35 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
     return VIEWS.filter((v) => zones.some((z) => z.view === v.key));
   }, [zones]);
 
+  /* ── auto-convert non-image files (EPS/AI/PDF → PNG via backend) ── */
+  const CONVERTIBLE = new Set(["eps", "ai", "pdf"]);
+
+  async function convertArtwork(dataUrl: string, filename: string, zoneKey: string) {
+    setConvertingZones((prev) => new Set(prev).add(zoneKey));
+    try {
+      const res = await fetch("/api/convert-artwork", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: dataUrl, filename }),
+      });
+      const result = await res.json();
+      if (result.ok && result.previewUrl) {
+        setDesigns((prev) => ({
+          ...prev,
+          [zoneKey]: { ...prev[zoneKey], previewUrl: result.previewUrl },
+        }));
+      }
+    } catch (e) {
+      console.error("Artwork conversion failed:", e);
+    } finally {
+      setConvertingZones((prev) => {
+        const next = new Set(prev);
+        next.delete(zoneKey);
+        return next;
+      });
+    }
+  }
+
   /* ── file handling ── */
   const handleFiles = useCallback((files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
@@ -378,6 +408,11 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
           },
         }));
         setRightPanel("artwork");
+
+        // Auto-convert non-image files server-side
+        if (!isImage && CONVERTIBLE.has(ext)) {
+          convertArtwork(dataUrl, file.name, activeZoneKey);
+        }
       };
       reader.readAsDataURL(file);
     });
@@ -737,6 +772,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                 {current?.artworkUrl && activeZone.view === activeView && (() => {
                   const renderUrl = current.previewUrl ?? current.artworkUrl;
                   const canRender = !failedPreviews.has(renderUrl);
+                  const isConverting = convertingZones.has(activeZoneKey);
                   return (
                     <div
                       className="absolute z-10"
@@ -747,8 +783,20 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                       }}
                       onPointerDown={(e) => onArtworkPointerDown(e, "move")}
                     >
-                      {/* Try rendering as image — works for PNG/JPG/SVG/GIF, and preview images for EPS/DST */}
-                      {canRender ? (
+                      {/* Converting spinner */}
+                      {isConverting && !current.previewUrl ? (
+                        <div className="absolute inset-0 rounded flex flex-col items-center justify-center"
+                          style={{
+                            background: "rgba(99,102,241,0.1)",
+                            border: "1.5px dashed rgba(99,102,241,0.5)",
+                          }}>
+                          <div className="animate-spin w-6 h-6 rounded-full mb-2"
+                            style={{ border: "2px solid rgba(99,102,241,0.2)", borderTopColor: "#6366f1" }} />
+                          <div className="text-[10px] font-medium" style={{ color: "#a5b4fc" }}>
+                            Converting artwork…
+                          </div>
+                        </div>
+                      ) : canRender ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={renderUrl} alt="Design artwork"
                           className="w-full h-full object-contain pointer-events-none"
