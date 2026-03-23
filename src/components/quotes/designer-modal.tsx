@@ -282,8 +282,9 @@ function detectGarmentType(category?: string, productName?: string): string {
   if (/hoodie|hooded|sweat|fleece|pullover/.test(text)) return "hoodie";
   if (/polo/.test(text)) return "polo";
   if (/jacket|coat|softshell|gilet|bodywarmer/.test(text)) return "jacket";
-  if (/trouser|pant|short|jogger|legging/.test(text)) return "trousers";
-  if (/cap|hat|beanie|headwear|bucket/.test(text)) return "headwear";
+  if (/trouser|jogger|legging/.test(text)) return "trousers";
+  if (/\bshorts\b/.test(text) && !/short\s*sleeve/.test(text)) return "trousers";
+  if (/\bcap\b|\bhat\b|beanie|headwear|bucket/.test(text)) return "headwear";
   if (/bag|tote|backpack|rucksack|holdall|duffel/.test(text)) return "bag";
   return "tshirt";
 }
