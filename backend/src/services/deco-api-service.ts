@@ -814,22 +814,24 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     let pageUrl: string | null = null;
 
     try {
-      const searchData = JSON.parse(searchText) as {
-        Success?: boolean;
-        Data?: string;
-        Entries?: Array<{ EntryCode?: string; DetailUrl?: string }>;
-      };
-      // Direct redirect response
-      if (searchData.Success && searchData.Data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const searchData = JSON.parse(searchText) as Record<string, any>;
+
+      // Format 1: Direct redirect → { Success: true, Data: "https://..." }
+      if (searchData.Success && typeof searchData.Data === "string") {
         pageUrl = searchData.Data;
       }
-      // Entries-based response — find exact code match
-      if (!pageUrl && searchData.Entries?.length) {
-        const exact = searchData.Entries.find(
-          (e) => e.EntryCode?.toUpperCase() === productCode.toUpperCase(),
+
+      // Format 2: Data is an object containing Entries → { Success: true, Data: { Entries: [...] } }
+      const entriesSource = Array.isArray(searchData.Entries) ? searchData.Entries
+        : (searchData.Data && Array.isArray(searchData.Data.Entries)) ? searchData.Data.Entries
+        : null;
+      if (!pageUrl && entriesSource?.length) {
+        const exact = entriesSource.find(
+          (e: Record<string, unknown>) => typeof e.EntryCode === "string" && e.EntryCode.toUpperCase() === productCode.toUpperCase(),
         );
-        const entry = exact ?? searchData.Entries[0];
-        if (entry?.DetailUrl) pageUrl = entry.DetailUrl;
+        const entry = exact ?? entriesSource[0];
+        if (typeof entry?.DetailUrl === "string") pageUrl = entry.DetailUrl;
       }
     } catch {
       // Not JSON — might be an HTML search results page
