@@ -1048,6 +1048,14 @@ async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
   }
 }
 
+/** Debug: return the raw Deco API response for a product (temporary) */
+export async function decoFetchRaw(decoProductId: string): Promise<unknown> {
+  if (!isDecoConfigured()) {
+    throw new Error("DecoNetwork is not configured.");
+  }
+  return decoFetch<unknown>("/api/json/manage_products/get", { id: decoProductId });
+}
+
 /**
  * Fetch detailed product info (colors, sizes, per-SKU pricing) from Deco API.
  * Calls manage_products/get?id=X — NOT cached, hits Deco live each time.
@@ -1075,12 +1083,21 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
         sku?: string;
         dn_sku_id?: string;
       }>;
+      [key: string]: unknown;
     };
   }>("/api/json/manage_products/get", { id: decoProductId });
 
   const p = data.product;
   if (!p) {
     throw new Error(`Product ${decoProductId} not found in DecoNetwork`);
+  }
+
+  // Log all top-level keys from the Deco product response for discovery
+  const knownKeys = new Set(["product_id", "product_code", "product_name", "supplier", "brand", "categories", "colors", "sizes", "skus"]);
+  const extraKeys = Object.keys(p).filter((k) => !knownKeys.has(k));
+  if (extraKeys.length > 0) {
+    logger.info({ extraKeys, sample: Object.fromEntries(extraKeys.slice(0, 10).map((k) => [k, p[k]])) },
+      `[Deco] Product ${decoProductId} has extra fields`);
   }
 
   // Fetch supplier images in parallel (non-blocking — empty array on failure)

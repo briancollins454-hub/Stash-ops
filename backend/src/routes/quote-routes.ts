@@ -296,6 +296,19 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── DEBUG: Raw Deco product response (temporary — shows all fields) ──
+  app.get("/v1/quotes/products/:decoProductId/raw", async (request, reply) => {
+    const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
+    try {
+      const { decoFetchRaw } = await import("../services/deco-api-service");
+      const data = await decoFetchRaw(decoProductId);
+      return data;
+    } catch (err) {
+      reply.status(502);
+      return { error: err instanceof Error ? err.message : "Failed to fetch raw product" };
+    }
+  });
+
   // ── Decoration methods reference ──
   app.get("/v1/quotes/decoration-methods", async () => {
     return {
