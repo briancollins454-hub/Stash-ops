@@ -808,7 +808,7 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
   try {
     const searchRes = await fetch(
       `https://shop.ralawise.com/search?q=${encodeURIComponent(productCode)}`,
-      { headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(10_000) },
+      { headers: { "User-Agent": "StashOps/1.0", "Accept": "application/json" }, signal: AbortSignal.timeout(10_000) },
     );
     const searchText = await searchRes.text();
     let pageUrl: string | null = null;
@@ -835,7 +835,11 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
       // Not JSON — might be an HTML search results page
     }
 
-    if (!pageUrl) return [];
+    if (!pageUrl) {
+      logger.warn({ productCode, responseLength: searchText.length }, "Ralawise search: no pageUrl found");
+      return [];
+    }
+    logger.info({ productCode, pageUrl }, "Ralawise: fetching product page");
 
     const pageRes = await fetch(pageUrl, {
       headers: { "User-Agent": "StashOps/1.0" },
@@ -851,6 +855,7 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     // --- Strategy 1: Parse structured Colours JSON from the page ---
     // Ralawise embeds a JSON array in a Colours attribute with all colour data
     const coloursMatch = html.match(/Colours:\s*'(\[.*?\])'/s);
+    logger.info({ productCode, htmlLen: html.length, hasColoursJson: !!coloursMatch }, "Ralawise: parsing page");
     if (coloursMatch) {
       try {
         const colourGroups = JSON.parse(coloursMatch[1]) as Array<{
@@ -939,6 +944,7 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
       }
     }
 
+    logger.info({ productCode, total: images.length, fronts: images.filter(i => i.type === "front").length, backs: images.filter(i => i.type === "back").length }, "Ralawise: images result");
     return images;
   } catch (err) {
     logger.warn({ err, productCode }, "Failed to fetch Ralawise product images");
