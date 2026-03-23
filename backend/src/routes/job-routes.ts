@@ -567,4 +567,72 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
 
     return { total: items.length, items };
   });
+
+  // ─────────────── PATCH /v1/jobs/:jobId/items/:itemId ───────────────
+
+  const itemUpdateSchema = z.object({
+    decorationMethod: z.string().optional(),
+    decorationPlacement: z.string().optional(),
+    designs: z.array(z.object({
+      placement: z.string(),
+      decorationMethod: z.string(),
+      artworkUrl: z.string().optional(),
+      artworkName: z.string().optional(),
+      artworkFileType: z.string().optional(),
+      previewUrl: z.string().optional(),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+      stitchCount: z.number().optional(),
+      notes: z.string().optional(),
+    })).optional(),
+    actor: z.string().min(1),
+  });
+
+  app.patch("/v1/jobs/:jobId/items/:itemId", async (request, reply) => {
+    const params = z.object({ jobId: z.string(), itemId: z.string() }).parse(request.params);
+    const body = itemUpdateSchema.parse(request.body);
+    const jobId = await resolveJobId(params.jobId);
+
+    if (!jobId) {
+      reply.status(404);
+      return { error: "Job not found." };
+    }
+
+    const item = await prisma.jobItem.findFirst({
+      where: { id: params.itemId, jobId },
+    });
+
+    if (!item) {
+      reply.status(404);
+      return { error: "Item not found on this job." };
+    }
+
+    const data: Record<string, unknown> = {};
+    if (body.decorationMethod !== undefined) data.decorationMethod = body.decorationMethod;
+    if (body.decorationPlacement !== undefined) data.decorationPlacement = body.decorationPlacement;
+    if (body.designs !== undefined) {
+      data.metadata = {
+        ...(typeof item.metadata === "object" && item.metadata !== null ? item.metadata : {}),
+        designs: body.designs,
+      };
+    }
+
+    const updated = await prisma.jobItem.update({
+      where: { id: params.itemId },
+      data,
+    });
+
+    await prisma.activityLog.create({
+      data: {
+        jobId,
+        eventType: "item.decoration_updated",
+        message: `Decoration updated on item ${item.productTitle}`,
+        payload: { itemId: params.itemId, actor: body.actor, decorationMethod: body.decorationMethod, decorationPlacement: body.decorationPlacement, designCount: body.designs?.length },
+      },
+    });
+
+    return { ok: true, item: updated };
+  });
 }

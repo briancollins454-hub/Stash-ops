@@ -1,0 +1,342 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { DesignerModal, type DesignConfig, type DesignerProductDetail } from "@/components/quotes/designer-modal";
+import type { JobLineItem } from "@/lib/types";
+
+/* ── Decoration methods ── */
+const METHODS = [
+  { key: "Embroidery", label: "Embroidery", icon: "🧵" },
+  { key: "DTF", label: "DTF", icon: "🖨️" },
+  { key: "DTG", label: "DTG", icon: "🎯" },
+  { key: "Transfer", label: "Transfer", icon: "♨️" },
+  { key: "Screen Print", label: "Screen Print", icon: "🖼️" },
+  { key: "Sublimation", label: "Sublimation", icon: "🌈" },
+] as const;
+
+const PLACEMENTS = [
+  "Left Chest", "Right Chest", "Centre Chest", "Full Front",
+  "Full Back", "Left Sleeve", "Right Sleeve", "Collar", "Hem", "Pocket",
+] as const;
+
+interface Props {
+  jobId: string;
+  items: JobLineItem[];
+}
+
+/* ── Helpers ── */
+
+function existingDesigns(item: JobLineItem): DesignConfig[] {
+  if (!item.metadata || typeof item.metadata !== "object") return [];
+  const md = item.metadata as Record<string, unknown>;
+  if (Array.isArray(md.designs)) return md.designs as DesignConfig[];
+  return [];
+}
+
+function buildProductDetail(item: JobLineItem): DesignerProductDetail {
+  return {
+    productName: item.productTitle,
+    productCode: item.sku || "UNKNOWN",
+    supplier: "Unknown",
+    category: guessCategory(item.productTitle),
+    colors: [],
+    sizes: [],
+  };
+}
+
+function guessCategory(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes("hood") || t.includes("hoodie")) return "Hoodies";
+  if (t.includes("polo")) return "Polos";
+  if (t.includes("jacket") || t.includes("soft shell") || t.includes("fleece")) return "Jackets";
+  if (t.includes("trouser") || t.includes("jogger")) return "Trousers";
+  if (t.includes("cap") || t.includes("hat") || t.includes("beanie")) return "Headwear";
+  if (t.includes("bag") || t.includes("tote")) return "Bags";
+  return "T-shirts";
+}
+
+function designSummary(designs: DesignConfig[]): string {
+  if (designs.length === 0) return "";
+  return designs.map((d) => `${d.placement} → ${d.decorationMethod}`).join(", ");
+}
+
+/* ── Component ── */
+
+export function JobLineItemConfig({ jobId, items }: Props) {
+  const router = useRouter();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Per-item edit state
+  const [editMethod, setEditMethod] = useState<Record<string, string>>({});
+  const [editPlacement, setEditPlacement] = useState<Record<string, string>>({});
+  const [editDesigns, setEditDesigns] = useState<Record<string, DesignConfig[]>>({});
+
+  // Designer modal state
+  const [designerOpen, setDesignerOpen] = useState(false);
+  const [designerItem, setDesignerItem] = useState<JobLineItem | null>(null);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((prev) => (prev === id ? null : id));
+    setError(null);
+    setSuccess(null);
+  }, []);
+
+  // Initialize edit state when expanding an item
+  const expandItem = useCallback((item: JobLineItem) => {
+    toggleExpand(item.id);
+    if (!editMethod[item.id]) {
+      setEditMethod((prev) => ({ ...prev, [item.id]: item.decorationMethod || "" }));
+      setEditPlacement((prev) => ({ ...prev, [item.id]: item.decorationPlacement || "" }));
+      setEditDesigns((prev) => ({ ...prev, [item.id]: existingDesigns(item) }));
+    }
+  }, [editMethod, toggleExpand]);
+
+  const saveItem = useCallback(async (item: JobLineItem) => {
+    setSaving(item.id);
+    setError(null);
+    setSuccess(null);
+
+    const method = editMethod[item.id] || undefined;
+    const placement = editPlacement[item.id] || undefined;
+    const designs = editDesigns[item.id];
+
+    try {
+      const res = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/action`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "update_item",
+          itemId: item.id,
+          decorationMethod: method,
+          decorationPlacement: placement,
+          designs: designs?.length ? designs : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        setError(data.error || "Failed to save");
+      } else {
+        setSuccess(`Saved decoration for ${item.productTitle}`);
+        setTimeout(() => router.refresh(), 500);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setSaving(null);
+    }
+  }, [jobId, editMethod, editPlacement, editDesigns, router]);
+
+  const openDesigner = useCallback((item: JobLineItem) => {
+    setDesignerItem(item);
+    setDesignerOpen(true);
+  }, []);
+
+  const handleDesignerApply = useCallback((designs: DesignConfig[]) => {
+    if (!designerItem) return;
+    setEditDesigns((prev) => ({ ...prev, [designerItem.id]: designs }));
+
+    // Auto-set method & placement from first design
+    if (designs.length > 0) {
+      const first = designs[0];
+      setEditMethod((prev) => ({ ...prev, [designerItem.id]: first.decorationMethod }));
+      const placements = designs.map((d) => d.placement).join(", ");
+      setEditPlacement((prev) => ({ ...prev, [designerItem.id]: placements }));
+    }
+
+    setDesignerOpen(false);
+    setDesignerItem(null);
+  }, [designerItem]);
+
+  return (
+    <>
+      <div className="space-y-3">
+        {items.map((item, i) => {
+          const isExpanded = expanded === item.id;
+          const isSaving = saving === item.id;
+          const method = editMethod[item.id] ?? item.decorationMethod ?? "";
+          const placement = editPlacement[item.id] ?? item.decorationPlacement ?? "";
+          const designs = editDesigns[item.id] ?? existingDesigns(item);
+          const hasDecoration = Boolean(item.decorationMethod) || existingDesigns(item).length > 0;
+
+          return (
+            <div key={item.id} className="card overflow-hidden">
+              {/* ── Header row (always visible, clickable) ── */}
+              <button
+                onClick={() => expandItem(item)}
+                className="flex w-full items-center gap-4 px-4 py-3.5 text-left transition-all hover:brightness-110"
+              >
+                {/* Line number */}
+                <span
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold"
+                  style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc" }}
+                >
+                  {i + 1}
+                </span>
+
+                {/* Product info */}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {item.productTitle}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs" style={{ color: "var(--text-secondary)" }}>
+                    {item.variantTitle || item.sku || "No variant"} · Qty {item.quantity}
+                    {item.decorationMethod && ` · ${item.decorationMethod}`}
+                    {item.decorationPlacement && ` @ ${item.decorationPlacement}`}
+                  </p>
+                  {designs.length > 0 && (
+                    <p className="mt-0.5 truncate text-[11px]" style={{ color: "#a5b4fc" }}>
+                      {designSummary(designs)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Status indicator */}
+                <span
+                  className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  style={
+                    hasDecoration
+                      ? { background: "rgba(16,185,129,0.12)", color: "#6ee7b7", border: "1px solid rgba(16,185,129,0.25)" }
+                      : { background: "rgba(245,158,11,0.12)", color: "#fcd34d", border: "1px solid rgba(245,158,11,0.25)" }
+                  }
+                >
+                  {hasDecoration ? "Configured" : "Needs setup"}
+                </span>
+
+                {/* Chevron */}
+                <svg
+                  className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                  style={{ color: "var(--text-tertiary)" }}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* ── Expanded config panel ── */}
+              {isExpanded && (
+                <div className="space-y-4 border-t px-4 pb-5 pt-4" style={{ borderColor: "var(--border)" }}>
+                  {/* Feedback */}
+                  {error && expanded === item.id && (
+                    <div className="rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(239,68,68,0.1)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.2)" }}>
+                      {error}
+                    </div>
+                  )}
+                  {success && expanded === item.id && (
+                    <div className="rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(16,185,129,0.1)", color: "#6ee7b7", border: "1px solid rgba(16,185,129,0.2)" }}>
+                      {success}
+                    </div>
+                  )}
+
+                  {/* Decoration method selector */}
+                  <div>
+                    <p className="mb-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+                      Decoration method
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {METHODS.map((m) => (
+                        <button
+                          key={m.key}
+                          onClick={() => setEditMethod((prev) => ({ ...prev, [item.id]: m.key }))}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+                          style={
+                            method === m.key
+                              ? { background: "rgba(99,102,241,0.2)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.4)" }
+                              : { background: "rgba(255,255,255,0.04)", color: "var(--text-secondary)", border: "1px solid var(--border)" }
+                          }
+                        >
+                          {m.icon} {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Placement selector */}
+                  <div>
+                    <p className="mb-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+                      Placement
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {PLACEMENTS.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setEditPlacement((prev) => ({ ...prev, [item.id]: p }))}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+                          style={
+                            placement === p
+                              ? { background: "rgba(99,102,241,0.2)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.4)" }
+                              : { background: "rgba(255,255,255,0.04)", color: "var(--text-secondary)", border: "1px solid var(--border)" }
+                          }
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Designs summary */}
+                  {designs.length > 0 && (
+                    <div className="rounded-xl p-3" style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)" }}>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+                        Design placements ({designs.length})
+                      </p>
+                      <div className="space-y-1">
+                        {designs.map((d, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#6366f1]" />
+                            <span className="font-medium" style={{ color: "var(--text-primary)" }}>{d.placement}</span>
+                            <span>→</span>
+                            <span>{d.decorationMethod}</span>
+                            {d.artworkName && <span className="truncate" style={{ color: "var(--text-tertiary)" }}>({d.artworkName})</span>}
+                            {d.stitchCount && <span style={{ color: "var(--text-tertiary)" }}>{d.stitchCount.toLocaleString()} stitches</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => openDesigner(item)}
+                      className="rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125"
+                      style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
+                    >
+                      🎨 Open studio
+                    </button>
+
+                    <button
+                      onClick={() => saveItem(item)}
+                      disabled={isSaving}
+                      className="rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125 disabled:opacity-50"
+                      style={{ background: "rgba(16,185,129,0.15)", color: "#6ee7b7", border: "1px solid rgba(16,185,129,0.3)" }}
+                    >
+                      {isSaving ? "Saving..." : "💾 Save decoration"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Designer Modal ── */}
+      {designerItem && (
+        <DesignerModal
+          open={designerOpen}
+          onClose={() => {
+            setDesignerOpen(false);
+            setDesignerItem(null);
+          }}
+          onApply={handleDesignerApply}
+          productDetail={buildProductDetail(designerItem)}
+          initialDesigns={editDesigns[designerItem.id] ?? existingDesigns(designerItem)}
+        />
+      )}
+    </>
+  );
+}

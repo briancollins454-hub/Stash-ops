@@ -100,6 +100,25 @@ export async function POST(request: Request, context: RouteParams) {
         });
         break;
 
+      case "update_item":
+        if (!payload.itemId) {
+          return NextResponse.json({ error: "Missing itemId" }, { status: 400 });
+        }
+        result = await fetchBackendJson(
+          `/api/v1/jobs/${id}/items/${encodeURIComponent(String(payload.itemId))}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              decorationMethod: payload.decorationMethod,
+              decorationPlacement: payload.decorationPlacement,
+              designs: payload.designs,
+              actor: payload.actor || "stash-ui",
+            }),
+          },
+        );
+        break;
+
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }

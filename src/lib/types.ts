@@ -60,6 +60,7 @@ export interface JobLineItem {
   garmentReference: string | null;
   decorationMethod: string | null;
   decorationPlacement: string | null;
+  metadata: Record<string, unknown> | null;
   stockRequirement: JobStockRequirement | null;
 }
 

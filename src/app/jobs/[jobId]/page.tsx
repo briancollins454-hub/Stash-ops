@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/format";
 import { orderTone } from "@/lib/presentation";
 import { getJob } from "@/lib/data-repository";
 import { JobActions } from "@/components/jobs/job-actions";
+import { JobLineItemConfig } from "@/components/jobs/job-line-item-config";
 import type { JobDetail, JobLineItem, OrderStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -350,7 +351,7 @@ export default async function JobDetailPage({
         </div>
       </SectionCard>
 
-      {/* ── Line items & stock ── */}
+      {/* ── Line items & decoration config ── */}
       <CollapsibleSection
         title={`Line items (${job.items.length})`}
         kicker="Garments & decoration"
@@ -360,11 +361,7 @@ export default async function JobDetailPage({
         {job.items.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No line items on this job.</p>
         ) : (
-          <div className="space-y-4">
-            {job.items.map((item, i) => (
-              <LineItemCard key={item.id} item={item} index={i} />
-            ))}
-          </div>
+          <JobLineItemConfig jobId={job.id} items={job.items} />
         )}
       </CollapsibleSection>
 
