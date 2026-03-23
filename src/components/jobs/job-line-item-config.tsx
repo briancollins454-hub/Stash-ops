@@ -80,6 +80,38 @@ type ProductLookupState = "idle" | "searching" | "loading" | "loaded" | "not_fou
  * Titles look like "JH030 - AWDis sweatshirt" → code "JH030"
  * Also handles "56000 - SOL'S Ness Zip Neck Fleece" → code "56000"
  */
+/** Keywords that identify the garment type for search + cross-checking */
+const GARMENT_KEYWORDS = [
+  "hoodie", "hoody", "hood", "sweatshirt", "sweater", "jumper",
+  "polo", "t-shirt", "tee", "shirt", "vest", "tank",
+  "jacket", "fleece", "soft shell", "softshell", "bodywarmer", "gilet",
+  "trouser", "jogger", "pant", "short",
+  "cap", "hat", "beanie", "snapback", "bucket",
+  "bag", "tote", "backpack", "rucksack",
+  "apron", "tabard", "overall",
+] as const;
+
+function extractGarmentType(text: string): string | null {
+  const t = text.toLowerCase();
+  for (const kw of GARMENT_KEYWORDS) {
+    if (t.includes(kw)) return kw;
+  }
+  return null;
+}
+
+/** Group keywords into broad categories for mismatch detection */
+function garmentCategory(keyword: string | null): string | null {
+  if (!keyword) return null;
+  const k = keyword.toLowerCase();
+  if (["hoodie", "hoody", "hood", "sweatshirt", "sweater", "jumper"].includes(k)) return "sweatshirts";
+  if (["polo", "t-shirt", "tee", "shirt", "vest", "tank"].includes(k)) return "tops";
+  if (["jacket", "fleece", "soft shell", "softshell", "bodywarmer", "gilet"].includes(k)) return "outerwear";
+  if (["trouser", "jogger", "pant", "short"].includes(k)) return "bottoms";
+  if (["cap", "hat", "beanie", "snapback", "bucket"].includes(k)) return "headwear";
+  if (["bag", "tote", "backpack", "rucksack"].includes(k)) return "bags";
+  return null;
+}
+
 function extractSearchTerms(item: JobLineItem): string[] {
   const terms: string[] = [];
 
@@ -87,24 +119,26 @@ function extractSearchTerms(item: JobLineItem): string[] {
   if (item.sku) {
     terms.push(item.sku);
     const baseSku = item.sku.split("-")[0].trim();
-    if (baseSku && baseSku !== item.sku) {
+    // Only use base code if it's at least 3 chars (avoid generic "MC", "XL" etc)
+    if (baseSku && baseSku !== item.sku && baseSku.length >= 3) {
       terms.push(baseSku);
-    }
-    // Also try first segment before any space
-    const firstWord = item.sku.split(/[\s_]/)[0].trim();
-    if (firstWord && !terms.includes(firstWord)) {
-      terms.push(firstWord);
     }
   }
 
   // 2. From title: extract product code at the start (e.g., "JH030 - AWDis sweatshirt")
   if (item.productTitle) {
-    // Pattern: starts with alphanumeric code followed by separator
-    const codeMatch = item.productTitle.match(/^([A-Za-z0-9]{2,10})\s*[-–—:]/);
+    const codeMatch = item.productTitle.match(/^([A-Za-z0-9]{3,10})\s*[-–—:]/);
     if (codeMatch) {
       const code = codeMatch[1];
       if (!terms.includes(code)) terms.push(code);
     }
+
+    // 3. Extract garment type keyword for fallback search (e.g., "hoody", "polo")
+    const garmentKw = extractGarmentType(item.productTitle);
+    if (garmentKw && !terms.includes(garmentKw)) {
+      terms.push(garmentKw);
+    }
+
     // Also add full title as last resort
     terms.push(item.productTitle);
   }
@@ -120,23 +154,34 @@ function scoreMatch(result: DecoSearchResult, item: JobLineItem): number {
   const iSku = (item.sku || "").toLowerCase();
   const iTitle = (item.productTitle || "").toLowerCase();
 
+  // ── Category mismatch penalty ──
+  // If the item title says "hoody" but the result is a "snapback", reject it
+  const itemGarment = extractGarmentType(iTitle);
+  const resultGarment = extractGarmentType(rName);
+  const itemCat = garmentCategory(itemGarment);
+  const resultCat = garmentCategory(resultGarment);
+  if (itemCat && resultCat && itemCat !== resultCat) return -1;
+
   // Exact SKU match (variant SKU = catalogue SKU)
   if (iSku && rSku === iSku) return 100;
 
   // Base product code match (catalogue SKU is prefix of item SKU)
-  if (iSku && rSku && iSku.startsWith(rSku)) score += 80;
-  // Or item SKU contains the catalogue SKU
-  else if (iSku && rSku && iSku.includes(rSku)) score += 60;
+  if (iSku && rSku && rSku.length >= 3 && iSku.startsWith(rSku)) score += 80;
+  // Or item SKU contains the catalogue SKU (must be 3+ chars to avoid false positives)
+  else if (iSku && rSku && rSku.length >= 3 && iSku.includes(rSku)) score += 60;
   // Or catalogue SKU is in the title
-  else if (rSku && iTitle.includes(rSku)) score += 50;
+  else if (rSku && rSku.length >= 3 && iTitle.includes(rSku)) score += 50;
 
   // Name-based matching
   if (rName && iTitle && (rName.includes(iTitle) || iTitle.includes(rName))) score += 30;
 
   // Title starts with same product code
-  const titleCode = iTitle.match(/^([a-z0-9]{2,10})\s*[-–—:]/)?.[1];
+  const titleCode = iTitle.match(/^([a-z0-9]{3,10})\s*[-–—:]/)?.[1];
   if (titleCode && rSku === titleCode) score += 70;
-  if (titleCode && rName.toLowerCase().startsWith(titleCode)) score += 40;
+  if (titleCode && rName.startsWith(titleCode)) score += 40;
+
+  // Same garment type bonus
+  if (itemCat && resultCat && itemCat === resultCat) score += 15;
 
   return score;
 }
@@ -187,20 +232,24 @@ async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail |
         allResults.push(r);
       }
     }
-    // Stop searching once we have results with a good match
+    // Stop searching once we have a result with a good, category-compatible match
     if (allResults.length > 0) {
-      const best = allResults.reduce((a, b) => (scoreMatch(a, item) >= scoreMatch(b, item) ? a : b));
-      if (scoreMatch(best, item) >= 50) break;
+      const topScore = Math.max(...allResults.map((r) => scoreMatch(r, item)));
+      if (topScore >= 50) break;
     }
   }
 
   if (allResults.length === 0) return null;
 
-  // Pick the best match
-  const best = allResults.reduce((a, b) => (scoreMatch(a, item) >= scoreMatch(b, item) ? a : b));
-  if (!best.decoProductId) return null;
+  // Pick the best match (must score > 0 to avoid category mismatches)
+  const scored = allResults
+    .map((r) => ({ result: r, score: scoreMatch(r, item) }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
 
-  return fetchProductDetail(best.decoProductId, item);
+  if (scored.length === 0 || !scored[0].result.decoProductId) return null;
+
+  return fetchProductDetail(scored[0].result.decoProductId, item);
 }
 
 /* ── Component ── */
