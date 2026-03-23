@@ -239,6 +239,22 @@ export function JobActions(props: JobActionsProps) {
   const [receiptBranch, setReceiptBranch] = useState("HQ");
   const [receiptNotes, setReceiptNotes] = useState("");
 
+  const callAction = useCallback(
+    async (action: string, payload: Record<string, unknown>) => {
+      const res = await fetch(`/api/v1/jobs/${encodeURIComponent(props.jobId)}/action`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || data.reasons?.join(", ") || "Action failed");
+      }
+      return data;
+    },
+    [props.jobId],
+  );
+
   const execAction = useCallback(async (act: ActionDef) => {
     if (act.confirm && !window.confirm(act.confirm)) return;
 
@@ -247,24 +263,36 @@ export function JobActions(props: JobActionsProps) {
     setSuccessMsg(null);
 
     try {
-      const res = await fetch(`/api/v1/jobs/${encodeURIComponent(props.jobId)}/action`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: act.action, ...act.payload }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.ok === false) {
-        setError(data.error || data.reasons?.join(", ") || "Action failed");
-      } else {
-        setSuccessMsg(`${act.label} — done`);
-        setTimeout(() => router.refresh(), 500);
+      // "Classify" needs a two-step flow: set sub-status first, then transition
+      if (
+        act.action === "transition" &&
+        act.payload.target === "classified" &&
+        props.classificationStatus !== "CLASSIFIED_READY" &&
+        props.classificationStatus !== "ACCOUNT_MATCHED"
+      ) {
+        await callAction("substatus", { classificationStatus: "CLASSIFIED_READY" });
       }
+
+      // "Mark configured" — set configuration sub-status if not already ready
+      if (
+        act.action === "transition" &&
+        act.payload.target === "configured" &&
+        props.configurationStatus !== "READY_FOR_CONFIRMATION" &&
+        props.configurationStatus !== "CONFIRMED" &&
+        props.configurationStatus !== "PUSHED_TO_DECO"
+      ) {
+        await callAction("substatus", { configurationStatus: "CONFIRMED" });
+      }
+
+      await callAction(act.action, act.payload);
+      setSuccessMsg(`${act.label} — done`);
+      setTimeout(() => router.refresh(), 500);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
     } finally {
       setLoading(null);
     }
-  }, [props.jobId, router]);
+  }, [props.jobId, props.classificationStatus, props.configurationStatus, router, callAction]);
 
   const submitReceipt = useCallback(async () => {
     const qty = parseInt(receiptQty, 10);
