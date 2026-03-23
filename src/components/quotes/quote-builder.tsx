@@ -46,7 +46,7 @@ type DecoProductDetail = {
   images?: Array<{
     url: string;
     color?: string;
-    type: "front" | "gallery";
+    type: "front" | "back" | "side" | "gallery";
   }>;
 };
 

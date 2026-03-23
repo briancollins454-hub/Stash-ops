@@ -880,16 +880,23 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     }
 
     // Gallery/lifestyle images: {code}_ls{nn}_{year}.jpg
+    // ls20 = front flat, ls21 = side, ls22 = back — classify them properly
     const galleryPattern = new RegExp(
-      `"([^"]*${escaped}[^"]*_ls\\d+[^"]*\\.jpg)"`,
+      `"([^"]*${escaped}[^"]*_ls(\\d+)[^"]*\\.jpg)"`,
       "gi",
     );
     while ((match = galleryPattern.exec(html)) !== null) {
       let url = match[1].replace(/\?.*$/, "");
+      const lsNum = match[2];
       if (!url.startsWith("http")) url = `https://shop.ralawise.com${url}`;
       if (!seen.has(url)) {
         seen.add(url);
-        images.push({ url, type: "gallery" });
+        // Ralawise convention: ls20=front, ls21=side, ls22=back
+        let imgType: ProductImage["type"] = "gallery";
+        if (lsNum === "20") imgType = "front";
+        else if (lsNum === "21") imgType = "side";
+        else if (lsNum === "22") imgType = "back";
+        images.push({ url, type: imgType });
       }
     }
 
