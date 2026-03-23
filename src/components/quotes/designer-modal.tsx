@@ -4,6 +4,7 @@ import {
   useState, useRef, useCallback, useMemo, useEffect,
   type PointerEvent as RPointerEvent, type CSSProperties,
 } from "react";
+import { colorToCss } from "@/lib/color-map";
 
 /* ═══════════════════════════════════════════════════════════
    PUBLIC TYPES — must stay compatible with quote-builder.tsx
@@ -228,22 +229,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = parseInt(h.slice(4, 6), 16);
   if (isNaN(r) || isNaN(g) || isNaN(b)) return `rgba(148,163,184,${alpha})`;
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function colorToCss(name: string): string {
-  const n = name.toLowerCase().trim();
-  const map: Record<string, string> = {
-    black: "#111", white: "#f5f5f5", navy: "#1a237e", red: "#c62828",
-    royal: "#1565c0", "royal blue": "#1565c0", grey: "#9e9e9e", gray: "#9e9e9e",
-    "bottle green": "#1b5e20", bottle: "#1b5e20", green: "#2e7d32",
-    yellow: "#f9a825", orange: "#e65100", pink: "#ec407a", purple: "#7b1fa2",
-    "sky blue": "#4fc3f7", sky: "#4fc3f7", burgundy: "#880e4f", maroon: "#880e4f",
-    charcoal: "#424242", heather: "#9e9e9e", "french navy": "#1a237e",
-    khaki: "#c2b280", olive: "#556b2f", tan: "#d2b48c", cream: "#fffdd0",
-    beige: "#f5f5dc", teal: "#008080", coral: "#ff6f61", aqua: "#00bcd4",
-    gold: "#ffd700", silver: "#c0c0c0", brown: "#795548", lime: "#cddc39",
-  };
-  return map[n] ?? "#9e9e9e";
 }
 
 function detectGarmentType(category?: string, productName?: string): string {

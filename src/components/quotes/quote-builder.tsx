@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DesignerModal, type DesignConfig } from "./designer-modal";
+import { colorToCss } from "@/lib/color-map";
 
 // ── Types ──
 
@@ -1167,22 +1168,7 @@ export default function QuoteBuilderPage() {
                                   className="inline-block w-3 h-3 rounded-full mr-1.5 border align-middle"
                                   style={{
                                     borderColor: "var(--border)",
-                                    background: color.name.toLowerCase() === "black" ? "#111" :
-                                      color.name.toLowerCase() === "white" ? "#f8f8f8" :
-                                      color.name.toLowerCase() === "navy" ? "#1a237e" :
-                                      color.name.toLowerCase() === "red" ? "#c62828" :
-                                      color.name.toLowerCase() === "royal" || color.name.toLowerCase() === "royal blue" ? "#1565c0" :
-                                      color.name.toLowerCase() === "grey" || color.name.toLowerCase() === "gray" ? "#9e9e9e" :
-                                      color.name.toLowerCase() === "bottle" || color.name.toLowerCase() === "bottle green" ? "#1b5e20" :
-                                      color.name.toLowerCase() === "green" ? "#2e7d32" :
-                                      color.name.toLowerCase() === "yellow" ? "#f9a825" :
-                                      color.name.toLowerCase() === "orange" ? "#e65100" :
-                                      color.name.toLowerCase() === "pink" ? "#ec407a" :
-                                      color.name.toLowerCase() === "purple" ? "#7b1fa2" :
-                                      color.name.toLowerCase() === "sky" || color.name.toLowerCase() === "sky blue" ? "#4fc3f7" :
-                                      color.name.toLowerCase() === "burgundy" || color.name.toLowerCase() === "maroon" ? "#880e4f" :
-                                      color.name.toLowerCase() === "charcoal" ? "#424242" :
-                                      "var(--border)",
+                                    background: colorToCss(color.name),
                                   }}
                                 />
                                 {color.name}
