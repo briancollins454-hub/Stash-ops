@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail } from "../services/deco-api-service";
+import { fetchDecoProductDetail, decoFetchRaw } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 
 // ── Schemas ──
@@ -297,10 +297,9 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── DEBUG: Raw Deco product response (temporary — shows all fields) ──
-  app.get("/v1/quotes/products/:decoProductId/raw", async (request, reply) => {
+  app.get("/v1/debug/products/:decoProductId/raw", async (request, reply) => {
     const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
     try {
-      const { decoFetchRaw } = await import("../services/deco-api-service");
       const data = await decoFetchRaw(decoProductId);
       return data;
     } catch (err) {
