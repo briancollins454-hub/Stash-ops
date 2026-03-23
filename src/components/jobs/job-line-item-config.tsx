@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { DesignerModal, type DesignConfig, type DesignerProductDetail } from "@/components/quotes/designer-modal";
 import type { JobLineItem } from "@/lib/types";
@@ -61,6 +61,57 @@ function designSummary(designs: DesignConfig[]): string {
   return designs.map((d) => `${d.placement} → ${d.decorationMethod}`).join(", ");
 }
 
+/* ── Product lookup types ── */
+
+interface DecoSearchResult {
+  decoProductId: string;
+  name: string;
+  sku: string;
+  category: string;
+}
+
+type ProductLookupState = "idle" | "searching" | "loading" | "loaded" | "not_found" | "error";
+
+/* ── Product lookup helper ── */
+
+async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail | null> {
+  // Step 1: Search by SKU first, then by product title
+  const queries = [item.sku, item.productTitle].filter(Boolean) as string[];
+
+  for (const q of queries) {
+    try {
+      const searchRes = await fetch(`/api/quotes/products?q=${encodeURIComponent(q)}`);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const results: DecoSearchResult[] = searchData.items ?? [];
+      if (results.length === 0) continue;
+
+      // Find best match: exact SKU match, or first result
+      const match = (item.sku && results.find((r) => r.sku.toLowerCase() === item.sku!.toLowerCase())) || results[0];
+      if (!match?.decoProductId) continue;
+
+      // Step 2: Fetch rich detail
+      const detailRes = await fetch(`/api/quotes/products/${encodeURIComponent(match.decoProductId)}`);
+      if (!detailRes.ok) continue;
+      const detail = await detailRes.json();
+
+      return {
+        productName: detail.productName ?? item.productTitle,
+        productCode: detail.productCode ?? item.sku ?? "UNKNOWN",
+        supplier: detail.supplier ?? "Unknown",
+        brand: detail.brand,
+        category: detail.category ?? guessCategory(item.productTitle),
+        colors: detail.colors ?? [],
+        sizes: detail.sizes ?? [],
+        images: detail.images ?? [],
+      };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 /* ── Component ── */
 
 export function JobLineItemConfig({ jobId, items }: Props) {
@@ -74,6 +125,11 @@ export function JobLineItemConfig({ jobId, items }: Props) {
   const [editMethod, setEditMethod] = useState<Record<string, string>>({});
   const [editPlacement, setEditPlacement] = useState<Record<string, string>>({});
   const [editDesigns, setEditDesigns] = useState<Record<string, DesignConfig[]>>({});
+
+  // Product detail cache & lookup state
+  const [productDetails, setProductDetails] = useState<Record<string, DesignerProductDetail>>({});
+  const [productState, setProductState] = useState<Record<string, ProductLookupState>>({});
+  const lookupRef = useRef<Set<string>>(new Set());
 
   // Designer modal state
   const [designerOpen, setDesignerOpen] = useState(false);
@@ -94,6 +150,28 @@ export function JobLineItemConfig({ jobId, items }: Props) {
       setEditDesigns((prev) => ({ ...prev, [item.id]: existingDesigns(item) }));
     }
   }, [editMethod, toggleExpand]);
+
+  // Auto-lookup product when item is expanded
+  useEffect(() => {
+    if (!expanded) return;
+    const item = items.find((i) => i.id === expanded);
+    if (!item) return;
+    if (lookupRef.current.has(item.id)) return; // already attempted
+    lookupRef.current.add(item.id);
+
+    setProductState((prev) => ({ ...prev, [item.id]: "searching" }));
+
+    lookupProduct(item).then((detail) => {
+      if (detail) {
+        setProductDetails((prev) => ({ ...prev, [item.id]: detail }));
+        setProductState((prev) => ({ ...prev, [item.id]: "loaded" }));
+      } else {
+        setProductState((prev) => ({ ...prev, [item.id]: "not_found" }));
+      }
+    }).catch(() => {
+      setProductState((prev) => ({ ...prev, [item.id]: "error" }));
+    });
+  }, [expanded, items]);
 
   const saveItem = useCallback(async (item: JobLineItem) => {
     setSaving(item.id);
@@ -277,6 +355,28 @@ export function JobLineItemConfig({ jobId, items }: Props) {
                     </div>
                   </div>
 
+                  {/* Product match indicator */}
+                  {(productState[item.id] === "searching" || productState[item.id] === "loading") && (
+                    <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#6366f1] border-t-transparent" />
+                      Finding product in catalogue...
+                    </div>
+                  )}
+                  {productState[item.id] === "loaded" && productDetails[item.id] && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7" }}>
+                      <span>✓</span>
+                      <span>Matched: <strong>{productDetails[item.id].productName}</strong> ({productDetails[item.id].supplier})</span>
+                      {productDetails[item.id].colors.length > 0 && (
+                        <span style={{ color: "var(--text-tertiary)" }}>· {productDetails[item.id].colors.length} colours · {productDetails[item.id].images?.length ?? 0} images</span>
+                      )}
+                    </div>
+                  )}
+                  {productState[item.id] === "not_found" && (
+                    <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      No product match found in Deco catalogue — studio will use generic garment template
+                    </div>
+                  )}
+
                   {/* Designs summary */}
                   {designs.length > 0 && (
                     <div className="rounded-xl p-3" style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)" }}>
@@ -302,10 +402,13 @@ export function JobLineItemConfig({ jobId, items }: Props) {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => openDesigner(item)}
-                      className="rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125"
+                      disabled={productState[item.id] === "searching" || productState[item.id] === "loading"}
+                      className="rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125 disabled:opacity-50"
                       style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
                     >
-                      🎨 Open studio
+                      {productState[item.id] === "searching" || productState[item.id] === "loading"
+                        ? "Loading product..."
+                        : "🎨 Open studio"}
                     </button>
 
                     <button
@@ -333,7 +436,7 @@ export function JobLineItemConfig({ jobId, items }: Props) {
             setDesignerItem(null);
           }}
           onApply={handleDesignerApply}
-          productDetail={buildProductDetail(designerItem)}
+          productDetail={productDetails[designerItem.id] ?? buildProductDetail(designerItem)}
           initialDesigns={editDesigns[designerItem.id] ?? existingDesigns(designerItem)}
         />
       )}
