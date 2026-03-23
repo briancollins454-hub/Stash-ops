@@ -99,6 +99,8 @@ const PLACEMENTS = [
   { key: "left_sleeve", label: "Left Sleeve", icon: "🦾" },
   { key: "right_sleeve", label: "Right Sleeve", icon: "💪" },
   { key: "collar", label: "Collar", icon: "⬆" },
+  { key: "hem", label: "Hem", icon: "↕" },
+  { key: "pocket", label: "Pocket", icon: "🪪" },
 ] as const;
 
 function emptyLine(): LineItem {
