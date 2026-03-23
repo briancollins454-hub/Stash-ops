@@ -127,14 +127,15 @@ const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
 const DEFAULT_ZONES: ZoneDef[] = ZONE_TEMPLATES.tshirt;
 
 /* ═══════════════════════════════════════════════════════════
-   SVG GARMENT SILHOUETTES — clean outline per view
+   SVG GARMENT SILHOUETTES — colour-tinted outlines per view
    ═══════════════════════════════════════════════════════════ */
 
-function GarmentSVG({ view, garmentType, className, style }: {
-  view: ViewKey; garmentType: string; className?: string; style?: CSSProperties;
+function GarmentSVG({ view, garmentType, garmentColor, className, style }: {
+  view: ViewKey; garmentType: string; garmentColor?: string; className?: string; style?: CSSProperties;
 }) {
-  const colour = "rgba(148,163,184,0.2)";
-  const stroke = "rgba(148,163,184,0.35)";
+  const tint = garmentColor ?? "rgba(148,163,184,0.35)";
+  const colour = garmentColor ? hexToRgba(tint, 0.25) : "rgba(148,163,184,0.2)";
+  const stroke = garmentColor ? hexToRgba(tint, 0.5) : "rgba(148,163,184,0.35)";
   const sw = 1.5;
   const gt = garmentType;
 
@@ -248,6 +249,17 @@ function fileExt(name: string): string {
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
+/** Convert hex (#rrggbb) to rgba string */
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  if (h.length < 6) return `rgba(148,163,184,${alpha})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return `rgba(148,163,184,${alpha})`;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function colorToCss(name: string): string {
   const n = name.toLowerCase().trim();
   const map: Record<string, string> = {
@@ -296,6 +308,8 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
 
   /* ── state ── */
   const [activeView, setActiveView] = useState<ViewKey>("front");
+  const [prevView, setPrevView] = useState<ViewKey>("front");
+  const [isRotating, setIsRotating] = useState(false);
   const [activeZoneKey, setActiveZoneKey] = useState(() => zones[0]?.key ?? "left_chest");
   const [activeColorId, setActiveColorId] = useState<number | undefined>(initColorId);
   const [designs, setDesigns] = useState<Record<string, DesignConfig>>(() => {
@@ -329,23 +343,71 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   // Switch view when zone changes
   useEffect(() => {
     const z = zones.find((z) => z.key === activeZoneKey);
-    if (z) setActiveView(z.view);
+    if (z && z.view !== activeView) switchView(z.view);
   }, [activeZoneKey, zones]);
+
+  /** Switch view with 3D rotation animation */
+  const switchView = useCallback((to: ViewKey) => {
+    if (to === activeView || isRotating) return;
+    setPrevView(activeView);
+    setIsRotating(true);
+    // Mid-rotation swap (300ms = halfway through 600ms animation)
+    setTimeout(() => setActiveView(to), 300);
+    setTimeout(() => setIsRotating(false), 600);
+  }, [activeView, isRotating]);
 
   /* ── derived ── */
   const activeZone = zones.find((z) => z.key === activeZoneKey)!;
   const current = designs[activeZoneKey];
   const visibleZones = useMemo(() => zones.filter((z) => z.view === activeView), [zones, activeView]);
 
+  /** Rotation degrees for 3D animation per view */
+  const viewRotation: Record<ViewKey, number> = useMemo(() => ({
+    front: 0, right: 90, back: 180, left: 270,
+  }), []);
+
+  /** Get the Y-rotation angle for the 3D transition */
+  const rotationAngle = useMemo(() => {
+    if (!isRotating) return viewRotation[activeView];
+    // First half: rotate away from prevView
+    return viewRotation[prevView] + 90;
+  }, [isRotating, activeView, prevView, viewRotation]);
+
+  /** CSS color for the selected garment color (for SVG tinting) */
+  const activeColorCss = useMemo(() => {
+    const selColor = productDetail.colors.find((c) => c.id === activeColorId);
+    return selColor ? colorToCss(selColor.name) : undefined;
+  }, [productDetail.colors, activeColorId]);
+
+  /** Find best image for the current view and selected color */
   const displayImage = useMemo(() => {
     const imgs = productDetail.images ?? [];
     const selColor = productDetail.colors.find((c) => c.id === activeColorId);
+    const viewToType: Record<ViewKey, string> = { front: "front", back: "back", left: "side", right: "side" };
+    const imgType = viewToType[activeView];
+
+    // Try exact match: correct type + correct color
     if (selColor) {
-      const cm = imgs.find((i) => i.type === "front" && i.color?.toLowerCase() === selColor.name.toLowerCase());
-      if (cm) return cm.url;
+      const exact = imgs.find((i) => i.type === imgType && i.color?.toLowerCase() === selColor.name.toLowerCase());
+      if (exact) return exact.url;
     }
-    return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
-  }, [productDetail, activeColorId]);
+
+    // Try type match without color
+    const typeMatch = imgs.find((i) => i.type === imgType);
+    if (typeMatch) return typeMatch.url;
+
+    // For front view, fall back to any front image or gallery
+    if (activeView === "front") {
+      if (selColor) {
+        const cm = imgs.find((i) => i.type === "front" && i.color?.toLowerCase() === selColor.name.toLowerCase());
+        if (cm) return cm.url;
+      }
+      return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
+    }
+
+    // For non-front views, no fallback — show SVG only
+    return null;
+  }, [productDetail, activeColorId, activeView]);
 
   const colorImages = useMemo(
     () => (productDetail.images ?? []).filter((i) => i.type === "front" && i.color),
@@ -580,7 +642,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                   return z?.view === v.key && (d.decorationMethod || d.artworkUrl);
                 });
                 return (
-                  <button key={v.key} onClick={() => setActiveView(v.key)}
+                  <button key={v.key} onClick={() => switchView(v.key)}
                     className="relative px-6 py-1.5 rounded-lg text-xs font-semibold transition-all"
                     style={{
                       background: isAct ? "var(--accent)" : "rgba(255,255,255,0.06)",
@@ -606,30 +668,44 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
               <div
                 ref={canvasRef}
                 className="relative select-none"
-                style={{ width: "100%", maxWidth: 460, aspectRatio: "1 / 1.15" }}
+                style={{
+                  width: "100%", maxWidth: 460, aspectRatio: "1 / 1.15",
+                  perspective: "1200px",
+                }}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
                 onPointerLeave={onCanvasPointerUp}
               >
-                {/* Garment silhouette — always visible */}
-                <GarmentSVG
-                  view={activeView}
-                  garmentType={garmentType}
-                  className="absolute inset-0 w-full h-full"
-                  style={{ zIndex: 0 }}
-                />
-
-                {/* Real product image — front view only */}
-                {activeView === "front" && displayImage && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={displayImage}
-                    alt={productDetail.productName}
-                    className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                    style={{ zIndex: 1 }}
-                    draggable={false}
+                {/* 3D rotating container */}
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    transformStyle: "preserve-3d",
+                    transform: `rotateY(${isRotating ? (viewRotation[prevView] < viewRotation[activeView] ? "90deg" : "-90deg") : "0deg"})`,
+                    transition: isRotating ? "transform 0.3s ease-in-out" : "transform 0.3s ease-in-out",
+                    backfaceVisibility: "hidden",
+                  }}
+                >
+                  {/* Garment silhouette — always visible, colour-tinted */}
+                  <GarmentSVG
+                    view={activeView}
+                    garmentType={garmentType}
+                    garmentColor={activeColorCss}
+                    className="absolute inset-0 w-full h-full"
+                    style={{ zIndex: 0, opacity: displayImage ? 0.3 : 1 }}
                   />
-                )}
+
+                  {/* Real product image — for any view that has one */}
+                  {displayImage && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={displayImage}
+                      alt={`${productDetail.productName} — ${activeView}`}
+                      className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                      style={{ zIndex: 1 }}
+                      draggable={false}
+                    />
+                  )}
 
                 {/* Decoration zone rectangles */}
                 {visibleZones.map((zone) => {
@@ -767,6 +843,8 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                     </div>
                   </div>
                 )}
+
+                </div>{/* close 3D rotating container */}
               </div>
             </div>
 
@@ -808,7 +886,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                       <button key={i} onClick={() => {
                         const m = productDetail.colors.find((c) => c.name.toLowerCase() === img.color?.toLowerCase());
                         if (m) setActiveColorId(m.id);
-                        setActiveView("front");
+                        switchView("front");
                       }} className="shrink-0 rounded-lg overflow-hidden border-2 transition-all"
                         style={{ width: 42, height: 42, borderColor: isA ? "var(--accent)" : "transparent", background: "#fff" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}

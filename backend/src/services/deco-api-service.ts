@@ -753,7 +753,7 @@ export type DecoWebhookPayload = {
 export type ProductImage = {
   url: string;
   color?: string;           // colour name if colour-specific
-  type: "front" | "gallery"; // front = colour swatch, gallery = lifestyle/detail
+  type: "front" | "back" | "side" | "gallery";
 };
 
 export type DecoProductDetail = {
@@ -848,6 +848,34 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
       if (!seen.has(url)) {
         seen.add(url);
         images.push({ url, color: alt, type: "front" });
+      }
+    }
+
+    // Back images: {code}_{colour}_bk.jpg — probe by replacing _ft with _bk in found front URLs
+    for (const frontImg of images.filter((i) => i.type === "front")) {
+      const backUrl = frontImg.url.replace(/_ft\.jpg$/i, "_bk.jpg");
+      if (backUrl !== frontImg.url && !seen.has(backUrl)) {
+        try {
+          const probe = await fetch(backUrl, { method: "HEAD", headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(5_000) });
+          if (probe.ok) {
+            seen.add(backUrl);
+            images.push({ url: backUrl, color: frontImg.color, type: "back" });
+          }
+        } catch { /* back image doesn't exist for this colour */ }
+      }
+    }
+
+    // Side images: {code}_{colour}_sd.jpg — probe by replacing _ft with _sd
+    for (const frontImg of images.filter((i) => i.type === "front")) {
+      const sideUrl = frontImg.url.replace(/_ft\.jpg$/i, "_sd.jpg");
+      if (sideUrl !== frontImg.url && !seen.has(sideUrl)) {
+        try {
+          const probe = await fetch(sideUrl, { method: "HEAD", headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(5_000) });
+          if (probe.ok) {
+            seen.add(sideUrl);
+            images.push({ url: sideUrl, color: frontImg.color, type: "side" });
+          }
+        } catch { /* side image doesn't exist for this colour */ }
       }
     }
 
