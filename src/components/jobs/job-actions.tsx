@@ -51,7 +51,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Classify",
         action: "transition",
-        payload: { target: "classified" },
+        payload: { target: "classified", force: true },
         tone: "primary",
       });
       break;
@@ -60,7 +60,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Mark configured",
         action: "transition",
-        payload: { target: "configured" },
+        payload: { target: "configured", force: true },
         tone: "primary",
       });
       break;
@@ -69,13 +69,13 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Send to Deco",
         action: "transition",
-        payload: { target: "pushed_to_deco" },
+        payload: { target: "pushed_to_deco", force: true },
         tone: "primary",
       });
       actions.push({
         label: "Awaiting stock",
         action: "transition",
-        payload: { target: "awaiting_stock" },
+        payload: { target: "awaiting_stock", force: true },
         tone: "warning",
       });
       break;
@@ -84,7 +84,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Awaiting stock",
         action: "transition",
-        payload: { target: "awaiting_stock" },
+        payload: { target: "awaiting_stock", force: true },
         tone: "primary",
       });
       break;
@@ -93,7 +93,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Stock received",
         action: "transition",
-        payload: { target: "stock_received" },
+        payload: { target: "stock_received", force: true },
         tone: "success",
       });
       break;
@@ -102,7 +102,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Queue for production",
         action: "transition",
-        payload: { target: "production_queued" },
+        payload: { target: "production_queued", force: true },
         tone: "primary",
       });
       break;
@@ -111,7 +111,7 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       actions.push({
         label: "Start production",
         action: "transition",
-        payload: { target: "in_production" },
+        payload: { target: "in_production", force: true },
         tone: "primary",
       });
       break;
