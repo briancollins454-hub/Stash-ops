@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DesignerModal, type DesignConfig } from "./designer-modal";
 
 // ── Types ──
 
@@ -74,6 +75,7 @@ type LineItem = {
   productDetailLoading?: boolean;
   selectedColorId?: number;
   sizeQuantities?: Record<number, number>; // sizeId → quantity
+  designs?: DesignConfig[];
 };
 
 const DECORATION_METHODS = [
@@ -171,6 +173,9 @@ export default function QuoteBuilderPage() {
   // ── Inventory cache ──
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+
+  // ── Designer modal ──
+  const [designerLineId, setDesignerLineId] = useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -385,6 +390,25 @@ export default function QuoteBuilderPage() {
         return { ...item, placements: result, placement: result[0] };
       }),
     );
+  }
+
+  /** Apply designs from the Designer modal to a line item */
+  function applyDesigns(lineId: string, designs: DesignConfig[]) {
+    setLineItems((items) =>
+      items.map((item) => {
+        if (item.id !== lineId) return item;
+        const placements = designs.map((d) => d.placement);
+        const primaryMethod = designs[0]?.decorationMethod || item.decorationMethod;
+        return {
+          ...item,
+          designs,
+          placements: placements.length > 0 ? placements : item.placements,
+          placement: placements[0] ?? item.placement,
+          decorationMethod: primaryMethod,
+        };
+      }),
+    );
+    setDesignerLineId(null);
   }
 
   /** Select a color for a line item and update unit price from SKU data */
@@ -1240,6 +1264,49 @@ export default function QuoteBuilderPage() {
                         })}
                       </div>
                     </div>
+
+                    {/* Designer button + design summary */}
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => setDesignerLineId(item.id)}
+                        className="btn text-sm w-full flex items-center justify-center gap-2 py-2.5"
+                        style={{
+                          border: `1px solid ${item.designs?.length ? "var(--accent)" : "var(--border)"}`,
+                          color: item.designs?.length ? "var(--accent-light)" : "var(--text-secondary)",
+                          background: item.designs?.length ? "var(--accent-soft)" : "transparent",
+                        }}
+                      >
+                        🎨 {item.designs?.length
+                          ? `Designer (${item.designs.length} placement${item.designs.length > 1 ? "s" : ""} configured)`
+                          : "Open Designer — Upload Artwork & Configure Designs"}
+                      </button>
+                      {item.designs && item.designs.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.designs.map((d, dIdx) => (
+                            <div
+                              key={dIdx}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium"
+                              style={{
+                                background: "var(--accent-soft)",
+                                color: "var(--accent-light)",
+                                border: "1px solid rgba(99,102,241,0.3)",
+                              }}
+                            >
+                              <span>{PLACEMENTS.find((p) => p.key === d.placement)?.icon ?? "📍"}</span>
+                              {PLACEMENTS.find((p) => p.key === d.placement)?.label ?? d.placement}
+                              {d.decorationMethod && (
+                                <span className="opacity-70">
+                                  · {DECORATION_METHODS.find((m) => m.key === d.decorationMethod)?.label ?? d.decorationMethod}
+                                </span>
+                              )}
+                              {d.artworkName && (
+                                <span className="opacity-60">· 📎 {d.artworkName}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1534,6 +1601,24 @@ export default function QuoteBuilderPage() {
                             .join(", ")}</>
                         )}
                       </div>
+                      {item.designs && item.designs.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {item.designs.map((d, dIdx) => (
+                            <span
+                              key={dIdx}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium"
+                              style={{
+                                background: "var(--accent-soft)",
+                                color: "var(--accent-light)",
+                              }}
+                            >
+                              {PLACEMENTS.find((p) => p.key === d.placement)?.label ?? d.placement}
+                              {d.decorationMethod && ` · ${DECORATION_METHODS.find((m) => m.key === d.decorationMethod)?.label ?? d.decorationMethod}`}
+                              {d.artworkName && " · 📎"}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-mono">
@@ -1591,6 +1676,22 @@ export default function QuoteBuilderPage() {
           )}
         </div>
       )}
+
+      {/* ═══════ Designer Modal ═══════ */}
+      {designerLineId && (() => {
+        const designItem = lineItems.find((i) => i.id === designerLineId);
+        if (!designItem?.productDetail) return null;
+        return (
+          <DesignerModal
+            open={true}
+            onClose={() => setDesignerLineId(null)}
+            onApply={(designs) => applyDesigns(designerLineId, designs)}
+            productDetail={designItem.productDetail}
+            selectedColorId={designItem.selectedColorId}
+            initialDesigns={designItem.designs}
+          />
+        );
+      })()}
     </div>
   );
 }
