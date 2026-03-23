@@ -257,11 +257,16 @@ export function JobLineItemConfig({ jobId, items }: Props) {
 
                 {/* Product info */}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                    {item.productTitle}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    {item.sku && (
+                      <span className="shrink-0 font-mono text-xs font-medium" style={{ color: "var(--accent-light)" }}>{item.sku}</span>
+                    )}
+                    <p className="truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {item.productTitle}
+                    </p>
+                  </div>
                   <p className="mt-0.5 truncate text-xs" style={{ color: "var(--text-secondary)" }}>
-                    {item.variantTitle || item.sku || "No variant"} · Qty {item.quantity}
+                    {item.variantTitle && <>{item.variantTitle} · </>}Qty {item.quantity}
                     {item.decorationMethod && ` · ${item.decorationMethod}`}
                     {item.decorationPlacement && ` @ ${item.decorationPlacement}`}
                   </p>
