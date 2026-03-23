@@ -15,6 +15,7 @@ export interface DesignConfig {
   artworkUrl?: string;
   artworkName?: string;
   artworkFileType?: string;
+  previewUrl?: string;
   x: number;
   y: number;
   w: number;
@@ -285,7 +286,9 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewInputRef = useRef<HTMLInputElement>(null);
   const [rightPanel, setRightPanel] = useState<"process" | "artwork" | "notes">("process");
+  const [failedPreviews, setFailedPreviews] = useState<Set<string>>(() => new Set());
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{
@@ -730,120 +733,84 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                   );
                 })}
 
-                {/* Artwork overlay — draggable & resizable */}
-                {current?.artworkUrl && current.artworkUrl.startsWith("data:image/") && activeZone.view === activeView && (
-                  <div
-                    className="absolute z-10"
-                    style={{
-                      left: `${current.x}%`, top: `${current.y}%`,
-                      width: `${current.w}%`, height: `${current.h}%`,
-                      cursor: "move",
-                    }}
-                    onPointerDown={(e) => onArtworkPointerDown(e, "move")}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={current.artworkUrl} alt="Design artwork"
-                      className="w-full h-full object-contain pointer-events-none"
-                      style={{ filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.4))" }}
-                      draggable={false} />
-
-                    {/* Selection border */}
-                    <div className="absolute inset-0 border rounded"
-                      style={{ borderColor: "rgba(99,102,241,0.8)", borderWidth: 1.5, pointerEvents: "none" }} />
-
-                    {/* 4 corner handles */}
-                    {(["tl", "tr", "bl", "br"] as const).map((corner) => (
-                      <div key={corner}
-                        className="absolute w-3 h-3 rounded-sm"
-                        style={{
-                          background: "#6366f1", border: "1.5px solid white",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-                          cursor: corner === "tl" || corner === "br" ? "nwse-resize" : "nesw-resize",
-                          ...(corner.includes("t") ? { top: -5 } : { bottom: -5 }),
-                          ...(corner.includes("l") ? { left: -5 } : { right: -5 }),
-                        }}
-                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", corner)} />
-                    ))}
-
-                    {/* 4 edge handles */}
-                    {([
-                      { edge: "t", style: { top: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
-                      { edge: "b", style: { bottom: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
-                      { edge: "l", style: { left: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
-                      { edge: "r", style: { right: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
-                    ]).map(({ edge, style }) => (
-                      <div key={edge}
-                        className="absolute w-2 h-2 rounded-full"
-                        style={{ background: "#6366f1", border: "1.5px solid white", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", ...style }}
-                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", edge)} />
-                    ))}
-                  </div>
-                )}
-
-                {/* Non-image file overlay (EPS, DST, PES, AI etc.) — draggable & resizable */}
-                {current?.artworkUrl && !current.artworkUrl.startsWith("data:image/") && activeZone.view === activeView && (
-                  <div
-                    className="absolute z-10"
-                    style={{
-                      left: `${current.x}%`, top: `${current.y}%`,
-                      width: `${current.w}%`, height: `${current.h}%`,
-                      cursor: "move",
-                    }}
-                    onPointerDown={(e) => onArtworkPointerDown(e, "move")}
-                  >
-                    {/* Visible placement area */}
-                    <div className="absolute inset-0 rounded flex flex-col items-center justify-center"
+                {/* Artwork overlay — draggable & resizable (handles ALL file types) */}
+                {current?.artworkUrl && activeZone.view === activeView && (() => {
+                  const renderUrl = current.previewUrl ?? current.artworkUrl;
+                  const canRender = !failedPreviews.has(renderUrl);
+                  return (
+                    <div
+                      className="absolute z-10"
                       style={{
-                        background: "rgba(99,102,241,0.12)",
-                        border: "2px solid rgba(99,102,241,0.6)",
-                        backdropFilter: "blur(1px)",
-                      }}>
-                      {/* Crosshair lines */}
-                      <div className="absolute left-1/2 top-0 bottom-0 w-px" style={{ background: "rgba(99,102,241,0.25)" }} />
-                      <div className="absolute top-1/2 left-0 right-0 h-px" style={{ background: "rgba(99,102,241,0.25)" }} />
-                      {/* File info */}
-                      <div className="px-2 py-1 rounded" style={{ background: "rgba(15,15,40,0.7)" }}>
-                        <div className="text-[10px] font-bold uppercase text-center" style={{ color: "#a5b4fc" }}>
-                          {(current.artworkFileType ?? "FILE").toUpperCase()}
+                        left: `${current.x}%`, top: `${current.y}%`,
+                        width: `${current.w}%`, height: `${current.h}%`,
+                        cursor: "move",
+                      }}
+                      onPointerDown={(e) => onArtworkPointerDown(e, "move")}
+                    >
+                      {/* Try rendering as image — works for PNG/JPG/SVG/GIF, and preview images for EPS/DST */}
+                      {canRender ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={renderUrl} alt="Design artwork"
+                          className="w-full h-full object-contain pointer-events-none"
+                          style={{ filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.4))" }}
+                          draggable={false}
+                          onError={() => setFailedPreviews((prev) => new Set(prev).add(renderUrl))} />
+                      ) : (
+                        /* Placeholder for non-renderable files */
+                        <div className="absolute inset-0 rounded flex flex-col items-center justify-center"
+                          style={{
+                            background: "rgba(99,102,241,0.1)",
+                            border: "1.5px dashed rgba(99,102,241,0.5)",
+                          }}>
+                          <div className="absolute left-1/2 top-0 bottom-0 w-px" style={{ background: "rgba(99,102,241,0.15)" }} />
+                          <div className="absolute top-1/2 left-0 right-0 h-px" style={{ background: "rgba(99,102,241,0.15)" }} />
+                          <div className="px-2.5 py-1.5 rounded-md" style={{ background: "rgba(15,15,40,0.8)" }}>
+                            <div className="text-[10px] font-bold uppercase text-center" style={{ color: "#a5b4fc" }}>
+                              {(current.artworkFileType ?? "FILE").toUpperCase()}
+                            </div>
+                            <div className="text-[8px] truncate max-w-[120px] text-center mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                              {current.artworkName}
+                            </div>
+                            <div className="text-[7px] text-center mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>
+                              Add preview image →
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[8px] truncate max-w-[120px] text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
-                          {current.artworkName}
-                        </div>
-                      </div>
+                      )}
+
+                      {/* Selection border */}
+                      <div className="absolute inset-0 border rounded pointer-events-none"
+                        style={{ borderColor: canRender ? "rgba(99,102,241,0.6)" : "rgba(99,102,241,0.4)", borderWidth: 1.5 }} />
+
+                      {/* 4 corner handles */}
+                      {(["tl", "tr", "bl", "br"] as const).map((corner) => (
+                        <div key={corner}
+                          className="absolute w-3 h-3 rounded-sm"
+                          style={{
+                            background: "#6366f1", border: "1.5px solid white",
+                            boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                            cursor: corner === "tl" || corner === "br" ? "nwse-resize" : "nesw-resize",
+                            ...(corner.includes("t") ? { top: -5 } : { bottom: -5 }),
+                            ...(corner.includes("l") ? { left: -5 } : { right: -5 }),
+                          }}
+                          onPointerDown={(e) => onArtworkPointerDown(e, "resize", corner)} />
+                      ))}
+
+                      {/* 4 edge handles */}
+                      {([
+                        { edge: "t", style: { top: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
+                        { edge: "b", style: { bottom: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
+                        { edge: "l", style: { left: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
+                        { edge: "r", style: { right: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
+                      ]).map(({ edge, style }) => (
+                        <div key={edge}
+                          className="absolute w-2 h-2 rounded-full"
+                          style={{ background: "#6366f1", border: "1.5px solid white", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", ...style }}
+                          onPointerDown={(e) => onArtworkPointerDown(e, "resize", edge)} />
+                      ))}
                     </div>
-
-                    {/* Selection border */}
-                    <div className="absolute inset-0 border rounded pointer-events-none"
-                      style={{ borderColor: "rgba(99,102,241,0.8)", borderWidth: 1.5 }} />
-
-                    {/* 4 corner handles */}
-                    {(["tl", "tr", "bl", "br"] as const).map((corner) => (
-                      <div key={corner}
-                        className="absolute w-3 h-3 rounded-sm"
-                        style={{
-                          background: "#6366f1", border: "1.5px solid white",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-                          cursor: corner === "tl" || corner === "br" ? "nwse-resize" : "nesw-resize",
-                          ...(corner.includes("t") ? { top: -5 } : { bottom: -5 }),
-                          ...(corner.includes("l") ? { left: -5 } : { right: -5 }),
-                        }}
-                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", corner)} />
-                    ))}
-
-                    {/* 4 edge handles */}
-                    {([
-                      { edge: "t", style: { top: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
-                      { edge: "b", style: { bottom: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
-                      { edge: "l", style: { left: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
-                      { edge: "r", style: { right: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
-                    ]).map(({ edge, style }) => (
-                      <div key={edge}
-                        className="absolute w-2 h-2 rounded-full"
-                        style={{ background: "#6366f1", border: "1.5px solid white", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", ...style }}
-                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", edge)} />
-                    ))}
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Drop overlay */}
                 {dragOver && (
@@ -1014,9 +981,13 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                       <div className="flex items-center gap-3 p-3 rounded-lg"
                         style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)" }}>
                         <div className="w-10 h-10 rounded bg-white shrink-0 flex items-center justify-center overflow-hidden">
-                          {current.artworkUrl.startsWith("data:image/") ? (
+                          {current.previewUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={current.artworkUrl} alt="" className="w-full h-full object-contain" />
+                            <img src={current.previewUrl} alt="" className="w-full h-full object-contain" />
+                          ) : !failedPreviews.has(current.artworkUrl) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={current.artworkUrl} alt="" className="w-full h-full object-contain"
+                              onError={() => setFailedPreviews((prev) => new Set(prev).add(current.artworkUrl!))} />
                           ) : (
                             <div className="text-center">
                               <div className="text-sm">📄</div>
@@ -1032,7 +1003,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                             {activeZone.label}
                           </div>
                         </div>
-                        <button onClick={() => updateDesign({ artworkUrl: undefined, artworkName: undefined, artworkFileType: undefined })}
+                        <button onClick={() => updateDesign({ artworkUrl: undefined, artworkName: undefined, artworkFileType: undefined, previewUrl: undefined })}
                           className="text-[10px] w-6 h-6 rounded flex items-center justify-center"
                           style={{ color: "#f87171" }}
                           onMouseEnter={(e) => e.currentTarget.style.background = "rgba(248,113,113,0.1)"}
@@ -1040,6 +1011,52 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                           ✕
                         </button>
                       </div>
+
+                      {/* Preview image upload — for non-renderable files like EPS/DST */}
+                      {current.artworkUrl && failedPreviews.has(current.previewUrl ?? current.artworkUrl) && !current.previewUrl && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() => previewInputRef.current?.click()}
+                            className="w-full text-left px-3 py-2 rounded-lg transition-all flex items-center gap-2"
+                            style={{
+                              background: "rgba(251,191,36,0.08)",
+                              border: "1px solid rgba(251,191,36,0.2)",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.borderColor = "rgba(251,191,36,0.4)"}
+                            onMouseLeave={(e) => e.currentTarget.style.borderColor = "rgba(251,191,36,0.2)"}>
+                            <span className="text-sm">🖼️</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] font-medium" style={{ color: "#fbbf24" }}>
+                                Add preview image
+                              </div>
+                              <div className="text-[8px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                                Upload a PNG/JPG so you can see it on the garment
+                              </div>
+                            </div>
+                          </button>
+                          <input ref={previewInputRef} type="file" accept="image/*" className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                updateDesign({ previewUrl: ev.target?.result as string });
+                              };
+                              reader.readAsDataURL(file);
+                              e.target.value = "";
+                            }} />
+                        </div>
+                      )}
+
+                      {/* Show/remove preview if one exists */}
+                      {current.previewUrl && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+                          style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)" }}>
+                          <span className="text-[10px]" style={{ color: "#4ade80" }}>✓ Preview image attached</span>
+                          <button onClick={() => updateDesign({ previewUrl: undefined })}
+                            className="ml-auto text-[9px]" style={{ color: "#f87171" }}>Remove</button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
