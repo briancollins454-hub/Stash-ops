@@ -21,43 +21,50 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
         { headers: { "User-Agent": "StashOps/1.0", "Accept": "application/json" }, signal: AbortSignal.timeout(10_000) },
       );
       const searchText = await searchRes.text();
+      const contentType = searchRes.headers.get("content-type") ?? "unknown";
       const isJson = searchText.trim().startsWith("{") || searchText.trim().startsWith("[");
+
+      // Just return raw diagnostic info, don't try to fetch the page
+      if (!isJson) {
+        return {
+          code,
+          contentType,
+          format: "non-json",
+          length: searchText.length,
+          preview: searchText.substring(0, 300),
+        };
+      }
+
+      const searchData = JSON.parse(searchText);
+      const keys = Object.keys(searchData);
+      const hasSuccess = "Success" in searchData;
+      const hasData = "Data" in searchData;
+      const hasEntries = "Entries" in searchData;
+
       let pageUrl: string | null = null;
-      let searchFormat = "unknown";
-
-      if (isJson) {
-        const searchData = JSON.parse(searchText);
-        if (searchData.Success && searchData.Data) {
-          pageUrl = searchData.Data;
-          searchFormat = "redirect";
-        } else if (searchData.Entries?.length) {
-          const exact = searchData.Entries.find((e: { EntryCode?: string }) => e.EntryCode?.toUpperCase() === code.toUpperCase());
-          const entry = exact ?? searchData.Entries[0];
-          if (entry?.DetailUrl) pageUrl = entry.DetailUrl;
-          searchFormat = `entries(${searchData.Entries.length})`;
-        }
+      if (hasSuccess && searchData.Success && hasData) {
+        pageUrl = typeof searchData.Data === "string" ? searchData.Data : `[non-string: ${typeof searchData.Data}]`;
       }
-
-      if (!pageUrl) {
-        return { code, searchFormat, pageUrl: null, searchTextLength: searchText.length, searchTextPreview: searchText.substring(0, 200) };
-      }
-
-      const pageRes = await fetch(pageUrl, { headers: { "User-Agent": "StashOps/1.0" }, signal: AbortSignal.timeout(15_000) });
-      const html = await pageRes.text();
-      const coloursMatch = html.match(/Colours:\s*'(\[.*?\])'/s);
-      let colorCount = 0;
-      if (coloursMatch) {
-        const groups = JSON.parse(coloursMatch[1]);
-        for (const g of groups) colorCount += (g.Colours ?? []).length;
+      if (!pageUrl && hasEntries && Array.isArray(searchData.Entries) && searchData.Entries.length > 0) {
+        const entry = searchData.Entries.find((e: Record<string, unknown>) =>
+          typeof e.EntryCode === "string" && e.EntryCode.toUpperCase() === code.toUpperCase()
+        ) ?? searchData.Entries[0];
+        const detailUrl = entry?.DetailUrl;
+        pageUrl = typeof detailUrl === "string" ? detailUrl : `[non-string: ${typeof detailUrl}]`;
       }
 
       return {
         code,
-        searchFormat,
+        contentType,
+        format: "json",
+        keys,
+        hasSuccess,
+        successValue: searchData.Success,
+        hasData,
+        dataType: typeof searchData.Data,
+        hasEntries,
+        entriesCount: Array.isArray(searchData.Entries) ? searchData.Entries.length : "not-array",
         pageUrl,
-        htmlLength: html.length,
-        hasColoursJson: !!coloursMatch,
-        colorCount,
       };
     } catch (err) {
       return { error: String(err), code };
