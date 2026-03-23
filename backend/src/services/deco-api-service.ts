@@ -763,6 +763,7 @@ export type DecoProductDetail = {
   supplier: string;
   brand: string;
   category: string;
+  _extraKeys?: string[];
   colors: Array<{ id: number; name: string }>;
   sizes: Array<{ id: number; name: string; code: string }>;
   skus: Array<{
@@ -1096,15 +1097,38 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
   const knownKeys = new Set(["product_id", "product_code", "product_name", "supplier", "brand", "categories", "colors", "sizes", "skus"]);
   const extraKeys = Object.keys(p).filter((k) => !knownKeys.has(k));
   if (extraKeys.length > 0) {
-    logger.info({ extraKeys, sample: Object.fromEntries(extraKeys.slice(0, 10).map((k) => [k, p[k]])) },
+    logger.info({ extraKeys, sample: Object.fromEntries(extraKeys.slice(0, 15).map((k) => [k, p[k]])) },
       `[Deco] Product ${decoProductId} has extra fields`);
   }
 
+  // Check for any image-related fields from Deco
+  const decoImages: ProductImage[] = [];
+  const pAny = p as Record<string, unknown>;
+  // Try common Deco image field names
+  const imageUrl = pAny.product_image ?? pAny.image_url ?? pAny.thumbnail ?? pAny.image;
+  if (typeof imageUrl === "string" && imageUrl) {
+    decoImages.push({ url: imageUrl, type: "front" });
+  }
+  // Try image arrays
+  const imageArray = pAny.product_images ?? pAny.images ?? pAny.gallery;
+  if (Array.isArray(imageArray)) {
+    for (const img of imageArray) {
+      if (typeof img === "string" && img) {
+        decoImages.push({ url: img, type: "gallery" });
+      } else if (typeof img === "object" && img && typeof (img as Record<string, unknown>).url === "string") {
+        decoImages.push({ url: (img as Record<string, unknown>).url as string, type: "gallery" });
+      }
+    }
+  }
+
   // Fetch supplier images in parallel (non-blocking — empty array on failure)
-  const images = await fetchSupplierProductImages(
+  const supplierImages = await fetchSupplierProductImages(
     p.product_code ?? "",
     p.supplier ?? "",
   );
+
+  // Use supplier images if available, otherwise fall back to any Deco-provided images
+  const images = supplierImages.length > 0 ? supplierImages : decoImages;
 
   return {
     productId: p.product_id ?? 0,
@@ -1113,6 +1137,7 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
     supplier: p.supplier ?? "",
     brand: p.brand ?? "",
     category: p.categories?.[0]?.name ?? "",
+    _extraKeys: extraKeys,
     colors: (p.colors ?? [])
       .filter((c) => c.id != null && c.name)
       .map((c) => ({ id: c.id!, name: c.name! })),
