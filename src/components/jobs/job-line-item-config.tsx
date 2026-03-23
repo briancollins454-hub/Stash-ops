@@ -74,42 +74,133 @@ type ProductLookupState = "idle" | "searching" | "loading" | "loaded" | "not_fou
 
 /* ── Product lookup helper ── */
 
-async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail | null> {
-  // Step 1: Search by SKU first, then by product title
-  const queries = [item.sku, item.productTitle].filter(Boolean) as string[];
+/**
+ * Extract likely base product codes from SKU or title.
+ * Deco variant SKUs look like "BC686-M-BLU" → base "BC686"
+ * Titles look like "JH030 - AWDis sweatshirt" → code "JH030"
+ * Also handles "56000 - SOL'S Ness Zip Neck Fleece" → code "56000"
+ */
+function extractSearchTerms(item: JobLineItem): string[] {
+  const terms: string[] = [];
 
-  for (const q of queries) {
-    try {
-      const searchRes = await fetch(`/api/quotes/products?q=${encodeURIComponent(q)}`);
-      if (!searchRes.ok) continue;
-      const searchData = await searchRes.json();
-      const results: DecoSearchResult[] = searchData.items ?? [];
-      if (results.length === 0) continue;
-
-      // Find best match: exact SKU match, or first result
-      const match = (item.sku && results.find((r) => r.sku.toLowerCase() === item.sku!.toLowerCase())) || results[0];
-      if (!match?.decoProductId) continue;
-
-      // Step 2: Fetch rich detail
-      const detailRes = await fetch(`/api/quotes/products/${encodeURIComponent(match.decoProductId)}`);
-      if (!detailRes.ok) continue;
-      const detail = await detailRes.json();
-
-      return {
-        productName: detail.productName ?? item.productTitle,
-        productCode: detail.productCode ?? item.sku ?? "UNKNOWN",
-        supplier: detail.supplier ?? "Unknown",
-        brand: detail.brand,
-        category: detail.category ?? guessCategory(item.productTitle),
-        colors: detail.colors ?? [],
-        sizes: detail.sizes ?? [],
-        images: detail.images ?? [],
-      };
-    } catch {
-      continue;
+  // 1. From SKU: try full SKU, then strip variant suffix (take first segment before -)
+  if (item.sku) {
+    terms.push(item.sku);
+    const baseSku = item.sku.split("-")[0].trim();
+    if (baseSku && baseSku !== item.sku) {
+      terms.push(baseSku);
+    }
+    // Also try first segment before any space
+    const firstWord = item.sku.split(/[\s_]/)[0].trim();
+    if (firstWord && !terms.includes(firstWord)) {
+      terms.push(firstWord);
     }
   }
-  return null;
+
+  // 2. From title: extract product code at the start (e.g., "JH030 - AWDis sweatshirt")
+  if (item.productTitle) {
+    // Pattern: starts with alphanumeric code followed by separator
+    const codeMatch = item.productTitle.match(/^([A-Za-z0-9]{2,10})\s*[-–—:]/);
+    if (codeMatch) {
+      const code = codeMatch[1];
+      if (!terms.includes(code)) terms.push(code);
+    }
+    // Also add full title as last resort
+    terms.push(item.productTitle);
+  }
+
+  return terms;
+}
+
+/** Score how well a catalogue result matches a job line item */
+function scoreMatch(result: DecoSearchResult, item: JobLineItem): number {
+  let score = 0;
+  const rSku = (result.sku || "").toLowerCase();
+  const rName = (result.name || "").toLowerCase();
+  const iSku = (item.sku || "").toLowerCase();
+  const iTitle = (item.productTitle || "").toLowerCase();
+
+  // Exact SKU match (variant SKU = catalogue SKU)
+  if (iSku && rSku === iSku) return 100;
+
+  // Base product code match (catalogue SKU is prefix of item SKU)
+  if (iSku && rSku && iSku.startsWith(rSku)) score += 80;
+  // Or item SKU contains the catalogue SKU
+  else if (iSku && rSku && iSku.includes(rSku)) score += 60;
+  // Or catalogue SKU is in the title
+  else if (rSku && iTitle.includes(rSku)) score += 50;
+
+  // Name-based matching
+  if (rName && iTitle && (rName.includes(iTitle) || iTitle.includes(rName))) score += 30;
+
+  // Title starts with same product code
+  const titleCode = iTitle.match(/^([a-z0-9]{2,10})\s*[-–—:]/)?.[1];
+  if (titleCode && rSku === titleCode) score += 70;
+  if (titleCode && rName.toLowerCase().startsWith(titleCode)) score += 40;
+
+  return score;
+}
+
+async function searchProducts(query: string): Promise<DecoSearchResult[]> {
+  try {
+    const res = await fetch(`/api/quotes/products?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items ?? []) as DecoSearchResult[];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchProductDetail(decoProductId: string, item: JobLineItem): Promise<DesignerProductDetail | null> {
+  try {
+    const res = await fetch(`/api/quotes/products/${encodeURIComponent(decoProductId)}`);
+    if (!res.ok) return null;
+    const detail = await res.json();
+    return {
+      productName: detail.productName ?? item.productTitle,
+      productCode: detail.productCode ?? item.sku ?? "UNKNOWN",
+      supplier: detail.supplier ?? "Unknown",
+      brand: detail.brand,
+      category: detail.category ?? guessCategory(item.productTitle),
+      colors: detail.colors ?? [],
+      sizes: detail.sizes ?? [],
+      images: detail.images ?? [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail | null> {
+  const terms = extractSearchTerms(item);
+
+  // Try each search term, collect all results, score them
+  const allResults: DecoSearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (const term of terms) {
+    const results = await searchProducts(term);
+    for (const r of results) {
+      if (r.decoProductId && !seen.has(r.decoProductId)) {
+        seen.add(r.decoProductId);
+        allResults.push(r);
+      }
+    }
+    // Stop searching once we have results with a good match
+    if (allResults.length > 0) {
+      const best = allResults.reduce((a, b) => (scoreMatch(a, item) >= scoreMatch(b, item) ? a : b));
+      if (scoreMatch(best, item) >= 50) break;
+    }
+  }
+
+  if (allResults.length === 0) return null;
+
+  // Pick the best match
+  const best = allResults.reduce((a, b) => (scoreMatch(a, item) >= scoreMatch(b, item) ? a : b));
+  if (!best.decoProductId) return null;
+
+  return fetchProductDetail(best.decoProductId, item);
 }
 
 /* ── Component ── */
