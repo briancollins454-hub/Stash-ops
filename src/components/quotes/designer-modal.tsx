@@ -780,22 +780,68 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                   </div>
                 )}
 
-                {/* Non-image file indicator (DST, PES etc.) */}
+                {/* Non-image file overlay (EPS, DST, PES, AI etc.) — draggable & resizable */}
                 {current?.artworkUrl && !current.artworkUrl.startsWith("data:image/") && activeZone.view === activeView && (
-                  <div className="absolute z-10 flex flex-col items-center justify-center rounded border-2 border-dashed"
+                  <div
+                    className="absolute z-10"
                     style={{
                       left: `${current.x}%`, top: `${current.y}%`,
                       width: `${current.w}%`, height: `${current.h}%`,
-                      borderColor: "rgba(99,102,241,0.5)",
-                      background: "rgba(99,102,241,0.08)",
-                    }}>
-                    <div className="text-xl mb-0.5">📄</div>
-                    <div className="text-[9px] font-bold uppercase" style={{ color: "#818cf8" }}>
-                      {current.artworkFileType ?? "FILE"}
+                      cursor: "move",
+                    }}
+                    onPointerDown={(e) => onArtworkPointerDown(e, "move")}
+                  >
+                    {/* Visible placement area */}
+                    <div className="absolute inset-0 rounded flex flex-col items-center justify-center"
+                      style={{
+                        background: "rgba(99,102,241,0.12)",
+                        border: "2px solid rgba(99,102,241,0.6)",
+                        backdropFilter: "blur(1px)",
+                      }}>
+                      {/* Crosshair lines */}
+                      <div className="absolute left-1/2 top-0 bottom-0 w-px" style={{ background: "rgba(99,102,241,0.25)" }} />
+                      <div className="absolute top-1/2 left-0 right-0 h-px" style={{ background: "rgba(99,102,241,0.25)" }} />
+                      {/* File info */}
+                      <div className="px-2 py-1 rounded" style={{ background: "rgba(15,15,40,0.7)" }}>
+                        <div className="text-[10px] font-bold uppercase text-center" style={{ color: "#a5b4fc" }}>
+                          {(current.artworkFileType ?? "FILE").toUpperCase()}
+                        </div>
+                        <div className="text-[8px] truncate max-w-[120px] text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
+                          {current.artworkName}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-[8px] truncate px-2 max-w-full" style={{ color: "rgba(255,255,255,0.4)" }}>
-                      {current.artworkName}
-                    </div>
+
+                    {/* Selection border */}
+                    <div className="absolute inset-0 border rounded pointer-events-none"
+                      style={{ borderColor: "rgba(99,102,241,0.8)", borderWidth: 1.5 }} />
+
+                    {/* 4 corner handles */}
+                    {(["tl", "tr", "bl", "br"] as const).map((corner) => (
+                      <div key={corner}
+                        className="absolute w-3 h-3 rounded-sm"
+                        style={{
+                          background: "#6366f1", border: "1.5px solid white",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                          cursor: corner === "tl" || corner === "br" ? "nwse-resize" : "nesw-resize",
+                          ...(corner.includes("t") ? { top: -5 } : { bottom: -5 }),
+                          ...(corner.includes("l") ? { left: -5 } : { right: -5 }),
+                        }}
+                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", corner)} />
+                    ))}
+
+                    {/* 4 edge handles */}
+                    {([
+                      { edge: "t", style: { top: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
+                      { edge: "b", style: { bottom: -4, left: "50%", transform: "translateX(-50%)", cursor: "ns-resize" } as CSSProperties },
+                      { edge: "l", style: { left: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
+                      { edge: "r", style: { right: -4, top: "50%", transform: "translateY(-50%)", cursor: "ew-resize" } as CSSProperties },
+                    ]).map(({ edge, style }) => (
+                      <div key={edge}
+                        className="absolute w-2 h-2 rounded-full"
+                        style={{ background: "#6366f1", border: "1.5px solid white", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", ...style }}
+                        onPointerDown={(e) => onArtworkPointerDown(e, "resize", edge)} />
+                    ))}
                   </div>
                 )}
 
