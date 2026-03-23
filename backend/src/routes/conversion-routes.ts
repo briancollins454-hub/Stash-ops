@@ -60,10 +60,12 @@ export async function registerConversionRoutes(app: FastifyInstance): Promise<vo
         previewUrl: `data:image/png;base64,${pngBase64}`,
       });
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       logger.error({ err: error, filename }, "File conversion failed");
       return reply.status(500).send({
         ok: false,
         error: "Conversion failed",
+        detail: msg,
       });
     } finally {
       await unlink(inputPath).catch(() => {});
