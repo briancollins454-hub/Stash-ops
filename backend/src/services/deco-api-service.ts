@@ -794,18 +794,23 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       saveBody.set(`${prefix}[pos]`, String(i + 1));
     }
 
-    logger.info({ decoOrderId, lineItemCount: job.items.length }, "Sending save_order with line items");
+    const saveBodyStr = saveBody.toString();
+    logger.info(
+      { decoOrderId, lineItemCount: job.items.length, bodyLength: saveBodyStr.length, bodyPreview: saveBodyStr.slice(0, 500) },
+      "Sending save_order with line items",
+    );
 
     const saveRes = await fetch(
       `${base}/bh/orders/save_order?${saveParams.toString()}`,
       {
         method: "POST",
         headers: { ...webHeaders, "X-Progress-ID": decoOrderId },
-        body: saveBody.toString(),
+        body: saveBodyStr,
       },
     );
 
     const saveText = await saveRes.text();
+    logger.info({ decoOrderId, saveStatus: saveRes.status, saveTextPreview: saveText.slice(0, 300) }, "save_order response");
 
     // Step 4: Poll async progress to confirm save succeeded
     const progressMatch = saveText.match(/continueAsyncProgress\('([^']+)'/);
