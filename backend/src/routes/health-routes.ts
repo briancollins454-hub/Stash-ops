@@ -7,6 +7,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     return {
       ok: true,
       service: "stash-ops-backend",
+      version: "2024-03-24-v2",
       timestamp: new Date().toISOString(),
     };
   });
