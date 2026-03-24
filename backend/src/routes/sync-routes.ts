@@ -150,8 +150,14 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, error: "Job not found." };
     }
 
-    const result = await pushJobToDeco(job.id);
-    return { ok: result.pushed, ...result };
+    try {
+      const result = await pushJobToDeco(job.id);
+      return { ok: result.pushed, ...result };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error({ jobId: job.id, error: msg, stack: err instanceof Error ? err.stack : undefined }, "pushJobToDeco failed");
+      return { ok: false, error: msg };
+    }
   });
 
   // ── Deco reprocess existing events into Jobs ──
