@@ -791,6 +791,7 @@ async function fetchSupplierProductImages(
   productCode: string,
   supplier: string,
   decoProductId?: number,
+  productName?: string,
 ): Promise<ProductImage[]> {
   const s = supplier.toLowerCase();
 
@@ -804,7 +805,7 @@ async function fetchSupplierProductImages(
   }
 
   if (s.includes("canterbury") || s.includes("pentland")) {
-    return fetchCanterburyImages(productCode);
+    return fetchCanterburyImages(productCode, productName);
   }
 
   // For unsupported suppliers, try to get images from DecoNetwork itself
@@ -1127,12 +1128,48 @@ async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
 }
 
 /** Canterbury: search canterbury.com → scrape product page for THG CDN images */
-async function fetchCanterburyImages(productCode: string): Promise<ProductImage[]> {
+async function fetchCanterburyImages(productCode: string, productName?: string): Promise<ProductImage[]> {
   const headers = { "User-Agent": "StashOps/1.0" };
 
+  // Build search terms: try extracting the real supplier code from the product name
+  // e.g. "W72 - Cottonridge Premium Hoodie" → "W72"
+  // Also try segments of the custom code: "BHS-Q-A005014200" → ["A005014200", "BHS"]
+  const searchTerms: string[] = [];
+
+  // 1. Extract code prefix from product name (e.g. "W72" from "W72 - Cottonridge Premium Hoodie")
+  if (productName) {
+    const nameCodeMatch = productName.match(/^([A-Z0-9]{2,}[A-Z0-9-]*)\s*[-–—]/i);
+    if (nameCodeMatch) searchTerms.push(nameCodeMatch[1].trim());
+  }
+
+  // 2. Try longer segments from the custom product code (could contain the real code)
+  if (productCode) {
+    const parts = productCode.split(/[-\s]+/).filter((p) => p.length >= 3);
+    // Prefer longer parts (more likely to be a real product code)
+    parts.sort((a, b) => b.length - a.length);
+    for (const part of parts) {
+      if (!searchTerms.includes(part)) searchTerms.push(part);
+    }
+  }
+
+  // 3. Fall back to product name keyword search
+  if (productName && searchTerms.length === 0) {
+    // Extract meaningful product words (skip school/company names)
+    const nameWords = productName.replace(/\b(school|junior|senior|boys|girls|kids|adult)\b/gi, "").trim();
+    if (nameWords.length > 2) searchTerms.push(nameWords);
+  }
+
+  // 4. Last resort: the raw product code
+  if (searchTerms.length === 0 && productCode) {
+    searchTerms.push(productCode);
+  }
+
+  logger.info({ productCode, productName, searchTerms }, "[Canterbury] Image search terms");
+
   try {
-    // Search Canterbury site for the product code
-    const searchUrl = `https://www.canterbury.com/elysium.search?search=${encodeURIComponent(productCode)}`;
+    // Try each search term until we find images
+    for (const term of searchTerms) {
+    const searchUrl = `https://www.canterbury.com/elysium.search?search=${encodeURIComponent(term)}`;
     const searchRes = await fetch(searchUrl, {
       headers,
       signal: AbortSignal.timeout(10_000),
@@ -1155,7 +1192,7 @@ async function fetchCanterburyImages(productCode: string): Promise<ProductImage[
       productLinks.unshift(new URL(finalUrl).pathname);
     }
 
-    if (productLinks.length === 0) return [];
+    if (productLinks.length === 0) continue;
 
     // Fetch the first product page
     const pageUrl = `https://www.canterbury.com${productLinks[0]}`;
@@ -1213,7 +1250,10 @@ async function fetchCanterburyImages(productCode: string): Promise<ProductImage[
       }
     }
 
-    return images;
+    if (images.length > 0) return images;
+    } // end for-loop over search terms
+
+    return [];
   } catch (err) {
     logger.warn({ err, productCode }, "Failed to fetch Canterbury product images");
     return [];
@@ -1289,6 +1329,7 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
     p.product_code ?? "",
     p.supplier ?? "",
     p.product_id,
+    p.product_name ?? "",
   );
 
   // Use supplier images if available, otherwise fall back to any Deco-provided images
