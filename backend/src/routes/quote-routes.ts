@@ -286,9 +286,10 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
   // ── Product detail (live from Deco API — colors, sizes, per-SKU pricing) ──
   app.get("/v1/quotes/products/:decoProductId/detail", async (request, reply) => {
     const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
+    const { sku } = z.object({ sku: z.string().optional() }).parse(request.query);
 
     try {
-      const detail = await fetchDecoProductDetail(decoProductId);
+      const detail = await fetchDecoProductDetail(decoProductId, sku);
       return detail;
     } catch (err) {
       reply.status(502);

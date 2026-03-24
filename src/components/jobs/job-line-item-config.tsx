@@ -199,7 +199,8 @@ async function searchProducts(query: string): Promise<DecoSearchResult[]> {
 
 async function fetchProductDetail(decoProductId: string, item: JobLineItem): Promise<DesignerProductDetail | null> {
   try {
-    const res = await fetch(`/api/quotes/products/${encodeURIComponent(decoProductId)}`);
+    const skuParam = item.sku ? `?sku=${encodeURIComponent(item.sku)}` : "";
+    const res = await fetch(`/api/quotes/products/${encodeURIComponent(decoProductId)}${skuParam}`);
     if (!res.ok) return null;
     const detail = await res.json();
     return {

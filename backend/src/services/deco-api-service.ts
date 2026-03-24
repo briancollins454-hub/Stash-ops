@@ -792,6 +792,7 @@ async function fetchSupplierProductImages(
   supplier: string,
   decoProductId?: number,
   productName?: string,
+  orderSku?: string,
 ): Promise<ProductImage[]> {
   const s = supplier.toLowerCase();
 
@@ -808,7 +809,29 @@ async function fetchSupplierProductImages(
     // Canterbury/Pentland are distributors — the actual brand may have its own site.
     // Try extracting a product code from the product name (e.g. "W72" from "W72 - Cottonridge Premium Hoodie")
     const nameCodeMatch = productName?.match(/^([A-Z0-9]{2,}[A-Z0-9]*[K]?)\s*[-–—]/i);
-    const brandCode = nameCodeMatch?.[1]?.trim();
+    let brandCode = nameCodeMatch?.[1]?.trim();
+
+    // Also try extracting from the order line item SKU (e.g. "W72" from "MC-W72")
+    if (!brandCode && orderSku) {
+      const skuParts = orderSku.split(/[-\s]+/).filter((p) => p.length >= 2);
+      // Try each segment as a potential product code on Cottonridge
+      for (const part of skuParts) {
+        if (part.match(/^[A-Z]\d+[A-Z]?$/i)) {
+          brandCode = part;
+          logger.info({ orderSku, brandCode }, "[Canterbury] Extracted brand code from order SKU");
+          break;
+        }
+      }
+      // If no alphanumeric code found, try all segments
+      if (!brandCode) {
+        for (const part of skuParts) {
+          if (part.length >= 2 && part.length <= 10) {
+            brandCode = part;
+            break;
+          }
+        }
+      }
+    }
 
     // Try Cottonridge first — they have a clean /product/{code} URL with CDN images
     if (brandCode) {
@@ -1346,7 +1369,7 @@ async function fetchCanterburyImages(productCode: string, productName?: string):
  * Fetch detailed product info (colors, sizes, per-SKU pricing) from Deco API.
  * Calls manage_products/get?id=X — NOT cached, hits Deco live each time.
  */
-export async function fetchDecoProductDetail(decoProductId: string): Promise<DecoProductDetail> {
+export async function fetchDecoProductDetail(decoProductId: string, orderSku?: string): Promise<DecoProductDetail> {
   if (!isDecoConfigured()) {
     throw new Error("DecoNetwork is not configured.");
   }
@@ -1412,6 +1435,7 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
     p.supplier ?? "",
     p.product_id,
     p.product_name ?? "",
+    orderSku,
   );
 
   // Use supplier images if available, otherwise fall back to any Deco-provided images

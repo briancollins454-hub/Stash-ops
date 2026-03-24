@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!isBackendApiConfigured()) {
@@ -10,10 +10,13 @@ export async function GET(
   }
 
   const { id } = await params;
+  const url = new URL(request.url);
+  const sku = url.searchParams.get("sku") || "";
 
   try {
+    const skuParam = sku ? `?sku=${encodeURIComponent(sku)}` : "";
     const payload = await fetchBackendJson(
-      `/api/v1/quotes/products/${encodeURIComponent(id)}/detail`,
+      `/api/v1/quotes/products/${encodeURIComponent(id)}/detail${skuParam}`,
     );
     return NextResponse.json(payload);
   } catch (error) {
