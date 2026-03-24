@@ -736,8 +736,9 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
 
     const decoOrderId = String(createData.id);
 
-    // Step 3: Save order details (job name, PO reference, store, customer)
+    // Step 3: Save order details (job name, PO reference, store, customer, line items)
     const DECO_BRAND_ID = "12015397";
+    const CP_FREE_FORM = 21;
     const saveParams = new URLSearchParams();
     saveParams.set("c", decoOrderId);
     saveParams.set("cid", clientId);
@@ -748,6 +749,52 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     saveBody.set("dt[po]", job.shopifyOrderName ?? job.internalJobId ?? "");
     saveBody.set("dt[brid]", DECO_BRAND_ID);
     saveBody.set("ct[u]", decoCustomerId);
+
+    // Add line items as CP_FREE_FORM configured products
+    for (let i = 0; i < job.items.length; i++) {
+      const item = job.items[i];
+      const itemId = i + 1; // Deco expects numeric client-side IDs
+      const prefix = `it[li][${itemId}]`;
+
+      const name = item.productTitle;
+      const desc = [item.variantTitle, item.sku, item.decorationMethod]
+        .filter(Boolean)
+        .join(" — ");
+      const color = "";
+      const size = item.variantTitle ?? "";
+      const qty = String(item.quantity);
+      const price =
+        item.unitPriceMinor != null
+          ? (item.unitPriceMinor / 100).toFixed(2)
+          : "0.00";
+
+      saveBody.set(`${prefix}[t]`, String(CP_FREE_FORM));
+      saveBody.set(`${prefix}[cart_id]`, decoOrderId);
+      saveBody.set(`${prefix}[name]`, name);
+      saveBody.set(`${prefix}[desc]`, desc);
+      saveBody.set(`${prefix}[color]`, color);
+      saveBody.set(`${prefix}[size]`, size);
+      saveBody.set(`${prefix}[q]`, qty);
+      saveBody.set(`${prefix}[dis]`, "0");
+      saveBody.set(`${prefix}[iad]`, "true");
+      saveBody.set(`${prefix}[dt]`, "percent");
+      saveBody.set(`${prefix}[bdis]`, "0");
+      saveBody.set(`${prefix}[bdis_base]`, "false");
+      saveBody.set(`${prefix}[bdis_ao]`, "false");
+      saveBody.set(`${prefix}[odis]`, "0");
+      saveBody.set(`${prefix}[rrp]`, price);
+      saveBody.set(`${prefix}[rp]`, price);
+      saveBody.set(`${prefix}[op]`, price);
+      saveBody.set(`${prefix}[iap]`, "false");
+      saveBody.set(`${prefix}[eid]`, "");
+      saveBody.set(`${prefix}[use_po]`, "0");
+      saveBody.set(`${prefix}[inc_tax]`, "false");
+      saveBody.set(`${prefix}[inc_tax_for_extra_charges]`, "false");
+      saveBody.set(`${prefix}[oup]`, "false");
+      saveBody.set(`${prefix}[pos]`, String(i + 1));
+    }
+
+    logger.info({ decoOrderId, lineItemCount: job.items.length }, "Sending save_order with line items");
 
     const saveRes = await fetch(
       `${base}/bh/orders/save_order?${saveParams.toString()}`,
