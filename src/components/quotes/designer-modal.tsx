@@ -28,8 +28,8 @@ export interface DesignConfig {
   stitchCount?: number;
   colorCount?: number;
   threadColors?: string;
-  dimensionWmm?: number;
-  dimensionHmm?: number;
+  dimensionWcm?: number;
+  dimensionHcm?: number;
   notes?: string;
 }
 
@@ -127,28 +127,30 @@ const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
 
 const DEFAULT_ZONES: ZoneDef[] = ZONE_TEMPLATES.tshirt;
 
-/* ── Size Presets (real-world mm) ── */
-const SIZE_PRESETS: { label: string; wmm: number; hmm: number }[] = [
-  { label: "Left Chest 80×80", wmm: 80, hmm: 80 },
-  { label: "Centre Chest 280×200", wmm: 280, hmm: 200 },
-  { label: "Full Front 300×380", wmm: 300, hmm: 380 },
-  { label: "Full Back 300×380", wmm: 300, hmm: 380 },
-  { label: "Sleeve 80×70", wmm: 80, hmm: 70 },
-  { label: "Small Badge 40×40", wmm: 40, hmm: 40 },
-  { label: "Large Badge 100×100", wmm: 100, hmm: 100 },
-  { label: "Hood 200×100", wmm: 200, hmm: 100 },
-  { label: "Pocket 60×60", wmm: 60, hmm: 60 },
+/* ── Size Presets (cm, matching DecoNetwork conventions) ── */
+const SIZE_PRESETS: { label: string; wcm: number; hcm: number }[] = [
+  { label: "Left Chest 15×15", wcm: 15, hcm: 15 },
+  { label: "Right Chest 15×15", wcm: 15, hcm: 15 },
+  { label: "Centre Chest 28×20", wcm: 28, hcm: 20 },
+  { label: "Full Front 30×38", wcm: 30, hcm: 38 },
+  { label: "Full Back 33×60", wcm: 33, hcm: 60 },
+  { label: "Sleeve 15×20", wcm: 15, hcm: 20 },
+  { label: "Sponsor Logo 30×20", wcm: 30, hcm: 20 },
+  { label: "Small Badge 4×4", wcm: 4, hcm: 4 },
+  { label: "Large Badge 10×10", wcm: 10, hcm: 10 },
+  { label: "Hood 20×10", wcm: 20, hcm: 10 },
+  { label: "Pocket 6×6", wcm: 6, hcm: 6 },
 ];
 
-/* ── Reference garment dimensions in mm (for % ↔ mm conversion) ── */
-const GARMENT_REF_MM: Record<string, { w: number; h: number }> = {
-  tshirt:   { w: 500, h: 700 },
-  hoodie:   { w: 520, h: 720 },
-  polo:     { w: 500, h: 700 },
-  jacket:   { w: 540, h: 730 },
-  trousers: { w: 400, h: 900 },
-  headwear: { w: 300, h: 200 },
-  bag:      { w: 400, h: 450 },
+/* ── Reference garment dimensions in cm (for % ↔ cm conversion) ── */
+const GARMENT_REF_CM: Record<string, { w: number; h: number }> = {
+  tshirt:   { w: 50, h: 70 },
+  hoodie:   { w: 52, h: 72 },
+  polo:     { w: 50, h: 70 },
+  jacket:   { w: 54, h: 73 },
+  trousers: { w: 40, h: 90 },
+  headwear: { w: 30, h: 20 },
+  bag:      { w: 40, h: 45 },
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -330,7 +332,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   });
   const [designs, setDesigns] = useState<Record<string, DesignConfig>>(() => {
     const m: Record<string, DesignConfig> = {};
-    initialDesigns?.forEach((d) => { m[d.placement] = d; });
+    initialDesigns?.forEach((d) => { m[d.placement] = { ...d, lockAspect: d.lockAspect ?? true }; });
     return m;
   });
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
@@ -490,6 +492,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
         ...prev[activeZoneKey],
         placement: activeZoneKey,
         decorationMethod: prev[activeZoneKey]?.decorationMethod || "",
+        lockAspect: prev[activeZoneKey]?.lockAspect ?? true,
         x: prev[activeZoneKey]?.x ?? zone.x,
         y: prev[activeZoneKey]?.y ?? zone.y,
         w: prev[activeZoneKey]?.w ?? zone.w,
@@ -1224,25 +1227,25 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                         </button>
                       </div>
 
-                      {/* Real dimensions (mm) */}
+                      {/* Real dimensions (cm) — W auto-sets H */}
                       <div className="space-y-1.5">
                         <div className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                          Dimensions (approx. mm)
+                          Size (W × H cm)
                         </div>
                         {(() => {
-                          const gRef = GARMENT_REF_MM[garmentType] ?? GARMENT_REF_MM.tshirt;
-                          const wMm = Math.round(current.w / 100 * gRef.w);
-                          const hMm = Math.round(current.h / 100 * gRef.h);
+                          const gRef = GARMENT_REF_CM[garmentType] ?? GARMENT_REF_CM.tshirt;
+                          const wCm = +(current.w / 100 * gRef.w).toFixed(1);
+                          const hCm = +(current.h / 100 * gRef.h).toFixed(1);
                           return (
                             <div className="flex items-center gap-2">
                               <div className="flex items-center gap-1 flex-1">
                                 <span className="text-[9px] font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>W</span>
-                                <input type="number" min={1} max={999}
-                                  value={wMm}
+                                <input type="number" min={0.5} max={99} step={0.5}
+                                  value={wCm}
                                   onChange={(e) => {
-                                    const mm = Number(e.target.value);
-                                    const pct = clamp(mm / gRef.w * 100, MIN_SIZE_PCT, 100);
-                                    if (current.lockAspect && current.w > 0) {
+                                    const cm = Number(e.target.value);
+                                    const pct = clamp(cm / gRef.w * 100, MIN_SIZE_PCT, 100);
+                                    if (current.lockAspect !== false && current.w > 0) {
                                       const ratio = current.h / current.w;
                                       updateDesign({ w: pct, h: clamp(pct * ratio, MIN_SIZE_PCT, 100) });
                                     } else {
@@ -1251,17 +1254,17 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                                   }}
                                   className="flex-1 text-xs font-mono text-center rounded-md px-1 py-1"
                                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", outline: "none" }} />
-                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>mm</span>
+                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>cm</span>
                               </div>
                               <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.15)" }}>×</span>
                               <div className="flex items-center gap-1 flex-1">
                                 <span className="text-[9px] font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>H</span>
-                                <input type="number" min={1} max={999}
-                                  value={hMm}
+                                <input type="number" min={0.5} max={99} step={0.5}
+                                  value={hCm}
                                   onChange={(e) => {
-                                    const mm = Number(e.target.value);
-                                    const pct = clamp(mm / gRef.h * 100, MIN_SIZE_PCT, 100);
-                                    if (current.lockAspect && current.h > 0) {
+                                    const cm = Number(e.target.value);
+                                    const pct = clamp(cm / gRef.h * 100, MIN_SIZE_PCT, 100);
+                                    if (current.lockAspect !== false && current.h > 0) {
                                       const ratio = current.w / current.h;
                                       updateDesign({ h: pct, w: clamp(pct * ratio, MIN_SIZE_PCT, 100) });
                                     } else {
@@ -1270,7 +1273,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                                   }}
                                   className="flex-1 text-xs font-mono text-center rounded-md px-1 py-1"
                                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", outline: "none" }} />
-                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>mm</span>
+                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>cm</span>
                               </div>
                             </div>
                           );
@@ -1284,12 +1287,12 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {SIZE_PRESETS.map((preset) => {
-                            const gRef = GARMENT_REF_MM[garmentType] ?? GARMENT_REF_MM.tshirt;
+                            const gRef = GARMENT_REF_CM[garmentType] ?? GARMENT_REF_CM.tshirt;
                             return (
                               <button key={preset.label}
                                 onClick={() => {
-                                  const wPct = clamp(preset.wmm / gRef.w * 100, MIN_SIZE_PCT, 95);
-                                  const hPct = clamp(preset.hmm / gRef.h * 100, MIN_SIZE_PCT, 95);
+                                  const wPct = clamp(preset.wcm / gRef.w * 100, MIN_SIZE_PCT, 95);
+                                  const hPct = clamp(preset.hcm / gRef.h * 100, MIN_SIZE_PCT, 95);
                                   updateDesign({ w: wPct, h: hPct });
                                 }}
                                 className="px-1.5 py-0.5 rounded text-[8px] font-medium transition-all"
