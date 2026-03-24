@@ -629,9 +629,22 @@ async function getDecoSessionContext(cookies: string): Promise<{ csrfToken: stri
   const base = baseUrl();
   const res = await fetch(`${base}/manage/orders`, {
     headers: { Cookie: cookies },
-    redirect: "follow",
+    redirect: "manual",
   });
+
+  // If we get a redirect, the session is invalid/expired
+  if (res.status >= 300 && res.status < 400) {
+    await res.text();
+    throw new Error("Deco session expired (redirect from /manage/orders)");
+  }
+
   const html = await res.text();
+
+  // Verify we're on the orders page, not a login page
+  if (html.includes('id="login_form"') || html.includes('user[login]')) {
+    throw new Error("Deco session invalid (got login page instead of orders)");
+  }
+
   const csrfMatch = html.match(/var\s+dnCSRFToken\s*=\s*"([^"]+)"/);
   if (!csrfMatch) {
     throw new Error("Could not extract dnCSRFToken from Deco admin page");
@@ -758,11 +771,12 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Cannot push to Deco without a linked customer account. Please link a Deco customer first." };
   }
 
-  // eslint-disable-next-line no-console
-  console.log(`[DECO-PUSH] Starting push for job ${jobId}, items: ${job.items.length}`);
-
   try {
     // Step 1: Get authenticated web session + CSRF token
+    // Force a fresh login to avoid stale cached sessions
+    decoWebCookies = null;
+    decoWebCookieExpiry = 0;
+
     const cookies = await getDecoWebSession();
     if (!cookies) {
       throw new Error("Failed to establish Deco web session");
