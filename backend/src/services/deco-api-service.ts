@@ -1053,6 +1053,41 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
       }
     }
 
+    // --- Generate back/side image URLs from front images ---
+    // Ralawise front images use _ftN.jpg; try _bkN.jpg and _sdN.jpg variants
+    // Also try lifestyle back/side: replace _ls20_ with _ls21_ (side) and _ls22_ (back)
+    const frontsToProbe = images.filter((i) => i.type === "front" && i.url.includes("ralawise"));
+    for (const frontImg of frontsToProbe) {
+      // Try back variant: _ft1.jpg → _bk1.jpg, _ft.jpg → _bk.jpg
+      const backUrl = frontImg.url.replace(/_ft(\d?)\.jpg/, "_bk$1.jpg");
+      if (backUrl !== frontImg.url && !seen.has(backUrl)) {
+        // Verify the URL exists with a quick HEAD request
+        try {
+          const headResp = await fetch(backUrl, { method: "HEAD", signal: AbortSignal.timeout(3_000) });
+          if (headResp.ok) {
+            seen.add(backUrl);
+            images.push({ url: backUrl, color: frontImg.color, type: "back" });
+          }
+        } catch { /* URL doesn't exist — skip */ }
+      }
+    }
+    // Try lifestyle back/side URLs if we have a ls20 image
+    const lifestyleFront = images.find((i) => i.url.includes("_ls20"));
+    if (lifestyleFront) {
+      for (const [suffix, viewType] of [["_ls21", "side" as const], ["_ls22", "back" as const]]) {
+        const viewUrl = lifestyleFront.url.replace("_ls20", suffix);
+        if (!seen.has(viewUrl)) {
+          try {
+            const headResp = await fetch(viewUrl, { method: "HEAD", signal: AbortSignal.timeout(3_000) });
+            if (headResp.ok) {
+              seen.add(viewUrl);
+              images.push({ url: viewUrl, type: viewType });
+            }
+          } catch { /* skip */ }
+        }
+      }
+    }
+
     // Fallback: OG image
     if (images.length === 0) {
       const ogMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
@@ -1199,16 +1234,29 @@ async function fetchCottonridgeImages(productCode: string): Promise<ProductImage
     }
 
     // Strategy 2: Model/lifestyle images from CDN
+    // Filenames encode view type: W72_Corn_female_back_7.jpg, W72_Powder-blue_male_side_3.jpg
     const modelPattern = /src="(https:\/\/av2\.cottonridge\.co\.uk\/images\/ProductImages\/[^"]*\/ModelImages\/[^"]+\.(?:webp|jpg|png))"/gi;
     while ((m = modelPattern.exec(html)) !== null) {
       const url = m[1];
       if (!seen.has(url)) {
         seen.add(url);
-        // Try to extract colour from filename: "W72_Corn_female_front_4.jpg" → "Corn"
-        const nameMatch = url.match(/\/(\w+?)_(?:female|male|Model|Models)[^/]*$/i)
-          ?? url.match(/\/\w+?_([A-Z][a-z]+(?:_[A-Z][a-z]+)*)[^/]*$/i);
-        const color = nameMatch?.[1]?.replace(/_/g, " ");
-        images.push({ url, color, type: "gallery" });
+        // Extract filename for classification
+        const filename = url.split("/").pop() ?? "";
+        const filenameLower = filename.toLowerCase();
+
+        // Classify view type from filename keywords
+        let imgType: ProductImage["type"] = "gallery";
+        if (/_back[_.-]|_back\d/i.test(filename)) imgType = "back";
+        else if (/_side[_.-]|_side\d/i.test(filename)) imgType = "side";
+        else if (/_front[_.-]|_front\d|_front-/i.test(filename)) imgType = "front";
+        else if (/_closeup|_detail|_pocket|_phone/i.test(filename)) imgType = "gallery";
+
+        // Extract colour: "W72_Corn_female_back_7.jpg" → "Corn"
+        // Pattern: {code}_{Colour}_{gender}_{view}_{n}.{ext}
+        const colourMatch = filename.match(/^\w+?[_-]([A-Z][a-z][\w-]*)_(?:female|male|model)/i);
+        const color = colourMatch?.[1]?.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
+
+        images.push({ url, color, type: imgType });
       }
     }
 
