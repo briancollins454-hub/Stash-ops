@@ -622,21 +622,22 @@ export async function updateDecoOrderStatus(
 }
 
 /**
- * Extract the dnCSRFToken from a Deco admin page.
- * The token is embedded as `var dnCSRFToken = "..."` in an inline script block.
+ * Extract the dnCSRFToken and session client_id from a Deco admin page.
  */
-async function getDecoCsrfToken(cookies: string): Promise<string> {
+async function getDecoSessionContext(cookies: string): Promise<{ csrfToken: string; clientId: string }> {
   const base = baseUrl();
   const res = await fetch(`${base}/manage/orders`, {
     headers: { Cookie: cookies },
     redirect: "follow",
   });
   const html = await res.text();
-  const match = html.match(/var\s+dnCSRFToken\s*=\s*"([^"]+)"/);
-  if (!match) {
+  const csrfMatch = html.match(/var\s+dnCSRFToken\s*=\s*"([^"]+)"/);
+  if (!csrfMatch) {
     throw new Error("Could not extract dnCSRFToken from Deco admin page");
   }
-  return match[1];
+  const cidMatch = html.match(/"client_id"\s*:\s*(\d+)/);
+  const clientId = cidMatch ? cidMatch[1] : "0";
+  return { csrfToken: csrfMatch[1], clientId };
 }
 
 export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult> {
@@ -661,7 +662,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     if (!cookies) {
       throw new Error("Failed to establish Deco web session");
     }
-    const csrfToken = await getDecoCsrfToken(cookies);
+    const { csrfToken, clientId } = await getDecoSessionContext(cookies);
     const base = baseUrl();
 
     const webHeaders: Record<string, string> = {
@@ -695,7 +696,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     const DECO_BRAND_ID = "12015397";
     const saveParams = new URLSearchParams();
     saveParams.set("c", decoOrderId);
-    saveParams.set("cid", decoCustomerId || "0");
+    saveParams.set("cid", clientId);
     saveParams.set("d", "true");
 
     const saveBody = new URLSearchParams();

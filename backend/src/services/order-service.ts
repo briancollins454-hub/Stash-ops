@@ -468,6 +468,17 @@ export async function createManualJob(input: ManualOrderInput): Promise<{ jobId:
       },
     });
 
+    // Compute job total from line items
+    const totalMinor = input.lineItems.reduce((sum, item) => {
+      return sum + (item.unitPriceMinor !== undefined ? item.unitPriceMinor * item.quantity : 0);
+    }, 0);
+    if (totalMinor > 0) {
+      await tx.job.update({
+        where: { id: job.id },
+        data: { totalMinor, subtotalMinor: totalMinor },
+      });
+    }
+
     return job;
   });
 
