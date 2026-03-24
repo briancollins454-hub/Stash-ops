@@ -784,6 +784,7 @@ export type DecoProductDetail = {
  *   - PenCarrie (~450 products) — cross-listed on Ralawise
  *   - Uneek Clothing (~600 products) — public API at api.uneekclothing.com
  *   - The Magic Touch — consumables, no standardised imagery (returns [])
+ *   - Canterbury / Pentland — searches canterbury.com + Pentland CDN patterns
  *   - Other suppliers — attempts to fetch from DecoNetwork product images
  */
 async function fetchSupplierProductImages(
@@ -800,6 +801,10 @@ async function fetchSupplierProductImages(
 
   if (s.includes("uneek")) {
     return fetchUneekImages(productCode);
+  }
+
+  if (s.includes("canterbury") || s.includes("pentland")) {
+    return fetchCanterburyImages(productCode);
   }
 
   // For unsupported suppliers, try to get images from DecoNetwork itself
@@ -1117,6 +1122,100 @@ async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
     return images;
   } catch (err) {
     logger.warn({ err, productCode }, "Failed to fetch Uneek product images");
+    return [];
+  }
+}
+
+/** Canterbury: search canterbury.com → scrape product page for THG CDN images */
+async function fetchCanterburyImages(productCode: string): Promise<ProductImage[]> {
+  const headers = { "User-Agent": "StashOps/1.0" };
+
+  try {
+    // Search Canterbury site for the product code
+    const searchUrl = `https://www.canterbury.com/elysium.search?search=${encodeURIComponent(productCode)}`;
+    const searchRes = await fetch(searchUrl, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    const searchHtml = await searchRes.text();
+
+    // Find product page links — Canterbury product URLs look like /product-name/12345678.html
+    const productLinks: string[] = [];
+    const linkPattern = /href="(\/[^"]*\/\d{5,}\.html)"/gi;
+    let m;
+    while ((m = linkPattern.exec(searchHtml)) !== null) {
+      const href = m[1];
+      if (!productLinks.includes(href)) productLinks.push(href);
+    }
+
+    // If the search redirected directly to a product page, use that
+    const finalUrl = searchRes.url;
+    if (finalUrl.match(/\/\d{5,}\.html/)) {
+      productLinks.unshift(new URL(finalUrl).pathname);
+    }
+
+    if (productLinks.length === 0) return [];
+
+    // Fetch the first product page
+    const pageUrl = `https://www.canterbury.com${productLinks[0]}`;
+    const pageRes = await fetch(pageUrl, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+    const html = await pageRes.text();
+
+    const images: ProductImage[] = [];
+    const seen = new Set<string>();
+
+    // Strategy 1: Product images from THG CDN (static.thcdn.com)
+    // Pattern: src="https://static.thcdn.com/images/v2/productimg/.../{productId}-{variant}.jpg"
+    const imgPattern = /src="(https:\/\/static\.thcdn\.com\/images\/v2\/productimg\/[^"]+\.(?:jpg|png|webp)[^"]*)"/gi;
+    while ((m = imgPattern.exec(html)) !== null) {
+      let url = m[1];
+      // Strip query params like ?isWebP=true
+      url = url.replace(/\?.*$/, "");
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({
+          url,
+          type: images.length === 0 ? "front" : "gallery",
+        });
+      }
+    }
+
+    // Strategy 2: OG image fallback
+    if (images.length === 0) {
+      const ogMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/);
+      if (ogMatch) {
+        images.push({ url: ogMatch[1].replace(/\?.*$/, ""), type: "front" });
+      }
+    }
+
+    // Strategy 3: JSON-LD product data
+    const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+    if (jsonLdMatch) {
+      for (const block of jsonLdMatch) {
+        try {
+          const jsonStr = block.replace(/<\/?script[^>]*>/gi, "");
+          const jsonData = JSON.parse(jsonStr) as Record<string, unknown>;
+          if (jsonData["@type"] === "Product" && jsonData.image) {
+            const imgArr = Array.isArray(jsonData.image) ? jsonData.image : [jsonData.image];
+            for (const img of imgArr) {
+              const url = (typeof img === "string" ? img : (img as Record<string, unknown>)?.url as string)?.replace(/\?.*$/, "");
+              if (url && !seen.has(url)) {
+                seen.add(url);
+                images.push({ url, type: images.length === 0 ? "front" : "gallery" });
+              }
+            }
+          }
+        } catch { /* skip malformed JSON-LD */ }
+      }
+    }
+
+    return images;
+  } catch (err) {
+    logger.warn({ err, productCode }, "Failed to fetch Canterbury product images");
     return [];
   }
 }
