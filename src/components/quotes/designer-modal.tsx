@@ -260,9 +260,42 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   const garmentType = useMemo(() => detectGarmentType(productDetail.category, productDetail.productName), [productDetail]);
   const zones = useMemo(() => ZONE_TEMPLATES[garmentType] ?? DEFAULT_ZONES, [garmentType]);
 
+  // Build effective colour palette: merge Deco colours with unique image colours
+  const effectiveColors = useMemo(() => {
+    const decoColors = productDetail.colors ?? [];
+    const imgs = productDetail.images ?? [];
+    const imageColorNames = new Set<string>();
+    for (const img of imgs) {
+      if (img.color && img.type === "front") imageColorNames.add(img.color);
+    }
+    // If images provide more colours than Deco, build palette from images
+    if (imageColorNames.size > decoColors.length) {
+      const merged: Array<{ id: number; name: string }> = [];
+      // Keep existing Deco colours first
+      for (const dc of decoColors) merged.push(dc);
+      // Add image colours that aren't already in Deco colours
+      let syntheticId = -1;
+      for (const colorName of imageColorNames) {
+        const already = merged.some((m) =>
+          m.name.toLowerCase() === colorName.toLowerCase()
+        );
+        if (!already) {
+          merged.push({ id: syntheticId--, name: colorName });
+        }
+      }
+      return merged;
+    }
+    return decoColors;
+  }, [productDetail]);
+
   const [activeView, setActiveView] = useState<ViewKey>("front");
   const [activeZoneKey, setActiveZoneKey] = useState(() => zones[0]?.key ?? "left_chest");
-  const [activeColorId, setActiveColorId] = useState<number | undefined>(initColorId);
+  const [activeColorId, setActiveColorId] = useState<number | undefined>(() => {
+    if (initColorId != null) return initColorId;
+    // Auto-select the Deco product colour if it exists in the palette
+    if (productDetail.colors.length > 0) return productDetail.colors[0].id;
+    return undefined;
+  });
   const [designs, setDesigns] = useState<Record<string, DesignConfig>>(() => {
     const m: Record<string, DesignConfig> = {};
     initialDesigns?.forEach((d) => { m[d.placement] = d; });
@@ -302,32 +335,44 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   const visibleZones = useMemo(() => zones.filter((z) => z.view === activeView), [zones, activeView]);
 
   const activeColorCss = useMemo(() => {
-    const selColor = productDetail.colors.find((c) => c.id === activeColorId);
+    const selColor = effectiveColors.find((c) => c.id === activeColorId);
     return selColor ? colorToCss(selColor.name) : undefined;
-  }, [productDetail.colors, activeColorId]);
+  }, [effectiveColors, activeColorId]);
 
   const displayImage = useMemo(() => {
     const imgs = productDetail.images ?? [];
-    const selColor = productDetail.colors.find((c) => c.id === activeColorId);
+    const selColor = effectiveColors.find((c) => c.id === activeColorId);
+    const colorName = selColor?.name?.toLowerCase();
     const viewToType: Record<ViewKey, string> = { front: "front", back: "back", left: "side", right: "side" };
     const imgType = viewToType[activeView];
 
+    // Helper: fuzzy colour match (handles "Navy/red" vs "Navy", "Baby Pink" vs "BabyPink")
+    const colorMatch = (imgColor?: string) => {
+      if (!colorName || !imgColor) return false;
+      const ic = imgColor.toLowerCase().replace(/\s+/g, "");
+      const cn = colorName.replace(/\s+/g, "");
+      return ic === cn || cn.split("/").some((part) => ic === part.trim().replace(/\s+/g, ""));
+    };
+
+    // Exact colour + view match
     if (selColor) {
-      const exact = imgs.find((i) => i.type === imgType && i.color?.toLowerCase() === selColor.name.toLowerCase());
+      const exact = imgs.find((i) => i.type === imgType && colorMatch(i.color));
       if (exact) return exact.url;
     }
+
+    // Colour match on any "front" type image
+    if (selColor) {
+      const cm = imgs.find((i) => i.type === "front" && colorMatch(i.color));
+      if (cm) return cm.url;
+    }
+
+    // View type match without colour
     const typeMatch = imgs.find((i) => i.type === imgType);
     if (typeMatch) return typeMatch.url;
 
-    if (activeView === "front") {
-      if (selColor) {
-        const cm = imgs.find((i) => i.type === "front" && i.color?.toLowerCase() === selColor.name.toLowerCase());
-        if (cm) return cm.url;
-      }
-      return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
-    }
-    return null;
-  }, [productDetail, activeColorId, activeView]);
+    // Fallback to any front/gallery image
+    return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
+  }, [productDetail, effectiveColors, activeColorId, activeView]);
 
   const configuredZones = useMemo(
     () => Object.values(designs).filter((d) => d.decorationMethod || d.artworkUrl),
@@ -616,14 +661,14 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
             </div>
 
             {/* Colour picker at bottom of sidebar */}
-            {productDetail.colors.length > 0 && (
+            {effectiveColors.length > 0 && (
               <div className="px-3 py-2.5" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.12em] mb-2"
                   style={{ color: "rgba(255,255,255,0.3)" }}>
-                  Colour
+                  Colour ({effectiveColors.length})
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {productDetail.colors.slice(0, 20).map((c) => {
+                <div className="flex flex-wrap gap-1.5" style={{ maxHeight: "120px", overflowY: "auto" }}>
+                  {effectiveColors.map((c) => {
                     const isA = activeColorId === c.id;
                     return (
                       <button key={c.id} onClick={() => setActiveColorId(c.id)} title={c.name} className="group relative">

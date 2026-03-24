@@ -508,15 +508,20 @@ export function JobLineItemConfig({ jobId, items }: Props) {
                       Finding product in catalogue...
                     </div>
                   )}
-                  {productState[item.id] === "loaded" && productDetails[item.id] && (
+                  {productState[item.id] === "loaded" && productDetails[item.id] && (() => {
+                    const d = productDetails[item.id];
+                    const imgColors = new Set((d.images ?? []).filter((i) => i.color && i.type === "front").map((i) => i.color!));
+                    const colorCount = Math.max(d.colors.length, imgColors.size);
+                    return (
                     <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7" }}>
                       <span>✓</span>
-                      <span>Matched: <strong>{productDetails[item.id].productName}</strong> ({productDetails[item.id].supplier})</span>
-                      {productDetails[item.id].colors.length > 0 && (
-                        <span style={{ color: "var(--text-tertiary)" }}>· {productDetails[item.id].colors.length} colours · {productDetails[item.id].images?.length ?? 0} images</span>
+                      <span>Matched: <strong>{d.productName}</strong> ({d.supplier})</span>
+                      {colorCount > 0 && (
+                        <span style={{ color: "var(--text-tertiary)" }}>· {colorCount} colours · {d.images?.length ?? 0} images</span>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
                   {productState[item.id] === "not_found" && (
                     <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                       No product match found in Deco catalogue — studio will use generic garment template

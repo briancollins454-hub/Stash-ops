@@ -102,7 +102,7 @@ function LaneSection({
   return (
     <div className="space-y-4">
       {groups.map((group) => (
-        <section key={`${laneKey}-${group.key}`} className="space-y-2">
+        <div key={`${laneKey}-${group.key}`} className="space-y-2">
           <div className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <div className="min-w-0">
               <p className="eyebrow">Account/source group</p>
@@ -114,7 +114,7 @@ function LaneSection({
             </div>
           </div>
           <OrdersTable orders={group.orders} />
-        </section>
+        </div>
       ))}
     </div>
   );
