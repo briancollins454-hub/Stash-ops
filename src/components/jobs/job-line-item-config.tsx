@@ -272,6 +272,13 @@ export function JobLineItemConfig({ jobId, items }: Props) {
   const [productState, setProductState] = useState<Record<string, ProductLookupState>>({});
   const lookupRef = useRef<Set<string>>(new Set());
 
+  // Manual product search state
+  const [searchOpen, setSearchOpen] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState<Record<string, string>>({});
+  const [searchResults, setSearchResults] = useState<Record<string, DecoSearchResult[]>>({});
+  const [searchLoading, setSearchLoading] = useState<Record<string, boolean>>({});
+  const searchTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   // Designer modal state
   const [designerOpen, setDesignerOpen] = useState(false);
   const [designerItem, setDesignerItem] = useState<JobLineItem | null>(null);
@@ -369,6 +376,46 @@ export function JobLineItemConfig({ jobId, items }: Props) {
     setDesignerOpen(false);
     setDesignerItem(null);
   }, [designerItem]);
+
+  // Manual product search
+  const handleSearchInput = useCallback((itemId: string, query: string) => {
+    setSearchQuery((prev) => ({ ...prev, [itemId]: query }));
+    // Clear existing timer
+    if (searchTimerRef.current[itemId]) clearTimeout(searchTimerRef.current[itemId]);
+    if (query.trim().length < 2) {
+      setSearchResults((prev) => ({ ...prev, [itemId]: [] }));
+      return;
+    }
+    // Debounce 300ms
+    searchTimerRef.current[itemId] = setTimeout(async () => {
+      setSearchLoading((prev) => ({ ...prev, [itemId]: true }));
+      const results = await searchProducts(query.trim());
+      setSearchResults((prev) => ({ ...prev, [itemId]: results }));
+      setSearchLoading((prev) => ({ ...prev, [itemId]: false }));
+    }, 300);
+  }, []);
+
+  // Select a product from search results
+  const handleProductSelect = useCallback(async (itemId: string, result: DecoSearchResult) => {
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    setSearchOpen((prev) => ({ ...prev, [itemId]: false }));
+    setProductState((prev) => ({ ...prev, [itemId]: "loading" }));
+
+    const detail = await fetchProductDetail(result.decoProductId, item);
+    if (detail) {
+      setProductDetails((prev) => ({ ...prev, [itemId]: detail }));
+      setProductState((prev) => ({ ...prev, [itemId]: "loaded" }));
+    } else {
+      setProductState((prev) => ({ ...prev, [itemId]: "error" }));
+    }
+  }, [items]);
+
+  // Toggle search panel
+  const toggleSearch = useCallback((itemId: string) => {
+    setSearchOpen((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
+  }, []);
 
   return (
     <>
@@ -519,12 +566,93 @@ export function JobLineItemConfig({ jobId, items }: Props) {
                       {colorCount > 0 && (
                         <span style={{ color: "var(--text-tertiary)" }}>· {colorCount} colours · {d.images?.length ?? 0} images</span>
                       )}
+                      <button
+                        onClick={() => toggleSearch(item.id)}
+                        className="ml-auto text-[11px] underline decoration-dotted underline-offset-2 transition-colors hover:text-white"
+                        style={{ color: "var(--text-tertiary)" }}
+                      >
+                        Change
+                      </button>
                     </div>
                     );
                   })()}
                   {productState[item.id] === "not_found" && (
                     <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                      No product match found in Deco catalogue — studio will use generic garment template
+                      No product match found in Deco catalogue
+                      <button
+                        onClick={() => toggleSearch(item.id)}
+                        className="ml-1 rounded px-2 py-0.5 text-[11px] font-medium transition-all hover:brightness-125"
+                        style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
+                      >
+                        🔍 Search product
+                      </button>
+                    </div>
+                  )}
+                  {!productState[item.id] && (
+                    <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      <button
+                        onClick={() => toggleSearch(item.id)}
+                        className="rounded px-2 py-0.5 text-[11px] font-medium transition-all hover:brightness-125"
+                        style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
+                      >
+                        🔍 Search product
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Manual product search panel */}
+                  {searchOpen[item.id] && (
+                    <div className="space-y-2 rounded-xl p-3" style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)" }}>
+                      <p className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-tertiary)" }}>
+                        Search Deco product catalogue
+                      </p>
+                      <input
+                        type="text"
+                        value={searchQuery[item.id] ?? ""}
+                        onChange={(e) => handleSearchInput(item.id, e.target.value)}
+                        placeholder="Type product name, SKU, or code..."
+                        autoFocus
+                        className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-all focus:ring-1 focus:ring-[#6366f1]"
+                        style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                      />
+                      {searchLoading[item.id] && (
+                        <div className="flex items-center gap-2 py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[#6366f1] border-t-transparent" />
+                          Searching...
+                        </div>
+                      )}
+                      {(searchResults[item.id]?.length ?? 0) > 0 && (
+                        <div className="max-h-60 space-y-1 overflow-y-auto">
+                          {searchResults[item.id].map((r) => (
+                            <button
+                              key={r.decoProductId}
+                              onClick={() => handleProductSelect(item.id, r)}
+                              className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs transition-all hover:brightness-125"
+                              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid transparent" }}
+                              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)"; e.currentTarget.style.background = "rgba(99,102,241,0.08)"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-medium" style={{ color: "var(--text-primary)" }}>{r.name}</p>
+                                <p className="truncate" style={{ color: "var(--text-tertiary)" }}>
+                                  {r.sku && <span className="font-mono">{r.sku}</span>}
+                                  {r.sku && r.category && " · "}
+                                  {r.category}
+                                </p>
+                              </div>
+                              <span
+                                className="shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100"
+                                style={{ background: "rgba(16,185,129,0.15)", color: "#6ee7b7", border: "1px solid rgba(16,185,129,0.3)" }}
+                              >
+                                Select
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {!searchLoading[item.id] && (searchQuery[item.id]?.trim().length ?? 0) >= 2 && (searchResults[item.id]?.length ?? 0) === 0 && (
+                        <p className="py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>No products found</p>
+                      )}
                     </div>
                   )}
 
