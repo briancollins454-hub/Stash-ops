@@ -694,8 +694,8 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     // Step 3: Save order details (job name, PO reference, store ID)
     const DECO_BRAND_ID = "12015397";
     const saveParams = new URLSearchParams();
-    saveParams.set("c", "0");
-    saveParams.set("cid", "0");
+    saveParams.set("c", decoOrderId);
+    saveParams.set("cid", decoCustomerId || "0");
     saveParams.set("d", "true");
 
     const saveBody = new URLSearchParams();
@@ -714,7 +714,10 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     );
 
     if (!saveRes.ok) {
-      logger.warn({ decoOrderId, status: saveRes.status }, "save_order returned non-OK but quote was created");
+      const saveText = await saveRes.text();
+      logger.warn({ decoOrderId, status: saveRes.status, body: saveText.slice(0, 300) }, "save_order returned non-OK but quote was created");
+    } else {
+      await saveRes.text(); // consume body
     }
 
     // Update job with Deco references
