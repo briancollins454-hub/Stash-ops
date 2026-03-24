@@ -681,6 +681,63 @@ async function pollDecoSaveProgress(cookies: string, progressKey: string): Promi
   return undefined;
 }
 
+/**
+ * Extract color from a variant title like "Arctic White (XS×1)" → "Arctic White"
+ * or "Navy / XL" → "Navy"
+ */
+function extractColorFromVariant(variant: string): string {
+  // Format: "Color (Size×Qty)" or "Color / Size"
+  const parenMatch = variant.match(/^(.+?)\s*\(/);
+  if (parenMatch) return parenMatch[1].trim();
+  const slashMatch = variant.match(/^(.+?)\s*\//);
+  if (slashMatch) return slashMatch[1].trim();
+  return variant.trim();
+}
+
+/**
+ * Extract size from a variant title like "Arctic White (XS×1)" → "XS"
+ * or "Navy / XL" → "XL"
+ */
+function extractSizeFromVariant(variant: string): string {
+  // Format: "Color (Size×Qty)"
+  const parenMatch = variant.match(/\(([^×)]+)/);
+  if (parenMatch) return parenMatch[1].trim();
+  // Format: "Color / Size"
+  const slashMatch = variant.match(/\/\s*(.+)/);
+  if (slashMatch) return slashMatch[1].trim();
+  return "";
+}
+
+/**
+ * Build a query string the same way Deco's client-side JS does:
+ * encodeURIComponent(key) + "=" + encodeURIComponent(value), joined by "&".
+ */
+function buildDecoFormBody(pairs: Array<[string, string]>): string {
+  return pairs
+    .map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v))
+    .join("&");
+}
+
+/**
+ * Search for a Deco product by SKU/product code.
+ * Returns the Deco product ID if found, or null.
+ */
+async function findDecoProductBySku(sku: string): Promise<string | null> {
+  if (!sku) return null;
+  try {
+    const data = await decoFetch<{ products?: Array<{ product_id?: number; product_code?: string }> }>(
+      "/api/json/manage_products/find",
+      { limit: "10", offset: "0", field: "2", condition: "1", string: sku },
+    );
+    const match = data.products?.find(
+      (p) => p.product_code?.toLowerCase() === sku.toLowerCase(),
+    );
+    return match?.product_id ? String(match.product_id) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult> {
   if (!isDecoConfigured()) {
     return { pushed: false, error: "DecoNetwork is not configured." };
@@ -700,6 +757,9 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Cannot push to Deco without a linked customer account. Please link a Deco customer first." };
   }
 
+  // eslint-disable-next-line no-console
+  console.log(`[DECO-PUSH] Starting push for job ${jobId}, items: ${job.items.length}`);
+
   try {
     // Step 1: Get authenticated web session + CSRF token
     const cookies = await getDecoWebSession();
@@ -714,14 +774,15 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       "X-CSRF-Token": csrfToken,
       "X-Requested-With": "XMLHttpRequest",
       "Content-Type": "application/x-www-form-urlencoded",
+      Referer: `${base}/manage/orders`,
     };
 
     // Step 2: Create a quote in Deco via the web admin endpoint
-    const createBody = new URLSearchParams({ cust_id: decoCustomerId });
+    const createBody = buildDecoFormBody([["cust_id", decoCustomerId]]);
     const createRes = await fetch(`${base}/bh/orders/create_quote`, {
       method: "POST",
       headers: webHeaders,
-      body: createBody.toString(),
+      body: createBody,
     });
 
     if (!createRes.ok) {
@@ -735,73 +796,158 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     }
 
     const decoOrderId = String(createData.id);
+    // eslint-disable-next-line no-console
+    console.log(`[DECO-PUSH] Created quote ${decoOrderId}`);
 
-    // Step 3: Save order details (job name, PO reference, store, customer, line items)
+    // Step 3: Build the save_order body — use manual encoding matching Deco's client-side JS
     const DECO_BRAND_ID = "12015397";
     const CP_FREE_FORM = 21;
-    const saveParams = new URLSearchParams();
-    saveParams.set("c", decoOrderId);
-    saveParams.set("cid", clientId);
-    // No "d=true" — save as a proper quote, not a draft
 
-    const saveBody = new URLSearchParams();
-    saveBody.set("dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`);
-    saveBody.set("dt[po]", job.shopifyOrderName ?? job.internalJobId ?? "");
-    saveBody.set("dt[brid]", DECO_BRAND_ID);
-    saveBody.set("ct[u]", decoCustomerId);
+    const bodyPairs: Array<[string, string]> = [
+      ["dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`],
+      ["dt[po]", job.shopifyOrderName ?? job.internalJobId ?? ""],
+      ["dt[brid]", DECO_BRAND_ID],
+      ["ct[u]", decoCustomerId],
+    ];
 
-    // Add line items as CP_FREE_FORM configured products
+    // Build line items — try Deco catalog lookup first, fall back to CP_FREE_FORM
     for (let i = 0; i < job.items.length; i++) {
       const item = job.items[i];
-      const itemId = i + 1; // Deco expects numeric client-side IDs
-      const prefix = `it[li][${itemId}]`;
-
-      const name = item.productTitle;
-      const desc = [item.variantTitle, item.sku, item.decorationMethod]
-        .filter(Boolean)
-        .join(" — ");
-      const color = "";
-      const size = item.variantTitle ?? "";
+      const pos = String(i + 1);
+      const prefix = `it[li][${pos}]`;
       const qty = String(item.quantity);
-      const price =
-        item.unitPriceMinor != null
-          ? (item.unitPriceMinor / 100).toFixed(2)
-          : "0.00";
+      const price = item.unitPriceMinor != null
+        ? (item.unitPriceMinor / 100).toFixed(2)
+        : "0.00";
 
-      saveBody.set(`${prefix}[t]`, String(CP_FREE_FORM));
-      saveBody.set(`${prefix}[cart_id]`, decoOrderId);
-      saveBody.set(`${prefix}[name]`, name);
-      saveBody.set(`${prefix}[desc]`, desc);
-      saveBody.set(`${prefix}[color]`, color);
-      saveBody.set(`${prefix}[size]`, size);
-      saveBody.set(`${prefix}[q]`, qty);
-      saveBody.set(`${prefix}[dis]`, "0");
-      saveBody.set(`${prefix}[iad]`, "true");
-      saveBody.set(`${prefix}[dt]`, "percent");
-      saveBody.set(`${prefix}[bdis]`, "0");
-      saveBody.set(`${prefix}[bdis_base]`, "false");
-      saveBody.set(`${prefix}[bdis_ao]`, "false");
-      saveBody.set(`${prefix}[odis]`, "0");
-      saveBody.set(`${prefix}[rrp]`, price);
-      saveBody.set(`${prefix}[rp]`, price);
-      saveBody.set(`${prefix}[op]`, price);
-      saveBody.set(`${prefix}[iap]`, "false");
-      saveBody.set(`${prefix}[eid]`, "");
-      saveBody.set(`${prefix}[use_po]`, "0");
-      saveBody.set(`${prefix}[inc_tax]`, "false");
-      saveBody.set(`${prefix}[inc_tax_for_extra_charges]`, "false");
-      saveBody.set(`${prefix}[oup]`, "false");
-      saveBody.set(`${prefix}[pos]`, String(i + 1));
+      // Try to find this product in Deco's catalog for proper catalog format
+      let usedCatalog = false;
+      if (item.sku) {
+        const decoProductId = await findDecoProductBySku(item.sku);
+        if (decoProductId) {
+          try {
+            const detail = await fetchDecoProductDetail(decoProductId);
+            // Find matching color
+            const colorName = extractColorFromVariant(item.variantTitle ?? "");
+            const matchedColor = detail.colors.find(
+              (c) => c.name.toLowerCase() === colorName.toLowerCase(),
+            );
+            const colorId = matchedColor ? String(matchedColor.id) : (detail.colors[0] ? String(detail.colors[0].id) : "0");
+
+            // Find matching size
+            const sizeName = extractSizeFromVariant(item.variantTitle ?? "");
+            const matchedSize = detail.sizes.find(
+              (s) => s.name.toLowerCase() === sizeName.toLowerCase() || s.code.toLowerCase() === sizeName.toLowerCase(),
+            );
+
+            // Build catalog product item (matching Deco's CP_serialize + beforeSerialize)
+            // Outer serialize fields
+            bodyPairs.push([`${prefix}[t]`, "0"]); // Regular product type
+            bodyPairs.push([`${prefix}[cart_id]`, decoOrderId]);
+            bodyPairs.push([`${prefix}[dis]`, "0"]);
+            bodyPairs.push([`${prefix}[screen_method]`, ""]);
+            bodyPairs.push([`${prefix}[iabp]`, "true"]);
+            bodyPairs.push([`${prefix}[obp]`, "0"]);
+            bodyPairs.push([`${prefix}[tl]`, "false"]);
+            bodyPairs.push([`${prefix}[upl]`, "false"]);
+            bodyPairs.push([`${prefix}[iasp]`, "true"]);
+            if (matchedSize) {
+              // Set specific size qty via size field
+              bodyPairs.push([`${prefix}[ussq]`, "0"]);
+            } else {
+              bodyPairs.push([`${prefix}[ussq]`, qty]);
+            }
+            bodyPairs.push([`${prefix}[iad]`, "true"]);
+            bodyPairs.push([`${prefix}[dt]`, "percent"]);
+            bodyPairs.push([`${prefix}[bdis]`, "0"]);
+            bodyPairs.push([`${prefix}[bdis_base]`, "false"]);
+            bodyPairs.push([`${prefix}[bdis_ao]`, "false"]);
+            bodyPairs.push([`${prefix}[odis]`, "0"]);
+            bodyPairs.push([`${prefix}[inc_tax]`, "false"]);
+            bodyPairs.push([`${prefix}[inc_tax_for_extra_charges]`, "false"]);
+            bodyPairs.push([`${prefix}[oup]`, "false"]);
+            bodyPairs.push([`${prefix}[pos]`, pos]);
+            bodyPairs.push([`${prefix}[dto]`, "false"]);
+            bodyPairs.push([`${prefix}[odt]`, "0"]);
+            bodyPairs.push([`${prefix}[dsp]`, "0"]);
+            bodyPairs.push([`${prefix}[o_dsp]`, "false"]);
+            bodyPairs.push([`${prefix}[sdc_id]`, ""]);
+            bodyPairs.push([`${prefix}[use_po]`, "0"]);
+
+            // beforeSerialize fields
+            bodyPairs.push([`${prefix}[custom_name]`, "0"]);
+            bodyPairs.push([`${prefix}[brid]`, DECO_BRAND_ID]);
+            bodyPairs.push([`${prefix}[clid]`, clientId]);
+            bodyPairs.push([`${prefix}[cid]`, decoOrderId]);
+            bodyPairs.push([`${prefix}[p]`, decoProductId]);
+            bodyPairs.push([`${prefix}[q]`, qty]);
+            bodyPairs.push([`${prefix}[lv]`, "0"]);
+            bodyPairs.push([`${prefix}[c]`, colorId]);
+            bodyPairs.push([`${prefix}[def_proc]`, "0"]);
+            bodyPairs.push([`${prefix}[screen_method]`, ""]);
+            bodyPairs.push([`${prefix}[is_sdp]`, "false"]);
+
+            // If we have a specific size match, set it via the size field
+            if (matchedSize) {
+              // Size fields use the product's fields structure — we set qty per size
+              bodyPairs.push([`${prefix}[f][size][q][${matchedSize.id}]`, qty]);
+            }
+
+            usedCatalog = true;
+            // eslint-disable-next-line no-console
+            console.log(`[DECO-PUSH] Item ${pos}: catalog product ${decoProductId} (${detail.productCode}), color=${colorId}, size=${matchedSize?.name ?? "unspecified"}`);
+          } catch (err) {
+            logger.warn({ err, sku: item.sku }, "Catalog product lookup failed, falling back to free-form");
+          }
+        }
+      }
+
+      // Fallback: CP_FREE_FORM
+      if (!usedCatalog) {
+        const name = item.productTitle;
+        const desc = [item.sku, item.variantTitle, item.decorationMethod]
+          .filter(Boolean)
+          .join(" | ");
+        const size = extractSizeFromVariant(item.variantTitle ?? "") || item.variantTitle || "";
+
+        bodyPairs.push([`${prefix}[t]`, String(CP_FREE_FORM)]);
+        bodyPairs.push([`${prefix}[cart_id]`, decoOrderId]);
+        bodyPairs.push([`${prefix}[name]`, name]);
+        bodyPairs.push([`${prefix}[desc]`, desc]);
+        bodyPairs.push([`${prefix}[color]`, extractColorFromVariant(item.variantTitle ?? "")]);
+        bodyPairs.push([`${prefix}[size]`, size]);
+        bodyPairs.push([`${prefix}[q]`, qty]);
+        bodyPairs.push([`${prefix}[dis]`, "0"]);
+        bodyPairs.push([`${prefix}[iad]`, "true"]);
+        bodyPairs.push([`${prefix}[dt]`, "percent"]);
+        bodyPairs.push([`${prefix}[bdis]`, "0"]);
+        bodyPairs.push([`${prefix}[odis]`, "0"]);
+        bodyPairs.push([`${prefix}[rrp]`, price]);
+        bodyPairs.push([`${prefix}[rp]`, price]);
+        bodyPairs.push([`${prefix}[op]`, price]);
+        bodyPairs.push([`${prefix}[iap]`, "false"]);
+        bodyPairs.push([`${prefix}[eid]`, ""]);
+        bodyPairs.push([`${prefix}[use_po]`, "0"]);
+        bodyPairs.push([`${prefix}[inc_tax]`, "false"]);
+        bodyPairs.push([`${prefix}[pos]`, pos]);
+
+        // eslint-disable-next-line no-console
+        console.log(`[DECO-PUSH] Item ${pos}: free-form "${name}" qty=${qty} price=${price}`);
+      }
     }
 
-    const saveBodyStr = saveBody.toString();
+    const saveBodyStr = buildDecoFormBody(bodyPairs);
+    const saveQueryStr = buildDecoFormBody([["c", decoOrderId], ["cid", clientId]]);
+
+    // eslint-disable-next-line no-console
+    console.log(`[DECO-PUSH] save_order body: ${saveBodyStr.length} bytes, ${bodyPairs.length} pairs, items=${job.items.length}`);
     logger.info(
-      { decoOrderId, lineItemCount: job.items.length, bodyLength: saveBodyStr.length, bodyPreview: saveBodyStr.slice(0, 500) },
+      { decoOrderId, lineItemCount: job.items.length, pairCount: bodyPairs.length, bodyLength: saveBodyStr.length, bodyPreview: saveBodyStr.slice(0, 800) },
       "Sending save_order with line items",
     );
 
     const saveRes = await fetch(
-      `${base}/bh/orders/save_order?${saveParams.toString()}`,
+      `${base}/bh/orders/save_order?${saveQueryStr}`,
       {
         method: "POST",
         headers: { ...webHeaders, "X-Progress-ID": decoOrderId },
@@ -810,6 +956,8 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     );
 
     const saveText = await saveRes.text();
+    // eslint-disable-next-line no-console
+    console.log(`[DECO-PUSH] save_order ${saveRes.status}: ${saveText.slice(0, 300)}`);
     logger.info({ decoOrderId, saveStatus: saveRes.status, saveTextPreview: saveText.slice(0, 300) }, "save_order response");
 
     // Step 4: Poll async progress to confirm save succeeded
@@ -839,16 +987,17 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
         const totalLine = totalMinor != null ? `\nTotal: £${(totalMinor / 100).toFixed(2)}` : "";
         const noteContent = `Line Items (from Stash):\n${lines.join("\n")}${totalLine}`;
 
-        const noteBody = new URLSearchParams();
-        noteBody.set("oid", decoOrderId);
-        noteBody.set("cid", clientId);
-        noteBody.set("t", "internal");
-        noteBody.set("ct", noteContent);
+        const noteBody = buildDecoFormBody([
+          ["oid", decoOrderId],
+          ["cid", clientId],
+          ["t", "internal"],
+          ["ct", noteContent],
+        ]);
 
         await fetch(`${base}/bh/orders/add_or_edit_note`, {
           method: "POST",
           headers: webHeaders,
-          body: noteBody.toString(),
+          body: noteBody,
         });
       } catch (noteErr) {
         logger.warn({ decoOrderId, error: noteErr }, "Failed to add line items note to Deco order");
