@@ -653,9 +653,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Job not found." };
   }
 
-  if (!job.account?.decoCustomerId) {
-    return { pushed: false, error: "Job has no linked Deco customer." };
-  }
+  const decoCustomerId = job.account?.decoCustomerId ?? "";
 
   try {
     // Step 1: Get authenticated web session + CSRF token
@@ -674,7 +672,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     };
 
     // Step 2: Create a quote in Deco via the web admin endpoint
-    const createBody = new URLSearchParams({ cust_id: job.account.decoCustomerId });
+    const createBody = new URLSearchParams({ cust_id: decoCustomerId });
     const createRes = await fetch(`${base}/bh/orders/create_quote`, {
       method: "POST",
       headers: webHeaders,
@@ -704,7 +702,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     saveBody.set("dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`);
     saveBody.set("dt[po]", job.shopifyOrderName ?? job.internalJobId ?? "");
     saveBody.set("dt[brid]", DECO_BRAND_ID);
-    saveBody.set("ct[u]", job.account.decoCustomerId);
+    if (decoCustomerId) saveBody.set("ct[u]", decoCustomerId);
 
     const saveRes = await fetch(
       `${base}/bh/orders/save_order?${saveParams.toString()}`,
