@@ -375,7 +375,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
     return selColor ? colorToCss(selColor.name) : undefined;
   }, [effectiveColors, activeColorId]);
 
-  const displayImage = useMemo(() => {
+  const { displayImage, isColorMatched } = useMemo(() => {
     const imgs = productDetail.images ?? [];
     const selColor = effectiveColors.find((c) => c.id === activeColorId);
     const colorName = selColor?.name?.toLowerCase();
@@ -393,21 +393,22 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
     // Exact colour + view match
     if (selColor) {
       const exact = imgs.find((i) => i.type === imgType && colorMatch(i.color));
-      if (exact) return exact.url;
+      if (exact) return { displayImage: exact.url, isColorMatched: true };
     }
 
     // View type match without colour
     const typeMatch = imgs.find((i) => i.type === imgType);
-    if (typeMatch) return typeMatch.url;
+    if (typeMatch) return { displayImage: typeMatch.url, isColorMatched: false };
 
     // Fallback: show front image in the selected colour (better to show the right colour from the front than nothing)
     if (selColor) {
       const cm = imgs.find((i) => i.type === "front" && colorMatch(i.color));
-      if (cm) return cm.url;
+      if (cm) return { displayImage: cm.url, isColorMatched: true };
     }
 
     // Fallback to any front/gallery image
-    return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
+    const fallback = imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
+    return { displayImage: fallback, isColorMatched: false };
   }, [productDetail, effectiveColors, activeColorId, activeView]);
 
   const configuredZones = useMemo(
@@ -784,16 +785,36 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                   style={{ zIndex: 0, opacity: displayImage ? 0.15 : 1 }}
                 />
 
-                {/* Product image */}
+                {/* Product image with colour tint */}
                 {displayImage && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={displayImage}
-                    alt={`${productDetail.productName} — ${activeView}`}
-                    className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                    style={{ zIndex: 1 }}
-                    draggable={false}
-                  />
+                  <div className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={displayImage}
+                      alt={`${productDetail.productName} — ${activeView}`}
+                      className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                      draggable={false}
+                    />
+                    {/* Colour tint overlay — multiply blend to recolour the garment (skip if image already matches colour) */}
+                    {activeColorCss && !isColorMatched && (
+                      <div
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        style={{
+                          background: activeColorCss,
+                          mixBlendMode: "multiply",
+                          opacity: 0.55,
+                          maskImage: `url(${displayImage})`,
+                          WebkitMaskImage: `url(${displayImage})`,
+                          maskSize: "contain",
+                          WebkitMaskSize: "contain",
+                          maskRepeat: "no-repeat",
+                          WebkitMaskRepeat: "no-repeat",
+                          maskPosition: "center",
+                          WebkitMaskPosition: "center",
+                        }}
+                      />
+                    )}
+                  </div>
                 )}
 
                 {/* Active zone highlight — ONLY the selected zone, subtle */}
