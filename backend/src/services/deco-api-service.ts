@@ -846,10 +846,11 @@ async function fetchSupplierProductImages(
     }
 
     // Fall back to Canterbury site search
-    return fetchCanterburyImages(productCode, productName);
+    const canterburyImages = await fetchCanterburyImages(productCode, productName);
+    if (canterburyImages.length > 0) return canterburyImages;
   }
 
-  // For unsupported suppliers, try to get images from DecoNetwork itself
+  // Universal fallback: fetch images from the Deco admin product edit page
   if (decoProductId) {
     return fetchDecoProductImages(decoProductId);
   }
@@ -857,70 +858,221 @@ async function fetchSupplierProductImages(
   return [];
 }
 
-/** Fetch product images from DecoNetwork's own product page */
+// ── Deco Web Session (channel manager) ──
+// The DecoNetwork JSON API has no image endpoints, but the admin web UI
+// at /manage/supplier_products/edit/{id} contains product image URLs.
+// We maintain a cached web session to scrape these URLs.
+// The image files themselves are publicly accessible once you know the URL.
+
+let decoWebCookies: string | null = null;
+let decoWebCookieExpiry = 0;
+
+/** Log in to the Deco admin web UI and cache session cookies. */
+async function getDecoWebSession(): Promise<string | null> {
+  if (decoWebCookies && Date.now() < decoWebCookieExpiry) return decoWebCookies;
+
+  if (!isDecoConfigured()) return null;
+  const base = baseUrl();
+
+  try {
+    // Step 1: GET login page to extract CSRF token and session fields
+    const loginPageRes = await fetch(`${base}/user/login`, { redirect: "manual" });
+    const setCookies = loginPageRes.headers.getSetCookie?.() ?? [];
+    let cookies = setCookies.map((c) => c.split(";")[0]).join("; ");
+    const loginHtml = await loginPageRes.text();
+
+    const tokenMatch = loginHtml.match(/name="authenticity_token"[^>]*value="([^"]+)"/);
+    const originMatch = loginHtml.match(/name="origin_signature"[^>]*value="([^"]+)"/);
+    const sessionIdMatch = loginHtml.match(/name="_pc_session_id"[^>]*value="([^"]+)"/);
+    const skeyMatch = loginHtml.match(/name="_pc_skey"[^>]*value="([^"]+)"/);
+
+    if (!tokenMatch || !originMatch || !sessionIdMatch || !skeyMatch) {
+      logger.warn("[DecoWeb] Could not find login form fields");
+      return null;
+    }
+
+    // Step 2: POST login
+    const formData = new URLSearchParams({
+      authenticity_token: tokenMatch[1],
+      origin_signature: originMatch[1],
+      _pc_session_id: sessionIdMatch[1],
+      _pc_skey: skeyMatch[1],
+      "user[login]": env.DECO_USERNAME!,
+      "user[password]": env.DECO_PASSWORD!,
+    });
+
+    const loginRes = await fetch(`${base}/user/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookies, Referer: `${base}/user/login` },
+      body: formData.toString(),
+      redirect: "manual",
+    });
+
+    // Collect cookies from login response
+    const loginSetCookies = loginRes.headers.getSetCookie?.() ?? [];
+    const cookieMap = new Map<string, string>();
+    for (const c of [...setCookies, ...loginSetCookies]) {
+      const [kv] = c.split(";");
+      const [k, v] = kv.split("=");
+      if (k && v) cookieMap.set(k.trim(), v.trim());
+    }
+    cookies = [...cookieMap].map(([k, v]) => `${k}=${v}`).join("; ");
+
+    // Follow redirect (may land on replace_existing_session)
+    const location = loginRes.headers.get("location");
+    if (location) {
+      const redirectUrl = location.startsWith("http") ? location : `${base}${location}`;
+      const redirectRes = await fetch(redirectUrl, { headers: { Cookie: cookies }, redirect: "manual" });
+      const redirectSetCookies = redirectRes.headers.getSetCookie?.() ?? [];
+      for (const c of redirectSetCookies) {
+        const [kv] = c.split(";");
+        const [k, v] = kv.split("=");
+        if (k && v) cookieMap.set(k.trim(), v.trim());
+      }
+      cookies = [...cookieMap].map(([k, v]) => `${k}=${v}`).join("; ");
+
+      const redirectHtml = await redirectRes.text();
+
+      // Handle "replace_existing_session" page
+      if (redirectUrl.includes("replace_existing_session") || redirectHtml.includes("replace_existing_session")) {
+        const replaceToken = redirectHtml.match(/<form[^>]*action="\/user\/replace_existing_session"[^>]*>(.*?)<\/form>/s);
+        if (replaceToken) {
+          const inputs = [...replaceToken[1].matchAll(/name="([^"]*)"[^>]*value="([^"]*)"/g)];
+          const replaceForm = new URLSearchParams();
+          for (const m of inputs) replaceForm.set(m[1], m[2]);
+
+          const replaceRes = await fetch(`${base}/user/replace_existing_session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookies },
+            body: replaceForm.toString(),
+            redirect: "manual",
+          });
+          const replaceSetCookies = replaceRes.headers.getSetCookie?.() ?? [];
+          for (const c of replaceSetCookies) {
+            const [kv] = c.split(";");
+            const [k, v] = kv.split("=");
+            if (k && v) cookieMap.set(k.trim(), v.trim());
+          }
+          cookies = [...cookieMap].map(([k, v]) => `${k}=${v}`).join("; ");
+
+          // Follow final redirect
+          const finalLoc = replaceRes.headers.get("location");
+          if (finalLoc) {
+            const finalUrl = finalLoc.startsWith("http") ? finalLoc : `${base}${finalLoc}`;
+            const finalRes = await fetch(finalUrl, { headers: { Cookie: cookies }, redirect: "manual" });
+            const finalSetCookies = finalRes.headers.getSetCookie?.() ?? [];
+            for (const c of finalSetCookies) {
+              const [kv] = c.split(";");
+              const [k, v] = kv.split("=");
+              if (k && v) cookieMap.set(k.trim(), v.trim());
+            }
+            cookies = [...cookieMap].map(([k, v]) => `${k}=${v}`).join("; ");
+            await finalRes.text(); // consume body
+          } else {
+            await replaceRes.text();
+          }
+        }
+      }
+    }
+
+    // Verify login by checking the admin settings page
+    const verifyRes = await fetch(`${base}/manage`, { headers: { Cookie: cookies }, redirect: "manual" });
+    const verifyHtml = await verifyRes.text();
+    if (verifyHtml.includes("Dashboard") && !verifyHtml.includes("Login Private")) {
+      logger.info("[DecoWeb] Web session established successfully");
+      decoWebCookies = cookies;
+      decoWebCookieExpiry = Date.now() + 55 * 60 * 1000; // 55 minutes
+      return cookies;
+    }
+
+    logger.warn("[DecoWeb] Login verification failed — dashboard not found");
+    return null;
+  } catch (err) {
+    logger.error({ err }, "[DecoWeb] Web login failed");
+    return null;
+  }
+}
+
+/** Fetch product images from the Deco admin product edit page via web session */
 async function fetchDecoProductImages(decoProductId: number): Promise<ProductImage[]> {
   if (!isDecoConfigured()) return [];
 
-  try {
-    // DecoNetwork stores product images that can be fetched via the product page
-    // Try the manage_products/get_product_images API endpoint
-    const data = await decoFetch<{
-      product_images?: Array<{
-        image_id?: number;
-        image_url?: string;
-        url?: string;
-        thumbnail_url?: string;
-        position?: number;
-        is_default?: boolean;
-      }>;
-      images?: Array<{
-        image_id?: number;
-        image_url?: string;
-        url?: string;
-        thumbnail_url?: string;
-      }>;
-      response_status?: { code?: number };
-    }>("/api/json/manage_products/get_product_images", { product_id: String(decoProductId) });
+  const cookies = await getDecoWebSession();
+  if (!cookies) {
+    logger.debug(`[DecoWeb] No web session — cannot fetch images for product ${decoProductId}`);
+    return [];
+  }
 
-    const imgs = data.product_images ?? data.images ?? [];
-    const result: ProductImage[] = [];
-    for (const img of imgs) {
-      const url = img.image_url ?? img.url ?? img.thumbnail_url;
-      if (url) {
-        result.push({
-          url,
-          type: result.length === 0 ? "front" : "gallery",
-        });
+  const base = baseUrl();
+  try {
+    const res = await fetch(`${base}/manage/supplier_products/edit/${decoProductId}`, {
+      headers: { Cookie: cookies },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const html = await res.text();
+
+    // If we got redirected to login, invalidate session
+    if (html.includes("Login Private") || html.includes("/user/login")) {
+      decoWebCookies = null;
+      decoWebCookieExpiry = 0;
+      logger.debug(`[DecoWeb] Session expired, clearing cache`);
+      return [];
+    }
+
+    const images: ProductImage[] = [];
+    const seen = new Set<string>();
+
+    // 1. Main display image: /supplier_product/s/display_image/{a}/{b}/{c}/filename.jpg
+    for (const m of html.matchAll(/\/supplier_product\/s\/display_image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
+      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1"); // strip size suffix
+      const url = `${base}/supplier_product/s/display_image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        const viewType = classifyFilename(filename);
+        images.push({ url, type: viewType });
       }
     }
 
-    if (result.length > 0) {
-      logger.info(`[Deco] Found ${result.length} product images from DecoNetwork for product ${decoProductId}`);
-      return result;
+    // 2. Extra product images: /supplier_product_image/s/image/{a}/{b}/{c}/filename.jpg
+    for (const m of html.matchAll(/\/supplier_product_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
+      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1");
+      const url = `${base}/supplier_product_image/s/image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        const viewType = classifyFilename(filename);
+        images.push({ url, type: viewType });
+      }
     }
+
+    // 3. Product view images: /product_view_image/s/image/{a}/{b}/{c}/filename.jpg
+    for (const m of html.matchAll(/\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
+      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1");
+      const url = `${base}/product_view_image/s/image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        const viewType = classifyFilename(filename);
+        images.push({ url, type: viewType });
+      }
+    }
+
+    if (images.length > 0) {
+      const typeCounts = images.reduce((acc, i) => { acc[i.type] = (acc[i.type] ?? 0) + 1; return acc; }, {} as Record<string, number>);
+      logger.info({ decoProductId, count: images.length, types: typeCounts }, "[DecoWeb] Extracted product images");
+    }
+    return images;
   } catch (err) {
-    // get_product_images endpoint may not exist - that's OK
-    logger.debug({ err }, `[Deco] get_product_images failed for ${decoProductId}, trying page scrape`);
+    logger.debug({ err, decoProductId }, "[DecoWeb] Failed to fetch product edit page");
+    return [];
   }
+}
 
-  // Fallback: try to construct the standard DecoNetwork product image URL
-  // DecoNetwork serves product images at /items/products/{id}/default_image
-  try {
-    const base = baseUrl();
-    const imgUrl = `${base}/items/products/${decoProductId}/default_image`;
-    const response = await fetch(imgUrl, { method: "HEAD", redirect: "follow" });
-    if (response.ok) {
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.startsWith("image/")) {
-        logger.info(`[Deco] Found default image from DecoNetwork for product ${decoProductId}`);
-        return [{ url: imgUrl, type: "front" }];
-      }
-    }
-  } catch {
-    // URL may not exist — that's fine
-  }
-
-  return [];
+/** Classify a product image filename into front/back/side/gallery */
+function classifyFilename(filename: string): ProductImage["type"] {
+  const lower = filename.toLowerCase();
+  if (/\bback\b|_back[_.-]|_back\d/.test(lower)) return "back";
+  if (/\bside\b|_side[_.-]|_side\d/.test(lower)) return "side";
+  if (/\bfront\b|_front[_.-]|_front\d/.test(lower)) return "front";
+  return "gallery";
 }
 
 /** Ralawise: search API → product page → parse Colours JSON + lifestyle images */
