@@ -43,10 +43,11 @@ export async function buildServer() {
       },
       "Unhandled API error",
     );
+    const errMsg = error instanceof Error ? error.message : "Unexpected error";
     reply.status(500).send({
       ok: false,
       error: "internal_error",
-      message: env.NODE_ENV === "production" ? "Unexpected error" : error instanceof Error ? error.message : "Unexpected error",
+      message: errMsg,
     });
   });
 
