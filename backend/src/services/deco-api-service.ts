@@ -627,27 +627,18 @@ export async function updateDecoOrderStatus(
  */
 async function getDecoSessionContext(cookies: string): Promise<{ csrfToken: string; clientId: string }> {
   const base = baseUrl();
+  // /manage/orders always 301-redirects to /bh/orders — must follow redirects
   const res = await fetch(`${base}/manage/orders`, {
     headers: { Cookie: cookies },
-    redirect: "manual",
+    redirect: "follow",
   });
-
-  // If we get a redirect, the session is invalid/expired
-  if (res.status >= 300 && res.status < 400) {
-    await res.text();
-    throw new Error("Deco session expired (redirect from /manage/orders)");
-  }
 
   const html = await res.text();
 
-  // Verify we're on the orders page, not a login page
-  if (html.includes('id="login_form"') || html.includes('user[login]')) {
-    throw new Error("Deco session invalid (got login page instead of orders)");
-  }
-
+  // Extract CSRF token — its presence confirms we have a valid session
   const csrfMatch = html.match(/var\s+dnCSRFToken\s*=\s*"([^"]+)"/);
   if (!csrfMatch) {
-    throw new Error("Could not extract dnCSRFToken from Deco admin page");
+    throw new Error("Deco session expired — no CSRF token found on orders page");
   }
   const cidMatch = html.match(/"client_id"\s*:\s*(\d+)/);
   const clientId = cidMatch ? cidMatch[1] : "0";
