@@ -126,6 +126,9 @@ export interface JobDetail {
   sourceGroupType: string | null;
   shopifyOrderName: string | null;
   decoOrderId: string | null;
+  pushToDecoStatus: string | null;
+  decoPushErrors: string | null;
+  lastDecoPushAt: string | null;
   requiresReview: boolean;
   reviewReason: string | null;
   blockedReason: string | null;

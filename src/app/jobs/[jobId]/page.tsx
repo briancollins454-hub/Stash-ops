@@ -274,6 +274,30 @@ export default async function JobDetailPage({
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
             {job.shopifyOrderName && <Field label="Shopify order" value={job.shopifyOrderName} />}
             {job.decoOrderId && <Field label="Deco order ID" value={job.decoOrderId} />}
+            {job.pushToDecoStatus && (
+              <div className="min-w-0">
+                <p className="eyebrow">Deco push status</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${
+                    job.pushToDecoStatus === "pushed"
+                      ? "border-[#10b981]/25 bg-[#10b981]/10 text-[#6ee7b7]"
+                      : job.pushToDecoStatus === "failed"
+                        ? "border-[#ef4444]/25 bg-[#ef4444]/10 text-[#fca5a5]"
+                        : "border-[#f59e0b]/25 bg-[#f59e0b]/10 text-[#fcd34d]"
+                  }`}>
+                    {job.pushToDecoStatus}
+                  </span>
+                  {job.lastDecoPushAt && (
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                      {formatDateTime(job.lastDecoPushAt)}
+                    </span>
+                  )}
+                </div>
+                {job.decoPushErrors && (
+                  <p className="mt-1 text-xs text-[#fca5a5]">{job.decoPushErrors}</p>
+                )}
+              </div>
+            )}
             {job.externalLinks.length > 0 && (
               <div className="min-w-0">
                 <p className="eyebrow">External links</p>
@@ -319,6 +343,9 @@ export default async function JobDetailPage({
         source={job.source}
         shopifyOrderId={null}
         totalItems={job.items.reduce((sum, i) => sum + i.quantity, 0)}
+        decoOrderId={job.decoOrderId}
+        pushToDecoStatus={job.pushToDecoStatus}
+        decoPushErrors={job.decoPushErrors}
       />
 
       {/* ── Sub-status overview ── */}

@@ -22,6 +22,7 @@ import { recordWarehouseReceipt } from "../services/warehouse-receiving-service"
 import { routeJobToProduction } from "../services/production-routing-service";
 import { appendCommunicationEvent } from "../services/communications-service";
 import { markReviewDecision } from "../services/job-configuration-service";
+import { pushJobToDeco } from "../services/deco-api-service";
 
 // ── Shared helpers ──
 
@@ -142,6 +143,57 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return { ok: true, from: result.from, to: result.to };
+  });
+
+  // ─────────────── POST /v1/jobs/:jobId/deco-push ───────────────
+  // Transitions lifecycle to PUSHED_TO_DECO and pushes the order to Deco API.
+  // Can also be used to re-push if a previous attempt failed.
+
+  app.post("/v1/jobs/:jobId/deco-push", async (request, reply) => {
+    const { jobId: param } = jobIdParamsSchema.parse(request.params);
+    const id = await resolveJobId(param);
+
+    if (!id) {
+      reply.status(404);
+      return { error: "Job not found." };
+    }
+
+    // Transition lifecycle to PUSHED_TO_DECO (force to allow re-push)
+    const transResult = await prisma.$transaction((tx) =>
+      transitionJobLifecycle(tx, id, "pushed_to_deco" as typeof mainLifecycleStates[number], "stash-ui", {
+        force: true,
+      }),
+    );
+
+    if (!transResult.ok) {
+      reply.status(422);
+      return { ok: false, reasons: transResult.reasons };
+    }
+
+    // Push to Deco API
+    const pushResult = await pushJobToDeco(id);
+
+    if (!pushResult.pushed) {
+      // Transition succeeded but Deco push failed — return partial success
+      return {
+        ok: true,
+        transitioned: true,
+        pushed: false,
+        error: pushResult.error,
+        from: transResult.from,
+        to: transResult.to,
+      };
+    }
+
+    return {
+      ok: true,
+      transitioned: true,
+      pushed: true,
+      decoOrderId: pushResult.decoOrderId,
+      decoJobNumber: pushResult.decoJobNumber,
+      from: transResult.from,
+      to: transResult.to,
+    };
   });
 
   // ─────────────── PATCH /v1/jobs/:jobId/substatus ───────────────

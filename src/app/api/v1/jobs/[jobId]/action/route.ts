@@ -100,6 +100,14 @@ export async function POST(request: Request, context: RouteParams) {
         });
         break;
 
+      case "deco_push":
+        result = await fetchBackendJson(`/api/v1/jobs/${id}/deco-push`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ actor: payload.actor || "stash-ui" }),
+        });
+        break;
+
       case "update_item":
         if (!payload.itemId) {
           return NextResponse.json({ error: "Missing itemId" }, { status: 400 });

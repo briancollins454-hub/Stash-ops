@@ -19,6 +19,9 @@ interface JobActionsProps {
   source: string;
   shopifyOrderId: string | null;
   totalItems: number;
+  decoOrderId?: string | null;
+  pushToDecoStatus?: string | null;
+  decoPushErrors?: string | null;
 }
 
 /* ── Transition map (what buttons to show per lifecycle) ── */
@@ -68,9 +71,10 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
     case "CONFIGURED":
       actions.push({
         label: "Send to Deco",
-        action: "transition",
-        payload: { target: "pushed_to_deco", force: true },
+        action: "deco_push",
+        payload: {},
         tone: "primary",
+        confirm: "This will create an order in DecoNetwork. Continue?",
       });
       actions.push({
         label: "Awaiting stock",
@@ -81,6 +85,15 @@ function getAvailableActions(p: JobActionsProps): ActionDef[] {
       break;
 
     case "PUSHED_TO_DECO":
+      if (p.pushToDecoStatus === "failed" || !p.decoOrderId) {
+        actions.push({
+          label: "Re-send to Deco",
+          action: "deco_push",
+          payload: {},
+          tone: "warning",
+          confirm: "Retry sending this order to DecoNetwork?",
+        });
+      }
       actions.push({
         label: "Awaiting stock",
         action: "transition",
@@ -284,8 +297,20 @@ export function JobActions(props: JobActionsProps) {
         await callAction("substatus", { configurationStatus: "CONFIRMED" });
       }
 
-      await callAction(act.action, act.payload);
-      setSuccessMsg(`${act.label} — done`);
+      const result = await callAction(act.action, act.payload);
+
+      // Show Deco-specific result messages
+      if (act.action === "deco_push") {
+        if (result.pushed && result.decoJobNumber) {
+          setSuccessMsg(`Sent to Deco — Job #${result.decoJobNumber}`);
+        } else if (result.pushed) {
+          setSuccessMsg("Sent to Deco — order created");
+        } else if (result.transitioned && !result.pushed) {
+          setError(`Status updated but Deco push failed: ${result.error || "Unknown error"}. You can retry with "Re-send to Deco".`);
+        }
+      } else {
+        setSuccessMsg(`${act.label} — done`);
+      }
       setTimeout(() => router.refresh(), 500);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
