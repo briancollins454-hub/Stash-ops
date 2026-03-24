@@ -591,6 +591,7 @@ export type DecoPushOrderResult = {
   decoOrderId?: string;
   decoJobNumber?: string;
   error?: string;
+  _debug?: Record<string, unknown>;
 };
 
 /**
@@ -939,10 +940,18 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     const saveBodyStr = buildDecoFormBody(bodyPairs);
     const saveQueryStr = buildDecoFormBody([["c", decoOrderId], ["cid", clientId]]);
 
-    // eslint-disable-next-line no-console
-    console.log(`[DECO-PUSH] save_order body: ${saveBodyStr.length} bytes, ${bodyPairs.length} pairs, items=${job.items.length}`);
+    const _debug: Record<string, unknown> = {
+      itemCount: job.items.length,
+      pairCount: bodyPairs.length,
+      bodyLength: saveBodyStr.length,
+      bodyFirst500: saveBodyStr.slice(0, 500),
+      bodyLast200: saveBodyStr.slice(-200),
+      queryString: saveQueryStr,
+      itemKeys: bodyPairs.filter(([k]) => k.startsWith("it[")).map(([k, v]) => `${k}=${v}`),
+    };
+
     logger.info(
-      { decoOrderId, lineItemCount: job.items.length, pairCount: bodyPairs.length, bodyLength: saveBodyStr.length, bodyPreview: saveBodyStr.slice(0, 800) },
+      { decoOrderId, lineItemCount: job.items.length, pairCount: bodyPairs.length, bodyLength: saveBodyStr.length },
       "Sending save_order with line items",
     );
 
@@ -956,9 +965,8 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     );
 
     const saveText = await saveRes.text();
-    // eslint-disable-next-line no-console
-    console.log(`[DECO-PUSH] save_order ${saveRes.status}: ${saveText.slice(0, 300)}`);
-    logger.info({ decoOrderId, saveStatus: saveRes.status, saveTextPreview: saveText.slice(0, 300) }, "save_order response");
+    _debug.saveStatus = saveRes.status;
+    _debug.saveResponse = saveText.slice(0, 500);
 
     // Step 4: Poll async progress to confirm save succeeded
     const progressMatch = saveText.match(/continueAsyncProgress\('([^']+)'/);
@@ -1045,7 +1053,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     });
 
     logger.info({ jobId, decoOrderId, decoJobNumber }, "Job pushed to Deco via web session");
-    return { pushed: true, decoOrderId, decoJobNumber: decoJobNumber ?? decoOrderId };
+    return { pushed: true, decoOrderId, decoJobNumber: decoJobNumber ?? decoOrderId, _debug };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
 
