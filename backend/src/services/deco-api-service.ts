@@ -784,10 +784,12 @@ export type DecoProductDetail = {
  *   - PenCarrie (~450 products) — cross-listed on Ralawise
  *   - Uneek Clothing (~600 products) — public API at api.uneekclothing.com
  *   - The Magic Touch — consumables, no standardised imagery (returns [])
+ *   - Other suppliers — attempts to fetch from DecoNetwork product images
  */
 async function fetchSupplierProductImages(
   productCode: string,
   supplier: string,
+  decoProductId?: number,
 ): Promise<ProductImage[]> {
   const s = supplier.toLowerCase();
 
@@ -800,7 +802,77 @@ async function fetchSupplierProductImages(
     return fetchUneekImages(productCode);
   }
 
-  // Magic Touch and unknown suppliers — no standardised product imagery
+  // For unsupported suppliers, try to get images from DecoNetwork itself
+  if (decoProductId) {
+    return fetchDecoProductImages(decoProductId);
+  }
+
+  return [];
+}
+
+/** Fetch product images from DecoNetwork's own product page */
+async function fetchDecoProductImages(decoProductId: number): Promise<ProductImage[]> {
+  if (!isDecoConfigured()) return [];
+
+  try {
+    // DecoNetwork stores product images that can be fetched via the product page
+    // Try the manage_products/get_product_images API endpoint
+    const data = await decoFetch<{
+      product_images?: Array<{
+        image_id?: number;
+        image_url?: string;
+        url?: string;
+        thumbnail_url?: string;
+        position?: number;
+        is_default?: boolean;
+      }>;
+      images?: Array<{
+        image_id?: number;
+        image_url?: string;
+        url?: string;
+        thumbnail_url?: string;
+      }>;
+      response_status?: { code?: number };
+    }>("/api/json/manage_products/get_product_images", { product_id: String(decoProductId) });
+
+    const imgs = data.product_images ?? data.images ?? [];
+    const result: ProductImage[] = [];
+    for (const img of imgs) {
+      const url = img.image_url ?? img.url ?? img.thumbnail_url;
+      if (url) {
+        result.push({
+          url,
+          type: result.length === 0 ? "front" : "gallery",
+        });
+      }
+    }
+
+    if (result.length > 0) {
+      logger.info(`[Deco] Found ${result.length} product images from DecoNetwork for product ${decoProductId}`);
+      return result;
+    }
+  } catch (err) {
+    // get_product_images endpoint may not exist - that's OK
+    logger.debug({ err }, `[Deco] get_product_images failed for ${decoProductId}, trying page scrape`);
+  }
+
+  // Fallback: try to construct the standard DecoNetwork product image URL
+  // DecoNetwork serves product images at /items/products/{id}/default_image
+  try {
+    const base = baseUrl();
+    const imgUrl = `${base}/items/products/${decoProductId}/default_image`;
+    const response = await fetch(imgUrl, { method: "HEAD", redirect: "follow" });
+    if (response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.startsWith("image/")) {
+        logger.info(`[Deco] Found default image from DecoNetwork for product ${decoProductId}`);
+        return [{ url: imgUrl, type: "front" }];
+      }
+    }
+  } catch {
+    // URL may not exist — that's fine
+  }
+
   return [];
 }
 
@@ -1049,14 +1121,6 @@ async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
   }
 }
 
-/** Debug: return the raw Deco API response for a product (temporary) */
-export async function decoFetchRaw(decoProductId: string): Promise<unknown> {
-  if (!isDecoConfigured()) {
-    throw new Error("DecoNetwork is not configured.");
-  }
-  return decoFetch<unknown>("/api/json/manage_products/get", { id: decoProductId });
-}
-
 /**
  * Fetch detailed product info (colors, sizes, per-SKU pricing) from Deco API.
  * Calls manage_products/get?id=X — NOT cached, hits Deco live each time.
@@ -1125,6 +1189,7 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
   const supplierImages = await fetchSupplierProductImages(
     p.product_code ?? "",
     p.supplier ?? "",
+    p.product_id,
   );
 
   // Use supplier images if available, otherwise fall back to any Deco-provided images
@@ -1137,7 +1202,6 @@ export async function fetchDecoProductDetail(decoProductId: string): Promise<Dec
     supplier: p.supplier ?? "",
     brand: p.brand ?? "",
     category: p.categories?.[0]?.name ?? "",
-    _extraKeys: extraKeys,
     colors: (p.colors ?? [])
       .filter((c) => c.id != null && c.name)
       .map((c) => ({ id: c.id!, name: c.name! })),

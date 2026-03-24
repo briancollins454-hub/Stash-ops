@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail, decoFetchRaw } from "../services/deco-api-service";
+import { fetchDecoProductDetail } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 
 // ── Schemas ──
@@ -293,18 +293,6 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       reply.status(502);
       return { error: err instanceof Error ? err.message : "Failed to fetch product detail" };
-    }
-  });
-
-  // ── DEBUG: Raw Deco product response (temporary — shows all fields) ──
-  app.get("/v1/debug/products/:decoProductId/raw", async (request, reply) => {
-    const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
-    try {
-      const data = await decoFetchRaw(decoProductId);
-      return data;
-    } catch (err) {
-      reply.status(502);
-      return { error: err instanceof Error ? err.message : "Failed to fetch raw product" };
     }
   });
 
