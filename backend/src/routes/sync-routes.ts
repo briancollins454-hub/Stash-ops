@@ -152,7 +152,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const result = await pushJobToDeco(job.id);
-      return { ok: result.pushed, ...result };
+      return { ok: result.pushed, ...result, _debug: result._debug };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error({ jobId: job.id, error: msg, stack: err instanceof Error ? err.stack : undefined }, "pushJobToDeco failed");
