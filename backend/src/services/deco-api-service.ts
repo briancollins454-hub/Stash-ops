@@ -37,7 +37,7 @@ function authParams(): URLSearchParams {
  * Low-level Deco API fetch. Builds full URL from path + params,
  * handles timeouts, JSON parsing, and Deco-level error codes.
  */
-export async function decoFetch<T>(path: string, extraParams?: Record<string, string>, options?: RequestInit): Promise<T> {
+async function decoFetch<T>(path: string, extraParams?: Record<string, string>, options?: RequestInit): Promise<T> {
   const params = authParams();
   if (extraParams) {
     for (const [k, v] of Object.entries(extraParams)) {

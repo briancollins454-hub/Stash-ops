@@ -2,9 +2,8 @@ import { MatchStatus, type Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { isDecoConfigured } from "../config/env";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail, decoFetch } from "../services/deco-api-service";
+import { fetchDecoProductDetail } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 
 // ── Schemas ──
@@ -311,82 +310,5 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
         { key: "other", label: "Other", description: "Custom method" },
       ],
     };
-  });
-
-  // ── Debug: raw Deco product data (temporary) ──
-  app.get("/v1/debug/deco-product/:decoProductId", async (request, reply) => {
-    const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
-
-    if (!isDecoConfigured()) {
-      reply.status(503);
-      return { error: "DecoNetwork is not configured" };
-    }
-
-    try {
-      // Get raw product data
-      const productData = await decoFetch<Record<string, unknown>>(
-        "/api/json/manage_products/get",
-        { id: decoProductId },
-      );
-
-      // Try get_product_images
-      let imageData: unknown = null;
-      try {
-        imageData = await decoFetch<Record<string, unknown>>(
-          "/api/json/manage_products/get_product_images",
-          { product_id: decoProductId },
-        );
-      } catch (e) {
-        imageData = { error: e instanceof Error ? e.message : "failed" };
-      }
-
-      // Try get_product_colors (maybe images are per-color)
-      let colorData: unknown = null;
-      try {
-        colorData = await decoFetch<Record<string, unknown>>(
-          "/api/json/manage_products/get_product_colors",
-          { product_id: decoProductId },
-        );
-      } catch (e) {
-        colorData = { error: e instanceof Error ? e.message : "failed" };
-      }
-
-      // Try find_images (some Deco installations have this)
-      let findImages: unknown = null;
-      try {
-        findImages = await decoFetch<Record<string, unknown>>(
-          "/api/json/manage_products/find_images",
-          { product_id: decoProductId },
-        );
-      } catch (e) {
-        findImages = { error: e instanceof Error ? e.message : "failed" };
-      }
-
-      // Try get_product_color_images for the first color
-      const product = (productData as { product?: { colors?: Array<{ id?: number }> } }).product;
-      const firstColorId = product?.colors?.[0]?.id;
-      let colorImageData: unknown = null;
-      if (firstColorId) {
-        try {
-          colorImageData = await decoFetch<Record<string, unknown>>(
-            "/api/json/manage_products/get_product_color_images",
-            { product_id: decoProductId, color_id: String(firstColorId) },
-          );
-        } catch (e) {
-          colorImageData = { error: e instanceof Error ? e.message : "failed", colorId: firstColorId };
-        }
-      }
-
-      return {
-        productData,
-        imageData,
-        colorData,
-        findImages,
-        colorImageData,
-      };
-    } catch (err) {
-      reply.status(502);
-      return { error: err instanceof Error ? err.message : "Failed" };
-    }
   });
 }
