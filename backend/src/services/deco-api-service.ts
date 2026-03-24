@@ -640,6 +640,47 @@ async function getDecoSessionContext(cookies: string): Promise<{ csrfToken: stri
   return { csrfToken: csrfMatch[1], clientId };
 }
 
+/**
+ * Poll Deco's async progress endpoint until the save completes.
+ * Returns the Deco job number if found, or throws on failure.
+ */
+async function pollDecoSaveProgress(cookies: string, progressKey: string): Promise<string | undefined> {
+  const base = baseUrl();
+  const maxAttempts = 15;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+
+    const ts = Date.now();
+    const res = await fetch(
+      `${base}/shared/lookups/async_progress?key=${encodeURIComponent(progressKey)}&ts=${ts}&qt=false`,
+      { headers: { Cookie: cookies } },
+    );
+    const text = await res.text();
+
+    // Response format: updateAsyncProgress("message", percent, isDone, ...)
+    const progressMatch = text.match(/updateAsyncProgress\("([^"]*)",\s*([\d.]+)/);
+    if (!progressMatch) continue;
+
+    const message = progressMatch[1];
+    const percent = parseFloat(progressMatch[2]);
+
+    if (message.toLowerCase().includes("error")) {
+      throw new Error(`Deco save failed: ${message}`);
+    }
+
+    if (percent >= 100) {
+      // Extract job number from "Saved order 224670"
+      const jobMatch = message.match(/Saved order (\d+)/i);
+      logger.info({ progressKey, message }, "Deco save completed");
+      return jobMatch ? jobMatch[1] : undefined;
+    }
+  }
+
+  logger.warn({ progressKey }, "Deco save progress polling timed out");
+  return undefined;
+}
+
 export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult> {
   if (!isDecoConfigured()) {
     return { pushed: false, error: "DecoNetwork is not configured." };
@@ -654,7 +695,10 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Job not found." };
   }
 
-  const decoCustomerId = job.account?.decoCustomerId ?? "";
+  const decoCustomerId = job.account?.decoCustomerId;
+  if (!decoCustomerId) {
+    return { pushed: false, error: "Cannot push to Deco without a linked customer account. Please link a Deco customer first." };
+  }
 
   try {
     // Step 1: Get authenticated web session + CSRF token
@@ -692,18 +736,18 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
 
     const decoOrderId = String(createData.id);
 
-    // Step 3: Save order details (job name, PO reference, store ID)
+    // Step 3: Save order details (job name, PO reference, store, customer)
     const DECO_BRAND_ID = "12015397";
     const saveParams = new URLSearchParams();
     saveParams.set("c", decoOrderId);
     saveParams.set("cid", clientId);
-    saveParams.set("d", "true");
+    // No "d=true" — save as a proper quote, not a draft
 
     const saveBody = new URLSearchParams();
     saveBody.set("dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`);
     saveBody.set("dt[po]", job.shopifyOrderName ?? job.internalJobId ?? "");
     saveBody.set("dt[brid]", DECO_BRAND_ID);
-    if (decoCustomerId) saveBody.set("ct[u]", decoCustomerId);
+    saveBody.set("ct[u]", decoCustomerId);
 
     const saveRes = await fetch(
       `${base}/bh/orders/save_order?${saveParams.toString()}`,
@@ -714,11 +758,18 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       },
     );
 
-    if (!saveRes.ok) {
-      const saveText = await saveRes.text();
-      logger.warn({ decoOrderId, status: saveRes.status, body: saveText.slice(0, 300) }, "save_order returned non-OK but quote was created");
-    } else {
-      await saveRes.text(); // consume body
+    const saveText = await saveRes.text();
+
+    // Step 4: Poll async progress to confirm save succeeded
+    const progressMatch = saveText.match(/continueAsyncProgress\('([^']+)'/);
+    let decoJobNumber: string | undefined;
+
+    if (progressMatch) {
+      const progressKey = progressMatch[1];
+      decoJobNumber = await pollDecoSaveProgress(cookies, progressKey);
+    } else if (!saveRes.ok) {
+      logger.warn({ decoOrderId, status: saveRes.status, body: saveText.slice(0, 300) }, "save_order failed");
+      throw new Error(`save_order failed (${saveRes.status})`);
     }
 
     // Update job with Deco references
@@ -745,7 +796,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
           jobId,
           provider: "DECO_ORDER",
           externalId: decoOrderId,
-          metadata: { quoteId: decoOrderId },
+          metadata: { quoteId: decoOrderId, decoJobNumber },
         },
       });
 
@@ -753,14 +804,16 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
         data: {
           jobId,
           eventType: "deco.order.pushed",
-          message: `Job pushed to Deco (Quote #${decoOrderId})`,
-          payload: { decoOrderId } as Prisma.InputJsonValue,
+          message: decoJobNumber
+            ? `Job pushed to Deco (Quote #${decoJobNumber})`
+            : `Job pushed to Deco (Cart #${decoOrderId})`,
+          payload: { decoOrderId, decoJobNumber } as Prisma.InputJsonValue,
         },
       });
     });
 
-    logger.info({ jobId, decoOrderId }, "Job pushed to Deco via web session");
-    return { pushed: true, decoOrderId, decoJobNumber: decoOrderId };
+    logger.info({ jobId, decoOrderId, decoJobNumber }, "Job pushed to Deco via web session");
+    return { pushed: true, decoOrderId, decoJobNumber: decoJobNumber ?? decoOrderId };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
 
