@@ -804,7 +804,25 @@ async function fetchSupplierProductImages(
     return fetchUneekImages(productCode);
   }
 
-  if (s.includes("canterbury") || s.includes("pentland")) {
+  if (s.includes("canterbury") || s.includes("pentland") || s.includes("cottonridge")) {
+    // Canterbury/Pentland are distributors — the actual brand may have its own site.
+    // Try extracting a product code from the product name (e.g. "W72" from "W72 - Cottonridge Premium Hoodie")
+    const nameCodeMatch = productName?.match(/^([A-Z0-9]{2,}[A-Z0-9]*[K]?)\s*[-–—]/i);
+    const brandCode = nameCodeMatch?.[1]?.trim();
+
+    // Try Cottonridge first — they have a clean /product/{code} URL with CDN images
+    if (brandCode) {
+      const cottonridgeImages = await fetchCottonridgeImages(brandCode);
+      if (cottonridgeImages.length > 0) return cottonridgeImages;
+    }
+
+    // Also try Ralawise since they carry many brands
+    if (brandCode) {
+      const ralawiseImages = await fetchRalawiseImages(brandCode);
+      if (ralawiseImages.length > 0) return ralawiseImages;
+    }
+
+    // Fall back to Canterbury site search
     return fetchCanterburyImages(productCode, productName);
   }
 
@@ -1123,6 +1141,70 @@ async function fetchUneekImages(productCode: string): Promise<ProductImage[]> {
     return images;
   } catch (err) {
     logger.warn({ err, productCode }, "Failed to fetch Uneek product images");
+    return [];
+  }
+}
+
+/** Cottonridge: fetch product page from cottonridge.co.uk/product/{code} → CDN images */
+async function fetchCottonridgeImages(productCode: string): Promise<ProductImage[]> {
+  try {
+    const pageUrl = `https://cottonridge.co.uk/product/${encodeURIComponent(productCode)}`;
+    const res = await fetch(pageUrl, {
+      headers: { "User-Agent": "StashOps/1.0" },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    const images: ProductImage[] = [];
+    const seen = new Set<string>();
+
+    // Strategy 1: Flat product images per colour from the CDN
+    // Pattern: av2.cottonridge.co.uk/images/ProductImages/.../FlatImages/{Colour}.webp
+    const flatPattern = /src="(https:\/\/av2\.cottonridge\.co\.uk\/images\/ProductImages\/[^"]*\/FlatImages\/([^"]+)\.(?:webp|jpg|png))"/gi;
+    let m;
+    while ((m = flatPattern.exec(html)) !== null) {
+      const url = m[1];
+      // Extract colour from filename: "BabyPink.webp" → "Baby Pink"
+      const colorRaw = m[2];
+      const color = colorRaw.replace(/([a-z])([A-Z])/g, "$1 $2");
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({ url, color, type: "front" });
+      }
+    }
+
+    // Strategy 2: Model/lifestyle images from CDN
+    const modelPattern = /src="(https:\/\/av2\.cottonridge\.co\.uk\/images\/ProductImages\/[^"]*\/ModelImages\/[^"]+\.(?:webp|jpg|png))"/gi;
+    while ((m = modelPattern.exec(html)) !== null) {
+      const url = m[1];
+      if (!seen.has(url)) {
+        seen.add(url);
+        // Try to extract colour from filename: "W72_Corn_female_front_4.jpg" → "Corn"
+        const nameMatch = url.match(/\/(\w+?)_(?:female|male|Model|Models)[^/]*$/i)
+          ?? url.match(/\/\w+?_([A-Z][a-z]+(?:_[A-Z][a-z]+)*)[^/]*$/i);
+        const color = nameMatch?.[1]?.replace(/_/g, " ");
+        images.push({ url, color, type: "gallery" });
+      }
+    }
+
+    // Strategy 3: Feature image
+    const featurePattern = /src="(https:\/\/av2\.cottonridge\.co\.uk\/images\/FeatureImages\/[^"]+\.(?:webp|jpg|png))"/gi;
+    while ((m = featurePattern.exec(html)) !== null) {
+      const url = m[1];
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({ url, type: "gallery" });
+      }
+    }
+
+    if (images.length > 0) {
+      logger.info(`[Cottonridge] Found ${images.length} images for product ${productCode}`);
+    }
+    return images;
+  } catch (err) {
+    logger.warn({ err, productCode }, "Failed to fetch Cottonridge product images");
     return [];
   }
 }
