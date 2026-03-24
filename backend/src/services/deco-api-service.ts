@@ -1074,7 +1074,8 @@ async function fetchRalawiseImages(productCode: string): Promise<ProductImage[]>
     // Try lifestyle back/side URLs if we have a ls20 image
     const lifestyleFront = images.find((i) => i.url.includes("_ls20"));
     if (lifestyleFront) {
-      for (const [suffix, viewType] of [["_ls21", "side" as const], ["_ls22", "back" as const]]) {
+      const lifestyleVariants: [string, ProductImage["type"]][] = [["_ls21", "side"], ["_ls22", "back"]];
+      for (const [suffix, viewType] of lifestyleVariants) {
         const viewUrl = lifestyleFront.url.replace("_ls20", suffix);
         if (!seen.has(viewUrl)) {
           try {
