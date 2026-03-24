@@ -360,15 +360,15 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
       if (exact) return exact.url;
     }
 
-    // Colour match on any "front" type image
+    // View type match without colour
+    const typeMatch = imgs.find((i) => i.type === imgType);
+    if (typeMatch) return typeMatch.url;
+
+    // Fallback: show front image in the selected colour (better to show the right colour from the front than nothing)
     if (selColor) {
       const cm = imgs.find((i) => i.type === "front" && colorMatch(i.color));
       if (cm) return cm.url;
     }
-
-    // View type match without colour
-    const typeMatch = imgs.find((i) => i.type === imgType);
-    if (typeMatch) return typeMatch.url;
 
     // Fallback to any front/gallery image
     return imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;

@@ -2,8 +2,9 @@ import { MatchStatus, type Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { isDecoConfigured } from "../config/env";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail } from "../services/deco-api-service";
+import { fetchDecoProductDetail, decoFetch } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 
 // ── Schemas ──
@@ -310,5 +311,54 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
         { key: "other", label: "Other", description: "Custom method" },
       ],
     };
+  });
+
+  // ── Debug: raw Deco product data (temporary) ──
+  app.get("/v1/debug/deco-product/:decoProductId", async (request, reply) => {
+    const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
+
+    if (!isDecoConfigured()) {
+      reply.status(503);
+      return { error: "DecoNetwork is not configured" };
+    }
+
+    try {
+      // Get raw product data
+      const productData = await decoFetch<Record<string, unknown>>(
+        "/api/json/manage_products/get",
+        { id: decoProductId },
+      );
+
+      // Also try get_product_images
+      let imageData: unknown = null;
+      try {
+        imageData = await decoFetch<Record<string, unknown>>(
+          "/api/json/manage_products/get_product_images",
+          { product_id: decoProductId },
+        );
+      } catch (e) {
+        imageData = { error: e instanceof Error ? e.message : "failed" };
+      }
+
+      // Also try get_product_details (alternative endpoint)
+      let detailData: unknown = null;
+      try {
+        detailData = await decoFetch<Record<string, unknown>>(
+          "/api/json/manage_products/get_product_details",
+          { id: decoProductId },
+        );
+      } catch (e) {
+        detailData = { error: e instanceof Error ? e.message : "failed" };
+      }
+
+      return {
+        productData,
+        imageData,
+        detailData,
+      };
+    } catch (err) {
+      reply.status(502);
+      return { error: err instanceof Error ? err.message : "Failed" };
+    }
   });
 }
