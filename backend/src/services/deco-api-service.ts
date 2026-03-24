@@ -794,9 +794,15 @@ async function fetchSupplierProductImages(
   productName?: string,
   orderSku?: string,
 ): Promise<ProductImage[]> {
+  // Primary: try Deco web session first — curated images uploaded by suppliers
+  if (decoProductId) {
+    const decoImages = await fetchDecoProductImages(decoProductId);
+    if (decoImages.length > 0) return decoImages;
+  }
+
+  // Fallback: supplier-specific scrapers
   const s = supplier.toLowerCase();
 
-  // PenCarrie products are cross-listed on Ralawise
   if (s.includes("ralawise") || s.includes("pencarrie")) {
     return fetchRalawiseImages(productCode);
   }
@@ -806,15 +812,11 @@ async function fetchSupplierProductImages(
   }
 
   if (s.includes("canterbury") || s.includes("pentland") || s.includes("cottonridge")) {
-    // Canterbury/Pentland are distributors — the actual brand may have its own site.
-    // Try extracting a product code from the product name (e.g. "W72" from "W72 - Cottonridge Premium Hoodie")
     const nameCodeMatch = productName?.match(/^([A-Z0-9]{2,}[A-Z0-9]*[K]?)\s*[-–—]/i);
     let brandCode = nameCodeMatch?.[1]?.trim();
 
-    // Also try extracting from the order line item SKU (e.g. "W72" from "MC-W72")
     if (!brandCode && orderSku) {
       const skuParts = orderSku.split(/[-\s]+/).filter((p) => p.length >= 2);
-      // Try each segment as a potential product code on Cottonridge
       for (const part of skuParts) {
         if (part.match(/^[A-Z]\d+[A-Z]?$/i)) {
           brandCode = part;
@@ -822,7 +824,6 @@ async function fetchSupplierProductImages(
           break;
         }
       }
-      // If no alphanumeric code found, try all segments
       if (!brandCode) {
         for (const part of skuParts) {
           if (part.length >= 2 && part.length <= 10) {
@@ -833,26 +834,17 @@ async function fetchSupplierProductImages(
       }
     }
 
-    // Try Cottonridge first — they have a clean /product/{code} URL with CDN images
     if (brandCode) {
       const cottonridgeImages = await fetchCottonridgeImages(brandCode);
       if (cottonridgeImages.length > 0) return cottonridgeImages;
     }
 
-    // Also try Ralawise since they carry many brands
     if (brandCode) {
       const ralawiseImages = await fetchRalawiseImages(brandCode);
       if (ralawiseImages.length > 0) return ralawiseImages;
     }
 
-    // Fall back to Canterbury site search
-    const canterburyImages = await fetchCanterburyImages(productCode, productName);
-    if (canterburyImages.length > 0) return canterburyImages;
-  }
-
-  // Universal fallback: fetch images from the Deco admin product edit page
-  if (decoProductId) {
-    return fetchDecoProductImages(decoProductId);
+    return fetchCanterburyImages(productCode, productName);
   }
 
   return [];
