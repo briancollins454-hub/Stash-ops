@@ -772,6 +772,37 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       throw new Error(`save_order failed (${saveRes.status})`);
     }
 
+    // Step 5: Add internal note with line item details
+    if (job.items.length > 0) {
+      try {
+        const lines = job.items.map((item) => {
+          const qty = item.quantity;
+          const title = item.productTitle + (item.variantTitle ? ` - ${item.variantTitle}` : "");
+          const method = item.decorationMethod ? ` (${item.decorationMethod})` : "";
+          const price = item.unitPriceMinor != null ? ` @ £${(item.unitPriceMinor / 100).toFixed(2)}` : "";
+          const total = item.totalPriceMinor != null ? ` = £${(item.totalPriceMinor / 100).toFixed(2)}` : "";
+          return `- ${qty}x ${title}${method}${price}${total}`;
+        });
+        const totalMinor = job.totalMinor ?? job.subtotalMinor;
+        const totalLine = totalMinor != null ? `\nTotal: £${(totalMinor / 100).toFixed(2)}` : "";
+        const noteContent = `Line Items (from Stash):\n${lines.join("\n")}${totalLine}`;
+
+        const noteBody = new URLSearchParams();
+        noteBody.set("oid", decoOrderId);
+        noteBody.set("cid", clientId);
+        noteBody.set("t", "internal");
+        noteBody.set("ct", noteContent);
+
+        await fetch(`${base}/bh/orders/add_or_edit_note`, {
+          method: "POST",
+          headers: webHeaders,
+          body: noteBody.toString(),
+        });
+      } catch (noteErr) {
+        logger.warn({ decoOrderId, error: noteErr }, "Failed to add line items note to Deco order");
+      }
+    }
+
     // Update job with Deco references
     await prisma.$transaction(async (tx) => {
       await tx.job.update({
