@@ -621,6 +621,24 @@ export async function updateDecoOrderStatus(
   }
 }
 
+/**
+ * Extract the dnCSRFToken from a Deco admin page.
+ * The token is embedded as `var dnCSRFToken = "..."` in an inline script block.
+ */
+async function getDecoCsrfToken(cookies: string): Promise<string> {
+  const base = baseUrl();
+  const res = await fetch(`${base}/manage/orders`, {
+    headers: { Cookie: cookies },
+    redirect: "follow",
+  });
+  const html = await res.text();
+  const match = html.match(/var\s+dnCSRFToken\s*=\s*"([^"]+)"/);
+  if (!match) {
+    throw new Error("Could not extract dnCSRFToken from Deco admin page");
+  }
+  return match[1];
+}
+
 export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult> {
   if (!isDecoConfigured()) {
     return { pushed: false, error: "DecoNetwork is not configured." };
@@ -639,34 +657,67 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     return { pushed: false, error: "Job has no linked Deco customer." };
   }
 
-  // DecoNetwork order creation via the Deco API.
-  const orderPayload = {
-    customer_id: job.account.decoCustomerId,
-    external_reference: job.internalJobId,
-    customer_name: job.customerName,
-    notes: job.orderNotes,
-    items: job.items.map((item) => ({
-      sku: item.sku,
-      product_name: item.productTitle,
-      quantity: item.quantity,
-      decoration_method: item.decorationMethod,
-      unit_price: item.unitPriceMinor ? item.unitPriceMinor / 100 : undefined,
-    })),
-  };
-
   try {
-    const result = await decoFetch<{ order_id?: number; job_number?: string; order_number?: string }>(
-      "/api/json/manage_orders/create",
-      undefined,
+    // Step 1: Get authenticated web session + CSRF token
+    const cookies = await getDecoWebSession();
+    if (!cookies) {
+      throw new Error("Failed to establish Deco web session");
+    }
+    const csrfToken = await getDecoCsrfToken(cookies);
+    const base = baseUrl();
+
+    const webHeaders: Record<string, string> = {
+      Cookie: cookies,
+      "X-CSRF-Token": csrfToken,
+      "X-Requested-With": "XMLHttpRequest",
+      "Content-Type": "application/x-www-form-urlencoded",
+    };
+
+    // Step 2: Create a quote in Deco via the web admin endpoint
+    const createBody = new URLSearchParams({ cust_id: job.account.decoCustomerId });
+    const createRes = await fetch(`${base}/bh/orders/create_quote`, {
+      method: "POST",
+      headers: webHeaders,
+      body: createBody.toString(),
+    });
+
+    if (!createRes.ok) {
+      const text = await createRes.text();
+      throw new Error(`create_quote failed (${createRes.status}): ${text.slice(0, 200)}`);
+    }
+
+    const createData = (await createRes.json()) as { id?: number };
+    if (!createData.id) {
+      throw new Error("create_quote returned no quote ID");
+    }
+
+    const decoOrderId = String(createData.id);
+
+    // Step 3: Save order details (job name, PO reference, store ID)
+    const DECO_BRAND_ID = "12015397";
+    const saveParams = new URLSearchParams();
+    saveParams.set("c", "0");
+    saveParams.set("cid", "0");
+    saveParams.set("d", "true");
+
+    const saveBody = new URLSearchParams();
+    saveBody.set("dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`);
+    saveBody.set("dt[po]", job.shopifyOrderName ?? job.internalJobId ?? "");
+    saveBody.set("dt[brid]", DECO_BRAND_ID);
+    saveBody.set("ct[u]", job.account.decoCustomerId);
+
+    const saveRes = await fetch(
+      `${base}/bh/orders/save_order?${saveParams.toString()}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderPayload),
+        headers: { ...webHeaders, "X-Progress-ID": decoOrderId },
+        body: saveBody.toString(),
       },
     );
 
-    const decoOrderId = result.order_id ? String(result.order_id) : undefined;
-    const decoJobNumber = result.job_number ?? result.order_number ?? undefined;
+    if (!saveRes.ok) {
+      logger.warn({ decoOrderId, status: saveRes.status }, "save_order returned non-OK but quote was created");
+    }
 
     // Update job with Deco references
     await prisma.$transaction(async (tx) => {
@@ -680,36 +731,34 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
         },
       });
 
-      if (decoOrderId) {
-        await tx.externalLink.upsert({
-          where: {
-            provider_externalId: {
-              provider: "DECO_ORDER",
-              externalId: decoOrderId,
-            },
-          },
-          update: { jobId },
-          create: {
-            jobId,
+      await tx.externalLink.upsert({
+        where: {
+          provider_externalId: {
             provider: "DECO_ORDER",
             externalId: decoOrderId,
-            metadata: { jobNumber: decoJobNumber },
           },
-        });
-      }
+        },
+        update: { jobId },
+        create: {
+          jobId,
+          provider: "DECO_ORDER",
+          externalId: decoOrderId,
+          metadata: { quoteId: decoOrderId },
+        },
+      });
 
       await tx.activityLog.create({
         data: {
           jobId,
           eventType: "deco.order.pushed",
-          message: `Job pushed to Deco${decoJobNumber ? ` (Job #${decoJobNumber})` : ""}`,
-          payload: { decoOrderId, decoJobNumber } as Prisma.InputJsonValue,
+          message: `Job pushed to Deco (Quote #${decoOrderId})`,
+          payload: { decoOrderId } as Prisma.InputJsonValue,
         },
       });
     });
 
-    logger.info({ jobId, decoOrderId, decoJobNumber }, "Job pushed to Deco");
-    return { pushed: true, decoOrderId, decoJobNumber };
+    logger.info({ jobId, decoOrderId }, "Job pushed to Deco via web session");
+    return { pushed: true, decoOrderId, decoJobNumber: decoOrderId };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
 
