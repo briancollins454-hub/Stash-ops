@@ -21,7 +21,15 @@ export interface DesignConfig {
   y: number;
   w: number;
   h: number;
+  rotation?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  lockAspect?: boolean;
   stitchCount?: number;
+  colorCount?: number;
+  threadColors?: string;
+  dimensionWmm?: number;
+  dimensionHmm?: number;
   notes?: string;
 }
 
@@ -118,6 +126,30 @@ const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
 };
 
 const DEFAULT_ZONES: ZoneDef[] = ZONE_TEMPLATES.tshirt;
+
+/* ── Size Presets (real-world mm) ── */
+const SIZE_PRESETS: { label: string; wmm: number; hmm: number }[] = [
+  { label: "Left Chest 80×80", wmm: 80, hmm: 80 },
+  { label: "Centre Chest 280×200", wmm: 280, hmm: 200 },
+  { label: "Full Front 300×380", wmm: 300, hmm: 380 },
+  { label: "Full Back 300×380", wmm: 300, hmm: 380 },
+  { label: "Sleeve 80×70", wmm: 80, hmm: 70 },
+  { label: "Small Badge 40×40", wmm: 40, hmm: 40 },
+  { label: "Large Badge 100×100", wmm: 100, hmm: 100 },
+  { label: "Hood 200×100", wmm: 200, hmm: 100 },
+  { label: "Pocket 60×60", wmm: 60, hmm: 60 },
+];
+
+/* ── Reference garment dimensions in mm (for % ↔ mm conversion) ── */
+const GARMENT_REF_MM: Record<string, { w: number; h: number }> = {
+  tshirt:   { w: 500, h: 700 },
+  hoodie:   { w: 520, h: 720 },
+  polo:     { w: 500, h: 700 },
+  jacket:   { w: 540, h: 730 },
+  trousers: { w: 400, h: 900 },
+  headwear: { w: 300, h: 200 },
+  bag:      { w: 400, h: 450 },
+};
 
 /* ═══════════════════════════════════════════════════════════
    SVG GARMENT SILHOUETTES
@@ -311,10 +343,12 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{
-    mode: "move" | "resize";
+    mode: "move" | "resize" | "rotate";
     startX: number; startY: number;
     origX: number; origY: number; origW: number; origH: number;
     resizeCorner: string;
+    initialAngle?: number;
+    initialRotation?: number;
   } | null>(null);
 
   useEffect(() => {
@@ -475,15 +509,26 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
   }
 
   /* ── pointer handlers ── */
-  function onArtworkPointerDown(e: RPointerEvent<HTMLDivElement>, mode: "move" | "resize", corner = "") {
+  function onArtworkPointerDown(e: RPointerEvent<HTMLDivElement>, mode: "move" | "resize" | "rotate", corner = "") {
     e.preventDefault();
     e.stopPropagation();
     if (!current) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    let initialAngle: number | undefined;
+    let initialRotation: number | undefined;
+    if (mode === "rotate" && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const cx = rect.left + (current.x + current.w / 2) / 100 * rect.width;
+      const cy = rect.top + (current.y + current.h / 2) / 100 * rect.height;
+      initialAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI) + 90;
+      initialRotation = current.rotation ?? 0;
+    }
     dragState.current = {
       mode, startX: e.clientX, startY: e.clientY,
       origX: current.x, origY: current.y, origW: current.w, origH: current.h,
       resizeCorner: corner,
+      initialAngle,
+      initialRotation,
     };
   }
 
@@ -499,14 +544,25 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
         x: clamp(ds.origX + dx, 0, 100 - (current?.w ?? 20)),
         y: clamp(ds.origY + dy, 0, 100 - (current?.h ?? 20)),
       });
-    } else {
+    } else if (ds.mode === "resize") {
       const c = ds.resizeCorner;
       let nx = ds.origX, ny = ds.origY, nw = ds.origW, nh = ds.origH;
       if (c.includes("r")) nw = clamp(ds.origW + dx, MIN_SIZE_PCT, 100 - ds.origX);
       if (c.includes("l")) { nw = clamp(ds.origW - dx, MIN_SIZE_PCT, ds.origX + ds.origW); nx = ds.origX + ds.origW - nw; }
       if (c.includes("b")) nh = clamp(ds.origH + dy, MIN_SIZE_PCT, 100 - ds.origY);
       if (c.includes("t")) { nh = clamp(ds.origH - dy, MIN_SIZE_PCT, ds.origY + ds.origH); ny = ds.origY + ds.origH - nh; }
+      if (current?.lockAspect && ds.origW > 0 && ds.origH > 0) {
+        const ratio = ds.origH / ds.origW;
+        if (c.includes("r") || c.includes("l")) nh = clamp(nw * ratio, MIN_SIZE_PCT, 100);
+        else nw = clamp(nh / ratio, MIN_SIZE_PCT, 100);
+      }
       updateDesign({ x: nx, y: ny, w: nw, h: nh });
+    } else if (ds.mode === "rotate") {
+      const cx = rect.left + (ds.origX + ds.origW / 2) / 100 * rect.width;
+      const cy = rect.top + (ds.origY + ds.origH / 2) / 100 * rect.height;
+      const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI) + 90;
+      const newRotation = ((ds.initialRotation ?? 0) + angle - (ds.initialAngle ?? 0) + 720) % 360;
+      updateDesign({ rotation: Math.round(newRotation) });
     }
   }
 
@@ -810,6 +866,8 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                         left: `${current.x}%`, top: `${current.y}%`,
                         width: `${current.w}%`, height: `${current.h}%`,
                         cursor: "move",
+                        transform: `rotate(${current.rotation ?? 0}deg) scaleX(${current.flipH ? -1 : 1}) scaleY(${current.flipV ? -1 : 1})`,
+                        transformOrigin: "center center",
                       }}
                       onPointerDown={(e) => onArtworkPointerDown(e, "move")}
                     >
@@ -886,6 +944,17 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                           style={{ background: "#6366f1", border: "1.5px solid white", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", ...style }}
                           onPointerDown={(e) => onArtworkPointerDown(e, "resize", edge)} />
                       ))}
+
+                      {/* Rotation handle */}
+                      <div className="absolute flex flex-col items-center"
+                        style={{ top: -30, left: "50%", transform: "translateX(-50%)" }}>
+                        <div
+                          className="w-4 h-4 rounded-full cursor-grab active:cursor-grabbing"
+                          style={{ background: "#6366f1", border: "2px solid white", boxShadow: "0 2px 6px rgba(0,0,0,0.4)" }}
+                          onPointerDown={(e) => onArtworkPointerDown(e, "rotate")}
+                        />
+                        <div className="w-px h-3" style={{ background: "rgba(99,102,241,0.5)" }} />
+                      </div>
                     </div>
                   );
                 })()}
@@ -1016,11 +1085,63 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                     </div>
                   )}
 
-                  {/* Position & Size — only when artwork is placed */}
-                  {current?.artworkUrl && (
-                    <div className="space-y-2">
+                  {/* Colour count */}
+                  {current?.decorationMethod && (
+                    <div className="space-y-1.5">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.3)" }}>
-                        Position & Size
+                        {current.decorationMethod === "WEMB" ? "Thread Colours" : "Print Colours"}
+                      </div>
+                      <input type="number" min={1} max={20}
+                        value={current.colorCount ?? ""}
+                        onChange={(e) => updateDesign({ colorCount: e.target.value ? Number(e.target.value) : undefined })}
+                        placeholder="Number of colours"
+                        className="w-full text-sm font-mono rounded-lg px-3 py-2"
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "#e2e8f0", outline: "none",
+                        }} />
+                    </div>
+                  )}
+
+                  {/* Colour specification (PMS, thread brand, etc.) */}
+                  {current?.decorationMethod && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                        Colour Specification
+                      </div>
+                      <input type="text"
+                        value={current.threadColors ?? ""}
+                        onChange={(e) => updateDesign({ threadColors: e.target.value || undefined })}
+                        placeholder="e.g. PMS 186C, PMS 289C, White"
+                        className="w-full text-sm rounded-lg px-3 py-2"
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          color: "#e2e8f0", outline: "none",
+                        }} />
+                      <div className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>
+                        PMS codes, thread brands (Madeira, Brother), or colour names
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Position & Transform — only when artwork is placed */}
+                  {current?.artworkUrl && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                          Position & Size
+                        </div>
+                        <button
+                          onClick={() => updateDesign({ lockAspect: !current.lockAspect })}
+                          className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded transition-all"
+                          style={{
+                            background: current.lockAspect ? "rgba(99,102,241,0.2)" : "transparent",
+                            color: current.lockAspect ? "#a5b4fc" : "rgba(255,255,255,0.3)",
+                          }}>
+                          {current.lockAspect ? "🔒" : "🔓"} Aspect
+                        </button>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         {([
@@ -1033,7 +1154,17 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                             <label className="text-[10px] font-mono w-3 text-right" style={{ color: "rgba(255,255,255,0.3)" }}>{label}</label>
                             <input type="number" min={0} max={100} step={1}
                               value={Math.round(current[field])}
-                              onChange={(e) => updateDesign({ [field]: clamp(Number(e.target.value), 0, 100) })}
+                              onChange={(e) => {
+                                const val = clamp(Number(e.target.value), 0, 100);
+                                if (current.lockAspect && current.w > 0 && current.h > 0) {
+                                  const ratio = current.h / current.w;
+                                  if (field === "w") updateDesign({ w: val, h: clamp(val * ratio, MIN_SIZE_PCT, 100) });
+                                  else if (field === "h") updateDesign({ h: val, w: clamp(val / ratio, MIN_SIZE_PCT, 100) });
+                                  else updateDesign({ [field]: val });
+                                } else {
+                                  updateDesign({ [field]: val });
+                                }
+                              }}
                               className="flex-1 text-xs font-mono text-center rounded-md px-2 py-1.5"
                               style={{
                                 background: "rgba(255,255,255,0.04)",
@@ -1043,9 +1174,164 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                           </div>
                         ))}
                       </div>
-                      <button onClick={() => updateDesign({ x: activeZone.x, y: activeZone.y, w: activeZone.w, h: activeZone.h })}
+
+                      {/* Rotation */}
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-mono w-6 shrink-0" style={{ color: "rgba(255,255,255,0.3)" }}>Rot</label>
+                        <input type="range" min={0} max={360} step={1}
+                          value={current.rotation ?? 0}
+                          onChange={(e) => updateDesign({ rotation: Number(e.target.value) })}
+                          className="flex-1 h-1 appearance-none rounded-full"
+                          style={{ accentColor: "#6366f1" }} />
+                        <input type="number" min={0} max={360}
+                          value={current.rotation ?? 0}
+                          onChange={(e) => updateDesign({ rotation: clamp(Number(e.target.value), 0, 360) })}
+                          className="w-14 text-xs font-mono text-center rounded-md px-1 py-1"
+                          style={{
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            color: "#e2e8f0", outline: "none",
+                          }} />
+                        <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.2)" }}>°</span>
+                      </div>
+
+                      {/* Flip & Alignment */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button onClick={() => updateDesign({ flipH: !current.flipH })}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-medium transition-all"
+                          style={{
+                            background: current.flipH ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+                            border: current.flipH ? "1px solid rgba(99,102,241,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                            color: current.flipH ? "#a5b4fc" : "rgba(255,255,255,0.4)",
+                          }}>
+                          ↔ Flip H
+                        </button>
+                        <button onClick={() => updateDesign({ flipV: !current.flipV })}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[9px] font-medium transition-all"
+                          style={{
+                            background: current.flipV ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+                            border: current.flipV ? "1px solid rgba(99,102,241,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                            color: current.flipV ? "#a5b4fc" : "rgba(255,255,255,0.4)",
+                          }}>
+                          ↕ Flip V
+                        </button>
+                        <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.06)" }} />
+                        <button onClick={() => updateDesign({ x: (100 - current.w) / 2 })}
+                          className="px-2 py-1 rounded text-[9px] font-medium transition-all"
+                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.4)" }}
+                          title="Centre horizontally">
+                          ⊞ Centre
+                        </button>
+                      </div>
+
+                      {/* Real dimensions (mm) */}
+                      <div className="space-y-1.5">
+                        <div className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                          Dimensions (approx. mm)
+                        </div>
+                        {(() => {
+                          const gRef = GARMENT_REF_MM[garmentType] ?? GARMENT_REF_MM.tshirt;
+                          const wMm = Math.round(current.w / 100 * gRef.w);
+                          const hMm = Math.round(current.h / 100 * gRef.h);
+                          return (
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1 flex-1">
+                                <span className="text-[9px] font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>W</span>
+                                <input type="number" min={1} max={999}
+                                  value={wMm}
+                                  onChange={(e) => {
+                                    const mm = Number(e.target.value);
+                                    const pct = clamp(mm / gRef.w * 100, MIN_SIZE_PCT, 100);
+                                    if (current.lockAspect && current.w > 0) {
+                                      const ratio = current.h / current.w;
+                                      updateDesign({ w: pct, h: clamp(pct * ratio, MIN_SIZE_PCT, 100) });
+                                    } else {
+                                      updateDesign({ w: pct });
+                                    }
+                                  }}
+                                  className="flex-1 text-xs font-mono text-center rounded-md px-1 py-1"
+                                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", outline: "none" }} />
+                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>mm</span>
+                              </div>
+                              <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.15)" }}>×</span>
+                              <div className="flex items-center gap-1 flex-1">
+                                <span className="text-[9px] font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>H</span>
+                                <input type="number" min={1} max={999}
+                                  value={hMm}
+                                  onChange={(e) => {
+                                    const mm = Number(e.target.value);
+                                    const pct = clamp(mm / gRef.h * 100, MIN_SIZE_PCT, 100);
+                                    if (current.lockAspect && current.h > 0) {
+                                      const ratio = current.w / current.h;
+                                      updateDesign({ h: pct, w: clamp(pct * ratio, MIN_SIZE_PCT, 100) });
+                                    } else {
+                                      updateDesign({ h: pct });
+                                    }
+                                  }}
+                                  className="flex-1 text-xs font-mono text-center rounded-md px-1 py-1"
+                                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#e2e8f0", outline: "none" }} />
+                                <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.2)" }}>mm</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Size presets */}
+                      <div className="space-y-1">
+                        <div className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                          Size Presets
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {SIZE_PRESETS.map((preset) => {
+                            const gRef = GARMENT_REF_MM[garmentType] ?? GARMENT_REF_MM.tshirt;
+                            return (
+                              <button key={preset.label}
+                                onClick={() => {
+                                  const wPct = clamp(preset.wmm / gRef.w * 100, MIN_SIZE_PCT, 95);
+                                  const hPct = clamp(preset.hmm / gRef.h * 100, MIN_SIZE_PCT, 95);
+                                  updateDesign({ w: wPct, h: hPct });
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[8px] font-medium transition-all"
+                                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)"; e.currentTarget.style.color = "#c7d2fe"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.35)"; }}>
+                                {preset.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Copy design to other zones */}
+                      {current.decorationMethod && zones.filter(z => z.key !== activeZoneKey).length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                            Copy Design to Zone
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {zones.filter(z => z.key !== activeZoneKey).map((z) => (
+                              <button key={z.key}
+                                onClick={() => {
+                                  setDesigns(prev => ({
+                                    ...prev,
+                                    [z.key]: { ...current, placement: z.key, x: z.x, y: z.y, w: z.w, h: z.h },
+                                  }));
+                                }}
+                                className="px-2 py-1 rounded text-[9px] font-medium transition-all"
+                                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(16,185,129,0.3)"; e.currentTarget.style.color = "#6ee7b7"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.35)"; }}>
+                                → {z.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <button onClick={() => updateDesign({ x: activeZone.x, y: activeZone.y, w: activeZone.w, h: activeZone.h, rotation: 0, flipH: false, flipV: false })}
                         className="text-[10px] font-medium" style={{ color: "#818cf8" }}>
-                        Reset position
+                        Reset all
                       </button>
                     </div>
                   )}
