@@ -157,12 +157,16 @@ const GARMENT_REF_CM: Record<string, { w: number; h: number }> = {
    SVG GARMENT SILHOUETTES
    ═══════════════════════════════════════════════════════════ */
 
-function GarmentSVG({ view, garmentType, garmentColor, className, style }: {
-  view: ViewKey; garmentType: string; garmentColor?: string; className?: string; style?: CSSProperties;
+function GarmentSVG({ view, garmentType, garmentColor, className, style, solid }: {
+  view: ViewKey; garmentType: string; garmentColor?: string; className?: string; style?: CSSProperties; solid?: boolean;
 }) {
-  const fill = garmentColor ? hexToRgba(garmentColor, 0.15) : "rgba(148,163,184,0.12)";
-  const stroke = garmentColor ? hexToRgba(garmentColor, 0.35) : "rgba(148,163,184,0.25)";
-  const sw = 1;
+  const fill = solid
+    ? (garmentColor ?? "rgba(148,163,184,0.35)")
+    : (garmentColor ? hexToRgba(garmentColor, 0.15) : "rgba(148,163,184,0.12)");
+  const stroke = solid
+    ? (garmentColor ? hexToRgba(garmentColor, 0.8) : "rgba(148,163,184,0.6)")
+    : (garmentColor ? hexToRgba(garmentColor, 0.35) : "rgba(148,163,184,0.25)");
+  const sw = solid ? 1.5 : 1;
   const gt = garmentType;
 
   if (gt === "headwear") {
@@ -390,25 +394,35 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
       return ic === cn || cn.split("/").some((part) => ic === part.trim().replace(/\s+/g, ""));
     };
 
-    // Exact colour + view match
+    // Exact colour + view match — best case
     if (selColor) {
       const exact = imgs.find((i) => i.type === imgType && colorMatch(i.color));
       if (exact) return { displayImage: exact.url, isColorMatched: true };
     }
 
-    // View type match without colour
-    const typeMatch = imgs.find((i) => i.type === imgType);
-    if (typeMatch) return { displayImage: typeMatch.url, isColorMatched: false };
-
-    // Fallback: show front image in the selected colour (better to show the right colour from the front than nothing)
-    if (selColor) {
-      const cm = imgs.find((i) => i.type === "front" && colorMatch(i.color));
-      if (cm) return { displayImage: cm.url, isColorMatched: true };
+    // For front view: try any front image with matching colour, then generic front
+    if (activeView === "front") {
+      if (selColor) {
+        const cm = imgs.find((i) => i.type === "front" && colorMatch(i.color));
+        if (cm) return { displayImage: cm.url, isColorMatched: true };
+      }
+      // Generic front image (no colour match) — show with tint
+      const genericFront = imgs.find((i) => i.type === "front");
+      if (genericFront) return { displayImage: genericFront.url, isColorMatched: !selColor };
+      // Absolute fallback — gallery image
+      const gallery = imgs.find((i) => i.type === "gallery");
+      if (gallery) return { displayImage: gallery.url, isColorMatched: false };
+      return { displayImage: null, isColorMatched: false };
     }
 
-    // Fallback to any front/gallery image
-    const fallback = imgs.find((i) => i.type === "front")?.url ?? imgs.find((i) => i.type === "gallery")?.url ?? null;
-    return { displayImage: fallback, isColorMatched: false };
+    // For non-front views (back/side): only show photo if it has the right colour
+    // If no colour-matched photo exists, return null so the SVG silhouette shows instead
+    // (SVG is already filled with the selected colour — much cleaner than tinting a lifestyle photo)
+    const typeMatch = imgs.find((i) => i.type === imgType && i.color && colorMatch(i.color));
+    if (typeMatch) return { displayImage: typeMatch.url, isColorMatched: true };
+
+    // No colour-matched image for this view — fall through to SVG silhouette
+    return { displayImage: null, isColorMatched: false };
   }, [productDetail, effectiveColors, activeColorId, activeView]);
 
   const configuredZones = useMemo(
@@ -660,6 +674,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                           view={v.key}
                           garmentType={garmentType}
                           garmentColor={activeColorCss}
+                          solid
                           className="w-8 h-8"
                         />
                       </div>
@@ -781,6 +796,7 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
                   view={activeView}
                   garmentType={garmentType}
                   garmentColor={activeColorCss}
+                  solid={!displayImage}
                   className="absolute inset-0 w-full h-full"
                   style={{ zIndex: 0, opacity: displayImage ? 0.15 : 1 }}
                 />
