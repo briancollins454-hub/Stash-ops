@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma";
 import { redisHealthClient } from "../queue/connection";
+import { debugDecoProductViews } from "../services/deco-api-service";
 
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => {
@@ -34,5 +35,11 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
         },
       };
     }
+  });
+
+  // Temporary diagnostic endpoint for Deco product view HTML inspection
+  app.get("/debug/deco-views/:productId", async (request) => {
+    const { productId } = request.params as { productId: string };
+    return debugDecoProductViews(Number(productId));
   });
 }
