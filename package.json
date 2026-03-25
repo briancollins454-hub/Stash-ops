@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@types/pg": "^8.18.0",
+    "fabric": "^6.9.1",
     "next": "16.1.7",
     "pg": "^8.20.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

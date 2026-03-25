@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DesignerModal, type DesignConfig } from "./designer-modal";
+import { Decorator } from "@/components/decorator/decorator";
+import type { DesignConfig } from "@/components/decorator/types";
 import { colorToCss } from "@/lib/color-map";
 
 // ── Types ──
@@ -1805,7 +1806,7 @@ export default function QuoteBuilderPage({ editJobId }: { editJobId?: string }) 
         const designItem = lineItems.find((i) => i.id === designerLineId);
         if (!designItem?.productDetail) return null;
         return (
-          <DesignerModal
+          <Decorator
             open={true}
             onClose={() => setDesignerLineId(null)}
             onApply={(designs) => applyDesigns(designerLineId, designs)}

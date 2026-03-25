@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { DesignerModal, type DesignConfig, type DesignerProductDetail } from "@/components/quotes/designer-modal";
+import { Decorator } from "@/components/decorator/decorator";
+import type { DesignConfig, DesignerProductDetail } from "@/components/decorator/types";
 import type { JobLineItem } from "@/lib/types";
 
 /* ── Decoration methods ── */
@@ -843,9 +844,9 @@ export function JobLineItemConfig({ jobId, items }: Props) {
         })}
       </div>
 
-      {/* ── Designer Modal ── */}
+      {/* ── Decorator Studio ── */}
       {designerItem && (
-        <DesignerModal
+        <Decorator
           open={designerOpen}
           onClose={() => {
             setDesignerOpen(false);
