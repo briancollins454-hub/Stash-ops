@@ -329,7 +329,7 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Enriched quote detail (job + Deco product details per item) ──
-  app.get("/v1/quotes/:jobId/detail", async (request, reply) => {
+  app.get("/v1/quote-detail/:jobId", async (request, reply) => {
     const { jobId } = z.object({ jobId: z.string() }).parse(request.params);
 
     const job = await prisma.job.findFirst({

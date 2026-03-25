@@ -87,7 +87,7 @@ export async function getEnrichedQuoteDetail(jobId: string): Promise<EnrichedQuo
 
   try {
     return await fetchBackendJson<EnrichedQuoteDetail>(
-      `/api/v1/quotes/${encodeURIComponent(jobId)}/detail`,
+      `/api/v1/quote-detail/${encodeURIComponent(jobId)}`,
       { timeoutMs: 30_000 },
     );
   } catch {

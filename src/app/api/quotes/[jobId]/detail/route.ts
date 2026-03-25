@@ -12,7 +12,7 @@ export async function GET(
     return NextResponse.json({ error: "Backend not configured" }, { status: 500 });
   }
 
-  const res = await fetch(`${BACKEND}/api/v1/quotes/${encodeURIComponent(jobId)}/detail`, {
+  const res = await fetch(`${BACKEND}/api/v1/quote-detail/${encodeURIComponent(jobId)}`, {
     headers: { Accept: "application/json" },
     next: { revalidate: 0 },
   });
