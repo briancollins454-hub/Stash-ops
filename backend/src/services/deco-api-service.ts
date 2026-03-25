@@ -1228,26 +1228,58 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
       Referer: `${base}/manage/orders`,
     };
 
-    // Step 1: Create a test quote
-    const createBody = buildDecoFormBody([["cust_id", "80029646"]]); // Known customer
-    const createRes = await fetch(`${base}/bh/orders/create_quote`, {
+    // Step 1: Create a test quote — try both create_quote and create_order
+    let testCartId: string | undefined;
+    let createMethod = "unknown";
+
+    // Try create_order first (creates an actual order, not just a quote)
+    const createOrderBody = buildDecoFormBody([["cust_id", "80029646"]]);
+    const createOrderRes = await fetch(`${base}/bh/orders/create_order`, {
       method: "POST",
       headers: webHeaders,
-      body: createBody,
+      body: createOrderBody,
     });
-    const createText = await createRes.text();
-    let testCartId: string | undefined;
+    const createOrderText = await createOrderRes.text();
     try {
-      const createData = JSON.parse(createText) as { id?: number };
-      testCartId = createData.id ? String(createData.id) : undefined;
+      const createData = JSON.parse(createOrderText) as { id?: number };
+      if (createData.id) {
+        testCartId = String(createData.id);
+        createMethod = "create_order";
+      }
     } catch {
       // not JSON
     }
-    results.createQuote = {
-      status: createRes.status,
-      response: createText.slice(0, 500),
+
+    results.createOrder = {
+      status: createOrderRes.status,
+      response: createOrderText.slice(0, 300),
       cartId: testCartId,
     };
+
+    // Fall back to create_quote
+    if (!testCartId) {
+      const createBody = buildDecoFormBody([["cust_id", "80029646"]]);
+      const createRes = await fetch(`${base}/bh/orders/create_quote`, {
+        method: "POST",
+        headers: webHeaders,
+        body: createBody,
+      });
+      const createText = await createRes.text();
+      try {
+        const createData = JSON.parse(createText) as { id?: number };
+        testCartId = createData.id ? String(createData.id) : undefined;
+        createMethod = "create_quote";
+      } catch {
+        // not JSON
+      }
+      results.createQuote = {
+        status: createRes.status,
+        response: createText.slice(0, 300),
+        cartId: testCartId,
+      };
+    }
+
+    results.createMethod = createMethod;
 
     if (!testCartId) {
       return results;
@@ -1259,6 +1291,7 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
       ["dt[jn]", "API-TEST-WITH-ITEM"],
       ["dt[po]", "TEST-PO-001"],
       ["dt[brid]", "12015397"],
+      ["dt[ot]", "3"], // order_type=3 (all visible orders have this)
       ["ct[u]", "80029646"],
       // One free-form line item
       ["it[li][1][t]", String(CP_FREE_FORM)],
