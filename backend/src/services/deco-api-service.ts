@@ -1598,6 +1598,10 @@ async function fetchSupplierProductImages(
           }
         }
       }
+      // Fall back to productCode (e.g. "W72") when name/SKU extraction fails
+      if (!brandCode && productCode) {
+        brandCode = productCode;
+      }
       if (brandCode) {
         scraperImages = await fetchCottonridgeImages(brandCode);
         if (scraperImages.length === 0) scraperImages = await fetchRalawiseImages(brandCode);
