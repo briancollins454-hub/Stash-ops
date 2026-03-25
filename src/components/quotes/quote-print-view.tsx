@@ -25,7 +25,13 @@ interface DesignConfig {
   decorationMethod?: string;
   artworkUrl?: string;
   artworkName?: string;
+  artworkFileType?: string;
   previewUrl?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  rotation?: number;
   stitchCount?: number;
   colorCount?: number;
   threadColors?: string[] | string;
@@ -37,13 +43,28 @@ interface DesignConfig {
 function getItemDesigns(item: QuoteJob["items"][number]): DesignConfig[] {
   // Check customOptions.designs (saved from quote builder)
   const co = item.customOptions as Record<string, unknown> | null;
-  if (co?.designs && Array.isArray(co.designs)) {
+  if (co?.designs && Array.isArray(co.designs) && co.designs.length > 0) {
     return co.designs as DesignConfig[];
   }
   // Fallback: check metadata.designs (saved from job page "Save decoration")
   const md = item.metadata as Record<string, unknown> | null;
-  if (md?.designs && Array.isArray(md.designs)) {
+  if (md?.designs && Array.isArray(md.designs) && md.designs.length > 0) {
     return md.designs as DesignConfig[];
+  }
+  // Fallback: synthesize a design from item-level decoration fields
+  if (item.decorationMethod) {
+    const placements = item.decorationPlacement
+      ? item.decorationPlacement.split(",").map((p) => p.trim()).filter(Boolean)
+      : [];
+    if (placements.length > 0) {
+      return placements.map((p) => ({
+        placement: p,
+        decorationMethod: item.decorationMethod ?? undefined,
+      }));
+    }
+    return [{
+      decorationMethod: item.decorationMethod,
+    }];
   }
   return [];
 }
@@ -429,10 +450,34 @@ function ProductDetailPage({
           <h3>Graphics Used for {item.productTitle}</h3>
           {designs.map((design, di) => {
             const colors = parseThreadColors(design.threadColors);
+            const hasPosition = design.x != null && design.y != null && design.w != null && design.h != null;
             return (
               <div key={di} className="graphic-row">
                 <div className="graphic-image">
-                  {(design.previewUrl || design.artworkUrl) ? (
+                  {/* Show garment with graphic overlaid if we have position data */}
+                  {hasPosition && mainImage && (design.artworkUrl || design.previewUrl) ? (
+                    <div className="garment-overlay-container">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={mainImage.url}
+                        alt={item.productTitle}
+                        className="garment-overlay-bg"
+                      />
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={design.previewUrl || design.artworkUrl || ""}
+                        alt={design.artworkName || "Design"}
+                        className="garment-overlay-graphic"
+                        style={{
+                          left: `${design.x}%`,
+                          top: `${design.y}%`,
+                          width: `${design.w}%`,
+                          height: `${design.h}%`,
+                          transform: design.rotation ? `rotate(${design.rotation}deg)` : undefined,
+                        }}
+                      />
+                    </div>
+                  ) : (design.previewUrl || design.artworkUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={design.previewUrl || design.artworkUrl || ""}
@@ -471,12 +516,10 @@ function ProductDetailPage({
                           </tr>
                         </>
                       )}
-                      {design.decorationMethod && (
-                        <tr>
-                          <td className="label">Process</td>
-                          <td>{design.decorationMethod}</td>
-                        </tr>
-                      )}
+                      <tr>
+                        <td className="label">Process</td>
+                        <td>{design.decorationMethod ?? item.decorationMethod ?? "—"}</td>
+                      </tr>
                       {design.stitchCount != null && design.stitchCount > 0 && (
                         <tr>
                           <td className="label">Stitch Count</td>
@@ -910,7 +953,7 @@ const printStyles = `
 
   .graphic-row {
     display: grid;
-    grid-template-columns: 120px 1fr;
+    grid-template-columns: 140px 1fr;
     gap: 16px;
     margin-bottom: 16px;
     padding: 12px;
@@ -918,9 +961,31 @@ const printStyles = `
     border: 1px solid #eee;
     border-radius: 4px;
   }
-  .graphic-image img {
-    max-width: 100px;
-    max-height: 100px;
+
+  /* Garment overlay */
+  .garment-overlay-container {
+    position: relative;
+    width: 130px;
+    height: 160px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    background: #fff;
+    overflow: hidden;
+  }
+  .garment-overlay-bg {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .garment-overlay-graphic {
+    position: absolute;
+    object-fit: contain;
+    pointer-events: none;
+  }
+
+  .graphic-image img:not(.garment-overlay-bg):not(.garment-overlay-graphic) {
+    max-width: 120px;
+    max-height: 120px;
     object-fit: contain;
     border: 1px solid #ddd;
     border-radius: 3px;
