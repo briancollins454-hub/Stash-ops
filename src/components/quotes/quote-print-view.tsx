@@ -829,7 +829,7 @@ const printStyles = `
 
   .product-content {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 320px 1fr;
     gap: 28px;
     margin-bottom: 24px;
   }
@@ -841,15 +841,15 @@ const printStyles = `
     justify-content: center;
   }
   .product-image {
-    max-width: 260px;
-    max-height: 320px;
+    max-width: 300px;
+    max-height: 380px;
     object-fit: contain;
     border: 1px solid #eee;
     border-radius: 4px;
   }
   .product-image-placeholder {
-    width: 260px;
-    height: 260px;
+    width: 300px;
+    height: 300px;
     background: #f5f5f5;
     border: 1px dashed #ddd;
     border-radius: 4px;
@@ -953,10 +953,10 @@ const printStyles = `
 
   .graphic-row {
     display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 16px;
+    grid-template-columns: 220px 1fr;
+    gap: 20px;
     margin-bottom: 16px;
-    padding: 12px;
+    padding: 16px;
     background: #f9f9f9;
     border: 1px solid #eee;
     border-radius: 4px;
@@ -965,8 +965,8 @@ const printStyles = `
   /* Garment overlay */
   .garment-overlay-container {
     position: relative;
-    width: 130px;
-    height: 160px;
+    width: 200px;
+    height: 240px;
     border: 1px solid #ddd;
     border-radius: 3px;
     background: #fff;
@@ -984,16 +984,16 @@ const printStyles = `
   }
 
   .graphic-image img:not(.garment-overlay-bg):not(.garment-overlay-graphic) {
-    max-width: 120px;
-    max-height: 120px;
+    max-width: 200px;
+    max-height: 200px;
     object-fit: contain;
     border: 1px solid #ddd;
     border-radius: 3px;
     background: #fff;
   }
   .graphic-placeholder {
-    width: 100px;
-    height: 80px;
+    width: 160px;
+    height: 120px;
     background: #eee;
     border-radius: 3px;
     display: flex;

@@ -18,7 +18,7 @@ const SIZE_ORDER = [
 ];
 
 function parseSizeRange(range: string): string[] {
-  if (!range) return ["ONE SIZE"];
+  if (!range) return [];
   // Handle "S to 3XL" or "S - 3XL" patterns
   const toMatch = range.match(/^(\S+)\s+(?:to|-)\s+(\S+)$/i);
   if (toMatch) {
@@ -33,6 +33,85 @@ function parseSizeRange(range: string): string[] {
   if (parts.length > 1) return parts;
   // Single value
   return [range.trim()];
+}
+
+// Default clothing sizes when catalog has no sizeRange
+const DEFAULT_CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
+
+/** Build product detail from local catalog DB — shared by product-detail & quote-detail endpoints */
+async function buildProductDetailFromCatalog(
+  decoProductId: string,
+  productCode: string,
+  category?: string | null,
+): Promise<Record<string, unknown> | null> {
+  const catalog = await catalogLookup(productCode);
+  if (!catalog || catalog.colours.length === 0) return null;
+
+  // Deduplicate colours: prefer "Live" status, then first occurrence
+  const seenNames = new Map<string, (typeof catalog.colours)[0]>();
+  for (const c of catalog.colours) {
+    if (c.skuStatus === "Discontinued") continue;
+    const cleanName = c.colourName.replace(/[*\u2020]+$/g, "").trim();
+    const existing = seenNames.get(cleanName);
+    if (!existing || (c.skuStatus === "Live" && existing.skuStatus !== "Live")) {
+      seenNames.set(cleanName, c);
+    }
+  }
+  const uniqueColours = Array.from(seenNames.values());
+  if (uniqueColours.length === 0) return null;
+
+  const colors = uniqueColours.map((c, i) => ({
+    id: i + 1,
+    name: c.colourName.replace(/[*\u2020]+$/g, "").trim(),
+  }));
+
+  // Parse sizes — fall back to default clothing sizes if catalog sizeRange is empty
+  let sizeNames = parseSizeRange(catalog.sizeRange ?? "");
+  if (sizeNames.length === 0) {
+    // Try DecoProduct.sizes field (comma-separated)
+    const decoSizes = await prisma.decoProduct.findFirst({
+      where: { sku: { equals: productCode, mode: "insensitive" } },
+      select: { sizes: true },
+    });
+    if (decoSizes?.sizes) {
+      sizeNames = decoSizes.sizes.split(/[,/]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    if (sizeNames.length === 0) sizeNames = DEFAULT_CLOTHING_SIZES;
+  }
+  const sizes = sizeNames.map((s, i) => ({ id: i + 1, name: s, code: s }));
+
+  // Build SKU grid
+  const skus: Array<{ sizeId: number; colorId: number; price: number; cost: number; sku: string; dnSkuId: string }> = [];
+  for (const [ci, colour] of uniqueColours.entries()) {
+    const price = colour.singlePrice ? parseFloat(colour.singlePrice) : 0;
+    for (const [si] of sizes.entries()) {
+      skus.push({
+        sizeId: si + 1,
+        colorId: ci + 1,
+        price,
+        cost: 0,
+        sku: `${productCode}-${colour.colourCode}-${sizes[si].code}`,
+        dnSkuId: "",
+      });
+    }
+  }
+
+  const images = await catalogImages(productCode);
+
+  logger.info({ decoProductId, productCode, colors: colors.length, sizes: sizes.length, images: images.length }, "Product detail served from local catalog");
+
+  return {
+    productId: parseInt(decoProductId) || 0,
+    productCode: catalog.styleCode,
+    productName: catalog.name,
+    supplier: catalog.brand,
+    brand: catalog.brand,
+    category: catalog.productType ?? category ?? "",
+    colors,
+    sizes,
+    skus,
+    images,
+  };
 }
 
 // ── Schemas ──
@@ -424,80 +503,18 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
     const { sku: querySku } = z.object({ sku: z.string().optional() }).parse(request.query);
 
-    // Step 1: Look up the DecoProduct in our DB to get the SKU / product code
-    const decoProduct = await prisma.decoProduct.findUnique({
-      where: { decoProductId },
-    });
-
+    const decoProduct = await prisma.decoProduct.findUnique({ where: { decoProductId } });
     const productCode = querySku || decoProduct?.sku || "";
 
-    // Step 2: Try to build detail from local CatalogProduct + CatalogColour
     if (productCode) {
       try {
-        const catalog = await catalogLookup(productCode);
-        if (catalog && catalog.colours.length > 0) {
-          // Deduplicate colours: prefer "Live" status, then first occurrence
-          const seenNames = new Map<string, typeof catalog.colours[0]>();
-          for (const c of catalog.colours) {
-            if (c.skuStatus === "Discontinued") continue;
-            const cleanName = c.colourName.replace(/[*†]+$/g, "").trim();
-            const existing = seenNames.get(cleanName);
-            if (!existing || (c.skuStatus === "Live" && existing.skuStatus !== "Live")) {
-              seenNames.set(cleanName, c);
-            }
-          }
-          const uniqueColours = Array.from(seenNames.values());
-
-          // Build colors array from deduplicated colours
-          const colors = uniqueColours.map((c, i) => ({
-            id: i + 1,
-            name: c.colourName.replace(/[*†]+$/g, "").trim(),
-          }));
-
-          // Parse sizes from catalog sizeRange (e.g. "S to 3XL")
-          const sizeNames = parseSizeRange(catalog.sizeRange ?? "");
-          const sizes = sizeNames.map((s, i) => ({ id: i + 1, name: s, code: s }));
-
-          // Build SKU grid (color × size) with pricing from catalog
-          const skus: Array<{ sizeId: number; colorId: number; price: number; cost: number; sku: string; dnSkuId: string }> = [];
-          for (const [ci, colour] of uniqueColours.entries()) {
-            const price = colour.singlePrice ? parseFloat(colour.singlePrice) : 0;
-            for (const [si] of sizes.entries()) {
-              skus.push({
-                sizeId: si + 1,
-                colorId: ci + 1,
-                price,
-                cost: 0,
-                sku: `${productCode}-${colour.colourCode}-${sizes[si].code}`,
-                dnSkuId: "",
-              });
-            }
-          }
-
-          // Get images from catalog
-          const images = await catalogImages(productCode);
-
-          logger.info({ decoProductId, productCode, colors: colors.length, sizes: sizes.length, images: images.length }, "Product detail served from local catalog");
-
-          return {
-            productId: parseInt(decoProductId) || 0,
-            productCode: catalog.styleCode,
-            productName: catalog.name,
-            supplier: catalog.brand,
-            brand: catalog.brand,
-            category: catalog.productType ?? decoProduct?.category ?? "",
-            colors,
-            sizes,
-            skus,
-            images,
-          };
-        }
+        const detail = await buildProductDetailFromCatalog(decoProductId, productCode, decoProduct?.category);
+        if (detail) return detail;
       } catch (err) {
         logger.warn({ err, productCode }, "Catalog lookup failed, falling back to Deco API");
       }
     }
 
-    // Step 3: Fallback to live Deco API
     try {
       const detail = await fetchDecoProductDetail(decoProductId, querySku);
       return detail;
@@ -547,29 +564,42 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Quote not found" };
     }
 
-    // Enrich each item with Deco product details
+    // Enrich each item with product details (DB-first, Deco API fallback)
     const enrichedItems = await Promise.all(
       job.items.map(async (item) => {
         const itemMeta = (item.metadata ?? {}) as Record<string, unknown>;
         let decoProductId = itemMeta.decoProductId as string | undefined;
+        const productSku = item.sku ?? undefined;
 
         // Fallback: look up product by SKU from local DB if decoProductId wasn't saved
-        if (!decoProductId && item.sku) {
+        if (!decoProductId && productSku) {
           const localProduct = await prisma.decoProduct.findFirst({
-            where: { sku: { equals: item.sku, mode: "insensitive" }, active: true },
-            select: { decoProductId: true },
+            where: { sku: { equals: productSku, mode: "insensitive" }, active: true },
+            select: { decoProductId: true, category: true },
           });
           if (localProduct) {
             decoProductId = localProduct.decoProductId;
           }
         }
 
-        let productDetail = null;
+        let productDetail: Record<string, unknown> | null = null;
         if (decoProductId) {
-          try {
-            productDetail = await fetchDecoProductDetail(decoProductId, item.sku ?? undefined);
-          } catch (err) {
-            logger.warn({ err, decoProductId, itemId: item.id }, "Failed to fetch Deco product detail for enrichment");
+          // Try DB-first catalog lookup
+          const productCode = productSku || "";
+          if (productCode) {
+            try {
+              productDetail = await buildProductDetailFromCatalog(decoProductId, productCode);
+            } catch (err) {
+              logger.warn({ err, productCode, itemId: item.id }, "Catalog lookup failed for enrichment");
+            }
+          }
+          // Fallback to Deco API only if catalog didn't work
+          if (!productDetail) {
+            try {
+              productDetail = await fetchDecoProductDetail(decoProductId, productSku) as Record<string, unknown>;
+            } catch (err) {
+              logger.warn({ err, decoProductId, itemId: item.id }, "Deco API fallback also failed for enrichment");
+            }
           }
         }
 
