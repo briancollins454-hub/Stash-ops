@@ -60,7 +60,7 @@ export async function buildServer() {
 }
 
 async function start(): Promise<void> {
-  // Ensure catalog tables exist (idempotent)
+  // Ensure catalog tables exist (idempotent, each statement separate for Prisma compatibility)
   try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "CatalogProduct" (
@@ -89,11 +89,12 @@ async function start(): Promise<void> {
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL,
         CONSTRAINT "CatalogProduct_pkey" PRIMARY KEY ("id")
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS "CatalogProduct_styleCode_key" ON "CatalogProduct"("styleCode");
-      CREATE INDEX IF NOT EXISTS "CatalogProduct_brand_idx" ON "CatalogProduct"("brand");
-      CREATE INDEX IF NOT EXISTS "CatalogProduct_productType_idx" ON "CatalogProduct"("productType");
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "CatalogProduct_styleCode_key" ON "CatalogProduct"("styleCode")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogProduct_brand_idx" ON "CatalogProduct"("brand")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogProduct_productType_idx" ON "CatalogProduct"("productType")`);
 
+    await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "CatalogColour" (
         "id" TEXT NOT NULL,
         "styleCode" TEXT NOT NULL,
@@ -114,18 +115,17 @@ async function start(): Promise<void> {
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL,
         CONSTRAINT "CatalogColour_pkey" PRIMARY KEY ("id")
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS "CatalogColour_styleCode_colourCode_key" ON "CatalogColour"("styleCode", "colourCode");
-      CREATE INDEX IF NOT EXISTS "CatalogColour_styleCode_idx" ON "CatalogColour"("styleCode");
-      CREATE INDEX IF NOT EXISTS "CatalogColour_colourName_idx" ON "CatalogColour"("colourName");
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "CatalogColour_styleCode_colourCode_key" ON "CatalogColour"("styleCode", "colourCode")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogColour_styleCode_idx" ON "CatalogColour"("styleCode")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogColour_colourName_idx" ON "CatalogColour"("colourName")`);
 
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CatalogColour_styleCode_fkey') THEN
-          ALTER TABLE "CatalogColour" ADD CONSTRAINT "CatalogColour_styleCode_fkey"
-            FOREIGN KEY ("styleCode") REFERENCES "CatalogProduct"("styleCode") ON DELETE CASCADE ON UPDATE CASCADE;
-        END IF;
-      END $$;
-    `);
+    // Add foreign key if not exists
+    const fkExists = await prisma.$queryRawUnsafe<Array<{exists: boolean}>>(`SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname = 'CatalogColour_styleCode_fkey') as exists`);
+    if (!fkExists[0]?.exists) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "CatalogColour" ADD CONSTRAINT "CatalogColour_styleCode_fkey" FOREIGN KEY ("styleCode") REFERENCES "CatalogProduct"("styleCode") ON DELETE CASCADE ON UPDATE CASCADE`);
+    }
+
     logger.info("[Startup] Catalog tables ensured");
   } catch (err) {
     logger.warn({ err }, "[Startup] Catalog table creation failed (non-fatal)");
