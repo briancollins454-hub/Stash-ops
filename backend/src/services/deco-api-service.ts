@@ -1253,29 +1253,51 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
       return results;
     }
 
-    // Step 2: Try to save with JUST the header fields (no items) - simplest test
-    const minimalPairs: Array<[string, string]> = [
-      ["dt[jn]", "API-TEST-DELETE-ME"],
-      ["dt[po]", "TEST-PO"],
+    // Step 2: Save with ONE free-form line item
+    const CP_FREE_FORM = 21;
+    const bodyPairs: Array<[string, string]> = [
+      ["dt[jn]", "API-TEST-WITH-ITEM"],
+      ["dt[po]", "TEST-PO-001"],
       ["dt[brid]", "12015397"],
       ["ct[u]", "80029646"],
+      // One free-form line item
+      ["it[li][1][t]", String(CP_FREE_FORM)],
+      ["it[li][1][cart_id]", testCartId!],
+      ["it[li][1][name]", "Test Product"],
+      ["it[li][1][desc]", "Test Description"],
+      ["it[li][1][color]", "Black"],
+      ["it[li][1][size]", "XL"],
+      ["it[li][1][q]", "2"],
+      ["it[li][1][dis]", "0"],
+      ["it[li][1][iad]", "true"],
+      ["it[li][1][dt]", "percent"],
+      ["it[li][1][bdis]", "0"],
+      ["it[li][1][odis]", "0"],
+      ["it[li][1][rrp]", "25.00"],
+      ["it[li][1][rp]", "25.00"],
+      ["it[li][1][op]", "25.00"],
+      ["it[li][1][iap]", "false"],
+      ["it[li][1][eid]", ""],
+      ["it[li][1][use_po]", "0"],
+      ["it[li][1][inc_tax]", "false"],
+      ["it[li][1][pos]", "1"],
     ];
 
-    const minimalBody = buildDecoFormBody(minimalPairs);
-    const minimalQueryStr = buildDecoFormBody([["c", testCartId], ["cid", clientId]]);
+    const saveBodyStr = buildDecoFormBody(bodyPairs);
+    const saveQueryStr = buildDecoFormBody([["c", testCartId!], ["cid", clientId]]);
 
-    const minimalSaveRes = await fetch(
-      `${base}/bh/orders/save_order?${minimalQueryStr}`,
+    const saveRes = await fetch(
+      `${base}/bh/orders/save_order?${saveQueryStr}`,
       {
         method: "POST",
-        headers: { ...webHeaders, "X-Progress-ID": testCartId },
-        body: minimalBody,
+        headers: { ...webHeaders, "X-Progress-ID": testCartId! },
+        body: saveBodyStr,
       },
     );
-    const minimalSaveText = await minimalSaveRes.text();
+    const saveText = await saveRes.text();
 
     // Poll progress
-    const progressMatch = minimalSaveText.match(/continueAsyncProgress\('([^']+)'/);
+    const progressMatch = saveText.match(/continueAsyncProgress\('([^']+)'/);
     let progressMessages: string[] = [];
     let finalOrderNumber: string | undefined;
 
@@ -1307,11 +1329,12 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
       }
     }
 
-    results.minimalSave = {
-      status: minimalSaveRes.status,
-      response: minimalSaveText.slice(0, 500),
+    results.save = {
+      status: saveRes.status,
+      response: saveText.slice(0, 500),
+      bodyLength: saveBodyStr.length,
+      bodyPreview: saveBodyStr.slice(0, 300),
       hasProgress: !!progressMatch,
-      progressKey: progressMatch?.[1],
       progressMessages,
       finalOrderNumber,
     };
@@ -1342,26 +1365,20 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
         statusTests.placeOrder = { error: err instanceof Error ? err.message : String(err) };
       }
 
-      // Try update_order_status via JSON API with various values
-      const statusValues = ["pending", "active", "approved", "placed", "processing", "open",
-        "confirmed", "ordered", "production", "in_progress", "new", "submitted",
-        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
-      for (const sv of statusValues) {
+      // Try update_order_status via JSON API to make it a real order
+      // Try "pending" first (most likely initial status for quotes being placed)
+      for (const sv of ["pending", "active", "placed"]) {
         try {
           const updateResult = await decoFetch<Record<string, unknown>>(
             "/api/json/manage_orders/update_order_status",
             { order_id: finalOrderNumber, new_status: sv },
           );
-          const response = JSON.stringify(updateResult).slice(0, 300);
-          // Only log if it succeeded or gave a different error
-          if (!response.includes("invalid")) {
-            statusTests[`updateStatus_${sv}`] = { response };
-          }
+          const response = JSON.stringify(updateResult).slice(0, 500);
+          statusTests[`updateStatus_${sv}`] = { response, success: true };
+          break; // Stop on first success
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          if (!errMsg.includes("invalid")) {
-            statusTests[`updateStatus_${sv}`] = { error: errMsg };
-          }
+          statusTests[`updateStatus_${sv}`] = { error: errMsg };
         }
       }
 
