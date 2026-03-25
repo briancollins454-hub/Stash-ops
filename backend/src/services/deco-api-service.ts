@@ -2201,6 +2201,21 @@ async function fetchCottonridgeImages(productCode: string): Promise<ProductImage
       }
     }
 
+    // Strategy 4: Back flat images from Cottonridge media portal
+    // Extract product short name from the flat images modal title:
+    // e.g. "W72 Orion Premium Hoodie Flat Images" → folder "W72 Orion"
+    try {
+      const backImages = await fetchCottonridgeBackFlats(productCode, html);
+      for (const img of backImages) {
+        if (!seen.has(img.url)) {
+          seen.add(img.url);
+          images.push(img);
+        }
+      }
+    } catch (err) {
+      logger.debug({ err, productCode }, "[Cottonridge] Back flat image fetch failed");
+    }
+
     if (images.length > 0) {
       logger.info(`[Cottonridge] Found ${images.length} images for product ${productCode}`);
     }
@@ -2209,6 +2224,118 @@ async function fetchCottonridgeImages(productCode: string): Promise<ProductImage
     logger.warn({ err, productCode }, "Failed to fetch Cottonridge product images");
     return [];
   }
+}
+
+/** Cottonridge media portal: fetch back flat images from media.cottonridge.co.uk */
+async function fetchCottonridgeBackFlats(productCode: string, productPageHtml: string): Promise<ProductImage[]> {
+  // Extract product short name from modal title: "W72 Orion Premium Hoodie Flat Images" → "Orion"
+  const titleMatch = productPageHtml.match(
+    new RegExp(`${productCode}\\s+([A-Z][a-z]+(?:\\s+v\\d+\\.\\d+)?)[^<]*Flat Images`, "i"),
+  );
+  if (!titleMatch) return [];
+
+  const shortName = titleMatch[1].trim();
+  const folderGuesses = [
+    `${productCode} ${shortName}`,
+  ];
+
+  // Try each folder guess on the media portal
+  for (const folder of folderGuesses) {
+    const browsePath = `Products/${folder}/Images/Flat Images/Back Images`;
+    const browseUrl = `https://media.cottonridge.co.uk/Media/Browse?path=${encodeURIComponent(browsePath)}&sort=name`;
+
+    let browseHtml: string;
+    try {
+      const res = await fetch(browseUrl, {
+        headers: { "User-Agent": "StashOps/1.0" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) continue;
+      browseHtml = await res.text();
+    } catch {
+      continue;
+    }
+
+    // Extract back image filenames from asset-card links
+    // Pattern: asset-card" href="/Media/Details?path=Products%2FW72%20Orion%2F...%2FW72-Ash.jpg
+    const filePattern = /asset-card"[^>]*href="\/Media\/Details\?path=([^&"]+)/gi;
+    const images: ProductImage[] = [];
+    let m;
+    while ((m = filePattern.exec(browseHtml)) !== null) {
+      const filePath = decodeURIComponent(m[1]);
+      const filename = filePath.split("/").pop() ?? "";
+      // filename: "W72-Ash.jpg" → colour "Ash"
+      const colourMatch = filename.match(/^[A-Za-z0-9]+-(.+)\.\w+$/);
+      if (!colourMatch) continue;
+
+      const colorRaw = colourMatch[1];
+      const color = colorRaw.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/-/g, " ");
+      const url = `https://media.cottonridge.co.uk/Media/File?path=${encodeURIComponent(filePath)}`;
+      images.push({ url, color, type: "back" });
+    }
+
+    if (images.length > 0) {
+      logger.info(`[Cottonridge] Found ${images.length} back flat images from media portal for ${productCode}`);
+      return images;
+    }
+
+    // If direct folder name didn't work, try finding the correct folder from parent listing
+    const parentUrl = `https://media.cottonridge.co.uk/Media/Browse?path=${encodeURIComponent("Products")}&sort=name`;
+    try {
+      const parentRes = await fetch(parentUrl, {
+        headers: { "User-Agent": "StashOps/1.0" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!parentRes.ok) return [];
+      const parentHtml = await parentRes.text();
+
+      // Find folder matching our product code (handles versioned names like "CR01 v2.0 Meteor")
+      const folderPattern = new RegExp(
+        `Browse\\?path=Products%2F(${productCode}[^&"]+)`,
+        "gi",
+      );
+      let fm;
+      while ((fm = folderPattern.exec(parentHtml)) !== null) {
+        const realFolder = decodeURIComponent(fm[1]);
+        if (realFolder === folder) continue; // Already tried
+
+        const altBrowsePath = `Products/${realFolder}/Images/Flat Images/Back Images`;
+        const altUrl = `https://media.cottonridge.co.uk/Media/Browse?path=${encodeURIComponent(altBrowsePath)}&sort=name`;
+        try {
+          const altRes = await fetch(altUrl, {
+            headers: { "User-Agent": "StashOps/1.0" },
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!altRes.ok) continue;
+          const altHtml = await altRes.text();
+
+          const altImages: ProductImage[] = [];
+          let am;
+          const altFilePattern = /asset-card"[^>]*href="\/Media\/Details\?path=([^&"]+)/gi;
+          while ((am = altFilePattern.exec(altHtml)) !== null) {
+            const fp = decodeURIComponent(am[1]);
+            const fn = fp.split("/").pop() ?? "";
+            const cm = fn.match(/^[A-Za-z0-9]+-(.+)\.\w+$/);
+            if (!cm) continue;
+            const cr = cm[1];
+            const c = cr.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/-/g, " ");
+            altImages.push({ url: `https://media.cottonridge.co.uk/Media/File?path=${encodeURIComponent(fp)}`, color: c, type: "back" });
+          }
+
+          if (altImages.length > 0) {
+            logger.info(`[Cottonridge] Found ${altImages.length} back flat images from media portal (alt folder: ${realFolder}) for ${productCode}`);
+            return altImages;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      // Parent listing failed, give up
+    }
+  }
+
+  return [];
 }
 
 /** Canterbury: search canterbury.com → scrape product page for THG CDN images */

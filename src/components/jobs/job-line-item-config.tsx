@@ -122,13 +122,15 @@ function garmentCategory(keyword: string | null): string | null {
 function extractSearchTerms(item: JobLineItem): string[] {
   const terms: string[] = [];
 
-  // 1. From SKU: try full SKU, then strip variant suffix (take first segment before -)
+  // 1. From SKU: try full SKU, then every segment (handles compound SKUs like "MC-W72")
   if (item.sku) {
     terms.push(item.sku);
-    const baseSku = item.sku.split("-")[0].trim();
-    // Only use base code if it's at least 3 chars (avoid generic "MC", "XL" etc)
-    if (baseSku && baseSku !== item.sku && baseSku.length >= 3) {
-      terms.push(baseSku);
+    const segments = item.sku.split(/[-_]/).map((s) => s.trim()).filter(Boolean);
+    for (const seg of segments) {
+      // Only use segment if 3+ chars (avoid generic "MC", "XL", "S" etc)
+      if (seg !== item.sku && seg.length >= 3 && !terms.includes(seg)) {
+        terms.push(seg);
+      }
     }
   }
 
@@ -172,12 +174,20 @@ function scoreMatch(result: DecoSearchResult, item: JobLineItem): number {
   // Exact SKU match (variant SKU = catalogue SKU)
   if (iSku && rSku === iSku) return 100;
 
+  // SKU segment exact match (e.g. result SKU "W72" matches segment of item SKU "MC-W72")
+  if (iSku && rSku && rSku.length >= 3) {
+    const segments = iSku.split(/[-_]/).map((s) => s.toLowerCase());
+    if (segments.includes(rSku)) {
+      score += 85;
+    }
+  }
+
   // Base product code match (catalogue SKU is prefix of item SKU)
-  if (iSku && rSku && rSku.length >= 3 && iSku.startsWith(rSku)) score += 80;
+  if (score === 0 && iSku && rSku && rSku.length >= 3 && iSku.startsWith(rSku)) score += 80;
   // Or item SKU contains the catalogue SKU (must be 3+ chars to avoid false positives)
-  else if (iSku && rSku && rSku.length >= 3 && iSku.includes(rSku)) score += 60;
+  else if (score === 0 && iSku && rSku && rSku.length >= 3 && iSku.includes(rSku)) score += 60;
   // Or catalogue SKU is in the title
-  else if (rSku && rSku.length >= 3 && iTitle.includes(rSku)) score += 50;
+  else if (score === 0 && rSku && rSku.length >= 3 && iTitle.includes(rSku)) score += 50;
 
   // Name-based matching
   if (rName && iTitle && (rName.includes(iTitle) || iTitle.includes(rName))) score += 30;
@@ -225,39 +235,159 @@ async function fetchProductDetail(decoProductId: string, item: JobLineItem): Pro
   }
 }
 
+/* ── Catalog search types & helpers ── */
+
+interface CatalogSearchResult {
+  styleCode: string;
+  brand: string;
+  name: string;
+  productType: string | null;
+  colourCount: number;
+}
+
+async function searchCatalog(query: string): Promise<CatalogSearchResult[]> {
+  try {
+    const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    return (await res.json()) as CatalogSearchResult[];
+  } catch {
+    return [];
+  }
+}
+
+function scoreCatalogMatch(result: CatalogSearchResult, item: JobLineItem): number {
+  let score = 0;
+  const rCode = (result.styleCode || "").toLowerCase();
+  const rName = (result.name || "").toLowerCase();
+  const iSku = (item.sku || "").toLowerCase();
+  const iTitle = (item.productTitle || "").toLowerCase();
+
+  // Category mismatch penalty
+  const itemGarment = extractGarmentType(iTitle);
+  const resultGarment = extractGarmentType(rName);
+  const itemCat = garmentCategory(itemGarment);
+  const resultCat = garmentCategory(resultGarment);
+  if (itemCat && resultCat && itemCat !== resultCat) return -1;
+
+  // Exact style code = SKU
+  if (iSku && rCode === iSku) return 100;
+
+  // Style code matches a segment of the SKU (e.g. "w72" in "mc-w72")
+  if (iSku && rCode && rCode.length >= 3) {
+    const segments = iSku.split(/[-_]/).map((s) => s.toLowerCase());
+    if (segments.includes(rCode)) score += 85;
+    else if (iSku.includes(rCode)) score += 60;
+  }
+
+  // Style code appears in title
+  if (rCode && rCode.length >= 3 && iTitle.includes(rCode)) score += 50;
+
+  // Name overlap
+  if (rName && iTitle && (rName.includes(iTitle) || iTitle.includes(rName))) score += 30;
+
+  // Title starts with the same style code
+  const titleCode = iTitle.match(/^([a-z0-9]{3,10})\s*[-–—:]/)?.[1];
+  if (titleCode && rCode === titleCode) score += 70;
+
+  // Same garment category bonus
+  if (itemCat && resultCat && itemCat === resultCat) score += 15;
+
+  return score;
+}
+
+async function fetchCatalogDetail(styleCode: string, item: JobLineItem): Promise<DesignerProductDetail | null> {
+  try {
+    const res = await fetch(`/api/catalog/products/${encodeURIComponent(styleCode)}`);
+    if (!res.ok) return null;
+    const product = await res.json();
+    if (!product) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const colours = (product.colours ?? []) as any[];
+
+    const colors = colours.map((c, i) => ({
+      id: i + 1,
+      name: c.colourName as string,
+    }));
+
+    const images = colours
+      .filter((c) => c.imageUrl)
+      .map((c) => ({ url: c.imageUrl as string, type: "front", color: c.colourName as string, rgb: c.rgb as string | undefined }));
+
+    return {
+      productName: product.name ?? item.productTitle,
+      productCode: product.styleCode ?? item.sku ?? "UNKNOWN",
+      supplier: product.brand ?? "Unknown",
+      brand: product.brand,
+      category: product.productType ?? guessCategory(item.productTitle),
+      colors,
+      sizes: product.sizeRange
+        ? product.sizeRange.split(/[,\s-]+/).filter(Boolean).map((s: string, i: number) => ({ id: i + 1, code: s }))
+        : [],
+      images,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail | null> {
   const terms = extractSearchTerms(item);
 
-  // Try each search term, collect all results, score them
-  const allResults: DecoSearchResult[] = [];
-  const seen = new Set<string>();
+  // Search both Deco and catalog in parallel for each term
+  const allDecoResults: DecoSearchResult[] = [];
+  const allCatalogResults: CatalogSearchResult[] = [];
+  const seenDeco = new Set<string>();
+  const seenCatalog = new Set<string>();
 
   for (const term of terms) {
-    const results = await searchProducts(term);
-    for (const r of results) {
-      if (r.decoProductId && !seen.has(r.decoProductId)) {
-        seen.add(r.decoProductId);
-        allResults.push(r);
+    const [decoResults, catalogResults] = await Promise.all([
+      searchProducts(term),
+      searchCatalog(term),
+    ]);
+
+    for (const r of decoResults) {
+      if (r.decoProductId && !seenDeco.has(r.decoProductId)) {
+        seenDeco.add(r.decoProductId);
+        allDecoResults.push(r);
       }
     }
-    // Stop searching once we have a result with a good, category-compatible match
-    if (allResults.length > 0) {
-      const topScore = Math.max(...allResults.map((r) => scoreMatch(r, item)));
-      if (topScore >= 50) break;
+    for (const r of catalogResults) {
+      if (r.styleCode && !seenCatalog.has(r.styleCode)) {
+        seenCatalog.add(r.styleCode);
+        allCatalogResults.push(r);
+      }
     }
+
+    // Stop early when we have a confident match from either source
+    const bestDeco = allDecoResults.length > 0
+      ? Math.max(...allDecoResults.map((r) => scoreMatch(r, item)))
+      : 0;
+    const bestCatalog = allCatalogResults.length > 0
+      ? Math.max(...allCatalogResults.map((r) => scoreCatalogMatch(r, item)))
+      : 0;
+    if (bestDeco >= 50 || bestCatalog >= 50) break;
   }
 
-  if (allResults.length === 0) return null;
+  // Score all results from both sources, pick the best
+  type Scored =
+    | { source: "deco"; result: DecoSearchResult; score: number }
+    | { source: "catalog"; result: CatalogSearchResult; score: number };
 
-  // Pick the best match (must score > 0 to avoid category mismatches)
-  const scored = allResults
-    .map((r) => ({ result: r, score: scoreMatch(r, item) }))
+  const scored: Scored[] = [
+    ...allDecoResults.map((r) => ({ source: "deco" as const, result: r, score: scoreMatch(r, item) })),
+    ...allCatalogResults.map((r) => ({ source: "catalog" as const, result: r, score: scoreCatalogMatch(r, item) })),
+  ]
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length === 0 || !scored[0].result.decoProductId) return null;
+  if (scored.length === 0) return null;
 
-  return fetchProductDetail(scored[0].result.decoProductId, item);
+  const best = scored[0];
+  if (best.source === "catalog") {
+    return fetchCatalogDetail(best.result.styleCode, item);
+  }
+  return fetchProductDetail(best.result.decoProductId, item);
 }
 
 /* ── Component ── */
