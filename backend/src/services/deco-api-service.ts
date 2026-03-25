@@ -1145,33 +1145,53 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
     results.apiGet = { error: err instanceof Error ? err.message : String(err) };
   }
 
-  // 4. Search recent orders to see what IDs look like
+  // 4. Search recent orders and show full order_lines for the target order
   try {
     const recent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
       "/api/json/manage_orders/find",
-      { limit: "3", offset: "0", field: "1", condition: "4", date1: "2026-03-24 00:00:00" },
+      { limit: "20", offset: "0", field: "1", condition: "4", date1: "2026-03-01 00:00:00" },
     );
-    results.recentOrders = {
-      total: recent.total,
-      orders: (recent.orders ?? []).map((o) => {
-        // Capture ALL keys and key values to understand the schema
-        const summary: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(o)) {
-          if (Array.isArray(v)) {
-            summary[k] = `[array len=${v.length}]`;
-            // Show first item of arrays
-            if (v.length > 0) summary[`${k}_first`] = JSON.stringify(v[0]).slice(0, 200);
-          } else if (typeof v === "object" && v !== null) {
-            summary[k] = `{obj keys=${Object.keys(v as Record<string, unknown>).join(",")}}`;
-          } else {
-            summary[k] = v;
-          }
-        }
-        return summary;
-      }),
-    };
+    const targetOrder = (recent.orders ?? []).find((o) => String(o.order_id) === decoOrderId);
+    // Full order_lines for the target order
+    if (targetOrder) {
+      results.targetOrder = {
+        order_id: targetOrder.order_id,
+        job_name: targetOrder.job_name,
+        item_amount: targetOrder.item_amount,
+        order_status: targetOrder.order_status,
+        source_type: targetOrder.source_type,
+        order_lines: targetOrder.order_lines,
+        notes: targetOrder.notes,
+      };
+    } else {
+      results.targetOrder = { found: false, searched: decoOrderId };
+    }
+    // Summary of all recent orders (id + name only)
+    results.allRecentOrders = (recent.orders ?? []).map((o) => ({
+      order_id: o.order_id,
+      job_name: o.job_name,
+      item_amount: o.item_amount,
+      order_lines_count: Array.isArray(o.order_lines) ? o.order_lines.length : 0,
+    }));
   } catch (err) {
     results.recentOrders = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 5. Also try searching by cart/quote ID (the long numeric ID from create_quote)
+  try {
+    const cartSearch = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+      "/api/json/manage_orders/find",
+      { field: "0", condition: "1", string: decoOrderId, limit: "5" },
+    );
+    results.cartSearch = {
+      total: (cartSearch as { total?: number }).total,
+      orders: ((cartSearch as { orders?: Array<Record<string, unknown>> }).orders ?? []).map((o) => ({
+        order_id: o.order_id,
+        job_name: o.job_name,
+      })),
+    };
+  } catch (err) {
+    results.cartSearch = { error: err instanceof Error ? err.message : String(err) };
   }
 
   return results;
