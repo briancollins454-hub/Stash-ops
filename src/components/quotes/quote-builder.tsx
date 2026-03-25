@@ -134,12 +134,13 @@ function useDebounce(value: string, ms: number) {
 
 // ── Main Component ──
 
-export default function QuoteBuilderPage() {
+export default function QuoteBuilderPage({ editJobId }: { editJobId?: string }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("Customer");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ jobId: string; internalJobId: string } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(!!editJobId);
 
   // ── Customer state ──
   const [customerName, setCustomerName] = useState("");
@@ -256,6 +257,86 @@ export default function QuoteBuilderPage() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // ── Load existing job for edit mode ──
+  useEffect(() => {
+    if (!editJobId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/quotes/${encodeURIComponent(editJobId)}/detail`);
+        if (!res.ok) throw new Error("Failed to load job");
+        const job = await res.json();
+
+        // Customer
+        setCustomerName(job.customerName ?? "");
+        setCustomerEmail(job.customerEmail ?? "");
+        setCustomerPhone(job.customerPhone ?? "");
+        setCustomerCompany(job.customerCompany ?? "");
+        setNote(job.orderNotes ?? "");
+        if (job.dueAt) setDueAt(job.dueAt.slice(0, 10));
+
+        // Account
+        if (job.account) {
+          setSelectedAccount({
+            id: job.account.id,
+            name: job.account.name,
+            key: job.account.key ?? "",
+            type: job.account.type ?? "",
+            decoCustomerId: job.account.decoCustomerId ?? null,
+            defaultDecorationMethod: job.account.defaultDecorationMethod ?? null,
+            aliases: job.account.aliases ?? [],
+          });
+          setAccountSearch(job.account.name);
+        }
+
+        // Shipping address from metadata
+        const meta = (job.metadata ?? {}) as Record<string, unknown>;
+        const addr = meta.shippingAddress as Record<string, string> | undefined;
+        if (addr) {
+          setAddrLine1(addr.line1 ?? "");
+          setAddrLine2(addr.line2 ?? "");
+          setAddrCity(addr.city ?? "");
+          setAddrState(addr.state ?? "");
+          setAddrPostcode(addr.postcode ?? "");
+          setAddrCountry(addr.country ?? "GB");
+        }
+
+        // Line items
+        if (job.items?.length > 0) {
+          const items: LineItem[] = job.items.map((item: Record<string, unknown>) => {
+            const itemMeta = (item.metadata ?? {}) as Record<string, unknown>;
+            const co = (item.customOptions ?? {}) as Record<string, unknown>;
+            const designs = (Array.isArray(co.designs) ? co.designs : Array.isArray(itemMeta.designs) ? itemMeta.designs : []) as DesignConfig[];
+            const decorationMethod = (item.decorationMethod as string) ?? "dtf";
+            const placement = (item.decorationPlacement as string) ?? "front";
+            const unitMinor = item.unitPriceMinor as number | null;
+
+            return {
+              id: crypto.randomUUID(),
+              sku: (item.sku as string) ?? "",
+              productTitle: (item.productTitle as string) ?? "",
+              variantTitle: (item.variantTitle as string) ?? "",
+              quantity: (item.quantity as number) ?? 1,
+              decorationMethod: decorationMethod.toLowerCase().replace(/\s+/g, "_"),
+              placement: placement.toLowerCase().replace(/\s+/g, "_"),
+              placements: placement.split(",").map((p: string) => p.trim().toLowerCase().replace(/\s+/g, "_")),
+              unitPrice: unitMinor != null ? (unitMinor / 100).toFixed(2) : "",
+              decoProductId: itemMeta.decoProductId as string | undefined,
+              selectedColorId: itemMeta.selectedColorId as number | undefined,
+              sizeQuantities: itemMeta.sizeBreakdown as Record<number, number> | undefined,
+              designs,
+              productDetail: (item as Record<string, unknown>).productDetail as DecoProductDetail | undefined,
+            };
+          });
+          setLineItems(items);
+        }
+      } catch {
+        // Failed to load — just start fresh
+      } finally {
+        setEditLoading(false);
+      }
+    })();
+  }, [editJobId]);
 
   // ── Helpers ──
 
@@ -523,8 +604,13 @@ export default function QuoteBuilderPage() {
     };
 
     try {
-      const res = await fetch("/api/quotes", {
-        method: "POST",
+      const url = editJobId
+        ? `/api/quotes/${encodeURIComponent(editJobId)}`
+        : "/api/quotes";
+      const method = editJobId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -535,15 +621,25 @@ export default function QuoteBuilderPage() {
         error?: string;
       };
       if (!res.ok || !data.ok) {
-        setSubmitError(data.error ?? "Failed to create quote.");
+        setSubmitError(data.error ?? "Failed to save quote.");
         return;
       }
       setResult({ jobId: data.jobId!, internalJobId: data.internalJobId! });
     } catch {
-      setSubmitError("Network error creating quote.");
+      setSubmitError("Network error saving quote.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // ── Loading state for edit mode ──
+  if (editLoading) {
+    return (
+      <div className="surface p-8 text-center space-y-4">
+        <div className="text-4xl animate-spin">⏳</div>
+        <p style={{ color: "var(--text-secondary)" }}>Loading quote data...</p>
+      </div>
+    );
   }
 
   // ── Success view ──
@@ -554,11 +650,11 @@ export default function QuoteBuilderPage() {
         <div className="surface p-8 text-center space-y-4">
           <div className="text-4xl">✓</div>
           <h2 className="text-xl font-semibold" style={{ color: "var(--success)" }}>
-            Quote Created
+            {editJobId ? "Quote Updated" : "Quote Created"}
           </h2>
           <p style={{ color: "var(--text-secondary)" }}>
             Job <span className="font-mono font-semibold">{result.internalJobId}</span> has been
-            created.
+            {editJobId ? " updated." : " created."}
           </p>
           <div className="flex justify-center gap-3 pt-2">
             <button
@@ -1692,7 +1788,7 @@ export default function QuoteBuilderPage() {
               disabled={submitting}
               onClick={handleSubmit}
             >
-              {submitting ? "Creating..." : "Create Quote"}
+              {submitting ? (editJobId ? "Saving..." : "Creating...") : (editJobId ? "Save Quote" : "Create Quote")}
             </button>
           </div>
 

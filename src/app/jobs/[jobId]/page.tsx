@@ -328,6 +328,26 @@ export default async function JobDetailPage({
         </div>
       </SectionCard>
 
+      {/* ── Quote actions ── */}
+      {job.source === "MANUAL" && (
+        <div className="flex flex-wrap items-center gap-3 mt-4 mb-2">
+          <Link
+            href={`/quotes/${job.id}/print`}
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125"
+            style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
+          >
+            🖨 Print Quote
+          </Link>
+          <Link
+            href={`/quotes?edit=${job.id}`}
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all hover:brightness-125"
+            style={{ background: "rgba(245,158,11,0.15)", color: "#fcd34d", border: "1px solid rgba(245,158,11,0.3)" }}
+          >
+            ✏️ Edit Quote
+          </Link>
+        </div>
+      )}
+
       {/* ── Actions ── */}
       <JobActions
         jobId={job.id}

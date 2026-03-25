@@ -28,9 +28,16 @@ interface Props {
 /* ── Helpers ── */
 
 function existingDesigns(item: JobLineItem): DesignConfig[] {
-  if (!item.metadata || typeof item.metadata !== "object") return [];
-  const md = item.metadata as Record<string, unknown>;
-  if (Array.isArray(md.designs)) return md.designs as DesignConfig[];
+  // Check metadata.designs first (saved via "Save decoration" on job page)
+  if (item.metadata && typeof item.metadata === "object") {
+    const md = item.metadata as Record<string, unknown>;
+    if (Array.isArray(md.designs)) return md.designs as DesignConfig[];
+  }
+  // Fallback: check customOptions.designs (saved via quote builder)
+  if (item.customOptions && typeof item.customOptions === "object") {
+    const co = item.customOptions as Record<string, unknown>;
+    if (Array.isArray(co.designs)) return co.designs as DesignConfig[];
+  }
   return [];
 }
 

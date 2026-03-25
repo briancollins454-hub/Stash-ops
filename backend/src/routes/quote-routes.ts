@@ -293,6 +293,105 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // ── Update existing quote ──
+  app.put("/v1/quotes/:jobId", async (request, reply) => {
+    const { jobId } = z.object({ jobId: z.string() }).parse(request.params);
+    const body = quoteCreateSchema.parse(request.body);
+
+    const job = await prisma.job.findFirst({
+      where: { OR: [{ id: jobId }, { internalJobId: jobId }] },
+      select: { id: true, internalJobId: true, lifecycle: true },
+    });
+
+    if (!job) {
+      reply.status(404);
+      return { error: "Quote not found" };
+    }
+
+    // Build address
+    const addressJson = body.shippingAddress
+      ? {
+          line1: body.shippingAddress.line1 ?? "",
+          line2: body.shippingAddress.line2 ?? "",
+          city: body.shippingAddress.city ?? "",
+          state: body.shippingAddress.state ?? "",
+          postcode: body.shippingAddress.postcode ?? "",
+          country: body.shippingAddress.country ?? "GB",
+        }
+      : undefined;
+
+    // Update the job record
+    const metadata: Record<string, unknown> = { note: body.note ?? null };
+    if (addressJson) metadata.shippingAddress = addressJson;
+    if (body.dueAt) metadata.requestedDueAt = body.dueAt;
+
+    const totalMinor = body.lineItems.reduce((sum, item) => {
+      return sum + (item.unitPricePounds !== undefined ? Math.round(item.unitPricePounds * 100) * item.quantity : 0);
+    }, 0);
+
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        customerName: body.customerName,
+        customerEmail: body.customerEmail ?? undefined,
+        customerPhone: body.customerPhone ?? undefined,
+        customerCompany: body.customerCompany ?? undefined,
+        sourceGroupLabel: body.customerCompany ?? undefined,
+        metadata: metadata as Prisma.InputJsonValue,
+        dueAt: body.dueAt ? new Date(body.dueAt) : undefined,
+        accountId: body.accountId ?? undefined,
+        totalMinor,
+        subtotalMinor: totalMinor,
+        orderNotes: body.note ?? undefined,
+      },
+    });
+
+    // Delete old items and create new ones
+    await prisma.jobItem.deleteMany({ where: { jobId: job.id } });
+
+    await prisma.jobItem.createMany({
+      data: body.lineItems.map((item) => ({
+        jobId: job.id,
+        sku: item.sku ?? null,
+        productTitle: item.productTitle,
+        variantTitle: item.variantTitle ?? null,
+        quantity: item.quantity,
+        decorationMethod: item.decorationMethod ?? null,
+        decorationPlacement: item.placement ?? null,
+        unitPriceMinor: item.unitPricePounds !== undefined
+          ? Math.round(item.unitPricePounds * 100)
+          : undefined,
+        totalPriceMinor: item.unitPricePounds !== undefined
+          ? Math.round(item.unitPricePounds * 100) * item.quantity
+          : undefined,
+        customOptions: item.designs && item.designs.length > 0
+          ? { designs: item.designs } as Prisma.InputJsonValue
+          : undefined,
+        metadata: (item.decoProductId || item.selectedColorId || item.sizeBreakdown)
+          ? {
+              decoProductId: item.decoProductId ?? null,
+              selectedColorId: item.selectedColorId ?? null,
+              sizeBreakdown: item.sizeBreakdown ?? null,
+            } as Prisma.InputJsonValue
+          : undefined,
+      })),
+    });
+
+    await prisma.activityLog.create({
+      data: {
+        jobId: job.id,
+        eventType: "quote.updated",
+        message: `Quote updated — ${body.lineItems.length} line item(s)`,
+      },
+    });
+
+    return {
+      ok: true,
+      jobId: job.id,
+      internalJobId: job.internalJobId,
+    };
+  });
+
   // ── Product detail (live from Deco API — colors, sizes, per-SKU pricing) ──
   app.get("/v1/quotes/products/:decoProductId/detail", async (request, reply) => {
     const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);

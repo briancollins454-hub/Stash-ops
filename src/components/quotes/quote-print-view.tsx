@@ -318,7 +318,6 @@ function ProductDetailPage({
               src={mainImage.url}
               alt={item.productTitle}
               className="product-image"
-              crossOrigin="anonymous"
             />
           ) : (
             <div className="product-image-placeholder">No Image Available</div>
