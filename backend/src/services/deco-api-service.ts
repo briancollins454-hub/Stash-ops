@@ -1089,150 +1089,84 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
 export async function inspectDecoOrder(decoOrderId: string): Promise<Record<string, unknown>> {
   if (!isDecoConfigured()) return { error: "Deco not configured" };
 
+  const results: Record<string, unknown> = { decoOrderId };
+
+  // 1. Search via the JSON API — this is the most reliable method
   try {
-    // Force fresh login
-    decoWebCookies = null;
-    decoWebCookieExpiry = 0;
-    const cookies = await getDecoWebSession();
-    if (!cookies) return { error: "Failed to establish Deco web session" };
-
-    const { csrfToken, clientId } = await getDecoSessionContext(cookies);
-    const base = baseUrl();
-    const ajaxHeaders: Record<string, string> = {
-      Cookie: cookies,
-      "X-CSRF-Token": csrfToken,
-      "X-Requested-With": "XMLHttpRequest",
+    // Search by order number (field=2=order_number, condition=1=equals)
+    const apiResult = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/find",
+      { field: "2", condition: "1", string: decoOrderId, limit: "5" },
+    );
+    results.apiSearch = {
+      total: (apiResult as { total?: number }).total,
+      orders: ((apiResult as { orders?: Array<Record<string, unknown>> }).orders ?? []).map((o) => ({
+        order_id: o.order_id,
+        order_number: o.order_number,
+        job_number: o.job_number,
+        status: o.status,
+        customer_name: o.customer_name ?? o.billing_details && (o.billing_details as Record<string, unknown>).name,
+        items: o.items ?? o.line_items ?? o.configured_products,
+        item_count: Array.isArray(o.items) ? o.items.length : Array.isArray(o.line_items) ? o.line_items.length : undefined,
+        keys: Object.keys(o).slice(0, 30),
+      })),
     };
-
-    // Try multiple URL patterns to find the order
-    const endpoints: Record<string, string> = {
-      edit: `/bh/orders/${decoOrderId}/edit`,
-      show: `/bh/orders/${decoOrderId}`,
-      manageEdit: `/manage/orders/${decoOrderId}/edit`,
-      manageShow: `/manage/orders/${decoOrderId}`,
-      getOrderData: `/bh/orders/get_order_data?id=${decoOrderId}`,
-      loadOrder: `/bh/orders/load/${decoOrderId}`,
-      editDataAjax: `/bh/orders/edit_data/${decoOrderId}`,
-    };
-
-    const results: Record<string, unknown> = {
-      decoOrderId,
-      clientId,
-    };
-
-    for (const [name, path] of Object.entries(endpoints)) {
-      try {
-        const url = `${base}${path}`;
-        const res = await fetch(url, {
-          headers: name.includes("Ajax") || name === "getOrderData" || name === "loadOrder"
-            ? ajaxHeaders
-            : { Cookie: cookies },
-          redirect: "follow",
-        });
-        const text = await res.text();
-        const isHtml = text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html");
-        const isJson = text.trim().startsWith("{") || text.trim().startsWith("[");
-
-        const info: Record<string, unknown> = { status: res.status };
-        if (isJson) {
-          try {
-            const json = JSON.parse(text);
-            info.json = typeof json === "object" ? Object.keys(json as Record<string, unknown>).slice(0, 20) : "primitive";
-            info.preview = text.slice(0, 500);
-          } catch {
-            info.preview = text.slice(0, 300);
-          }
-        } else if (isHtml) {
-          info.htmlLength = text.length;
-          info.quoteEmpty = text.toLowerCase().includes("quote is empty");
-          info.hasOrderData = text.includes("order_data") || text.includes("configured_product");
-          info.title = text.match(/<title>([^<]+)/)?.[1]?.trim() ?? "";
-          // Check for order number in the page
-          const orderNum = text.match(/Order\s*#?\s*(\d+)/i);
-          if (orderNum) info.orderNumOnPage = orderNum[1];
-        } else {
-          info.preview = text.slice(0, 300);
-        }
-        results[name] = info;
-      } catch (err) {
-        results[name] = { error: err instanceof Error ? err.message : String(err) };
-      }
-    }
-
-    // Also: try to list recent orders via the orders table AJAX
-    try {
-      const tableRes = await fetch(`${base}/bh/orders?draw=1&start=0&length=5`, {
-        headers: ajaxHeaders,
-      });
-      const tableText = await tableRes.text();
-      if (tableText.trim().startsWith("{")) {
-        const tableData = JSON.parse(tableText);
-        results.ordersTable = {
-          status: tableRes.status,
-          keys: Object.keys(tableData),
-          recordsTotal: tableData.recordsTotal,
-          dataCount: Array.isArray(tableData.data) ? tableData.data.length : "not array",
-          firstRecord: Array.isArray(tableData.data) && tableData.data[0] ? JSON.stringify(tableData.data[0]).slice(0, 300) : null,
-        };
-      } else {
-        results.ordersTable = { status: tableRes.status, preview: tableText.slice(0, 200) };
-      }
-    } catch (err) {
-      results.ordersTable = { error: err instanceof Error ? err.message : String(err) };
-    }
-
-    // Try fetching the orders page HTML to find order links
-    try {
-      const ordersPageRes = await fetch(`${base}/manage/orders`, {
-        headers: { Cookie: cookies },
-        redirect: "follow",
-      });
-      const ordersHtml = await ordersPageRes.text();
-      // Find any order links in the page
-      const orderLinks = [...new Set(ordersHtml.match(/\/(?:bh|manage)\/orders\/\d+/g) ?? [])];
-      // Find data-source or AJAX URLs
-      const dataSources = ordersHtml.match(/data-source="([^"]+)"/g) ?? [];
-      // Find any table-related JS
-      const tableInit = ordersHtml.match(/DataTable|dataTable|datatable|orders_table|ajax\s*:\s*{[^}]*url[^}]*}/gi) ?? [];
-      // Extract SPA module/component references related to orders
-      const orderModules = ordersHtml.match(/DnOrders|OrderManager|order_list|OrdersView|manage_orders|dnm-order/gi) ?? [];
-      // Find AJAX data loading URLs
-      const ajaxUrls = [...new Set(ordersHtml.match(/(?:url|href|src|ajax|fetch|load)\s*[:=]\s*['"][^'"]*order[^'"]*['"]/gi) ?? [])];
-      // Find /manage/orders/index or similar data endpoints
-      const manageUrls = [...new Set(ordersHtml.match(/\/manage\/orders\/\w+/g) ?? [])];
-      results.ordersPage = {
-        status: ordersPageRes.status,
-        finalUrl: ordersPageRes.url,
-        htmlLength: ordersHtml.length,
-        orderLinks: orderLinks.slice(0, 10),
-        dataSources: dataSources.slice(0, 5),
-        tableInit: tableInit.slice(0, 5),
-        orderModules: [...new Set(orderModules)].slice(0, 10),
-        ajaxUrls: ajaxUrls.slice(0, 10),
-        manageUrls: [...new Set(manageUrls)].slice(0, 10),
-        apiUrls: [...new Set(ordersHtml.match(/\/(?:bh|manage|api|shared)\/[a-z_]+\/[a-z_]+/g) ?? [])].slice(0, 20),
-      };
-
-      // Try /manage/orders/index as a data endpoint
-      const indexRes = await fetch(`${base}/manage/orders/index`, {
-        headers: ajaxHeaders,
-      });
-      const indexText = await indexRes.text();
-      results.manageOrdersIndex = {
-        status: indexRes.status,
-        contentType: indexRes.headers.get("content-type"),
-        preview: indexText.slice(0, 500),
-        isJson: indexText.trim().startsWith("{") || indexText.trim().startsWith("["),
-      };
-
-    } catch (err) {
-      results.ordersPage = { error: err instanceof Error ? err.message : String(err) };
-    }
-
-    return results;
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    results.apiSearch = { error: err instanceof Error ? err.message : String(err) };
   }
+
+  // 2. Also search by order_id (field=7=order_id? or just try id-based lookup)
+  try {
+    const apiById = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/find",
+      { field: "7", condition: "1", string: decoOrderId, limit: "5" },
+    );
+    results.apiSearchById = {
+      total: (apiById as { total?: number }).total,
+      orderCount: ((apiById as { orders?: unknown[] }).orders ?? []).length,
+    };
+  } catch (err) {
+    results.apiSearchById = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 3. Try the get endpoint directly (if it exists)
+  try {
+    const apiGet = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/get",
+      { id: decoOrderId },
+    );
+    const keys = Object.keys(apiGet);
+    results.apiGet = {
+      keys: keys.slice(0, 20),
+      hasItems: "items" in apiGet || "line_items" in apiGet || "configured_products" in apiGet,
+      preview: JSON.stringify(apiGet).slice(0, 500),
+    };
+  } catch (err) {
+    results.apiGet = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 4. Search recent orders to see what IDs look like
+  try {
+    const recent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+      "/api/json/manage_orders/find",
+      { limit: "3", offset: "0", field: "1", condition: "4", date1: "2026-03-24 00:00:00" },
+    );
+    results.recentOrders = {
+      total: recent.total,
+      orders: (recent.orders ?? []).map((o) => ({
+        order_id: o.order_id,
+        order_number: o.order_number,
+        job_number: o.job_number,
+        status: o.status,
+        date_ordered: o.date_ordered,
+        items: Array.isArray(o.items) ? o.items.length : Array.isArray(o.line_items) ? o.line_items.length : undefined,
+      })),
+    };
+  } catch (err) {
+    results.recentOrders = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return results;
 }
 
 // ── Webhook payload processing ──
