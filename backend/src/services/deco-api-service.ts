@@ -915,7 +915,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
         const name = item.sku || item.productTitle;
         const desc = item.productTitle;
         const color = extractColorFromVariant(item.variantTitle ?? "");
-        const size = extractSizeFromVariant(item.variantTitle ?? "") || item.variantTitle || "";
+        const size = extractSizeFromVariant(item.variantTitle ?? "");
         const decoMethod = item.decorationMethod ?? "";
 
         bodyPairs.push([`${prefix}[t]`, String(CP_FREE_FORM)]);
