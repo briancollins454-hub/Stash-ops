@@ -644,3 +644,62 @@ model DecoInventory {
   @@unique([decoProductId])
   @@index([sku])
 }
+
+// ── Ralawise Product Catalog (imported from CSV feed) ──
+
+model CatalogProduct {
+  id                String          @id @default(cuid())
+  styleCode         String          @unique       // e.g. "JH030"
+  manufacturerCode  String?                       // Manufacturer Style Code
+  brand             String                        // e.g. "AWDis Just Hoods"
+  name              String                        // e.g. "AWDis sweatshirt"
+  productType       String?                       // e.g. "Sweatshirts"
+  gender            String?                       // Male / Female / Unisex
+  ageGroup          String?                       // Adult / Junior
+  fabric            String?                       // e.g. "80% Ringspun Cotton..."
+  weight            String?                       // GSM value(s)
+  sizeRange         String?                       // e.g. "S to 3XL"
+  specification     String?                       // Full spec text
+  retailDescription String?                       // Marketing description
+  primaryImageUrl   String?                       // Lifestyle image URL
+  categorisation    String?                       // Pipe-separated categories
+  accreditations    String?                       // e.g. "WRAP|Oeko-Tex"
+  tag               String?                       // e.g. "Tagless"
+  sustainable       String?                       // Yes/No
+  printArea         String?
+  embroideryInfo    String?
+  sizeGuideUrl      String?
+  specSheetUrl      String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  colours           CatalogColour[]
+
+  @@index([brand])
+  @@index([productType])
+}
+
+model CatalogColour {
+  id              String          @id @default(cuid())
+  styleCode       String                          // FK to CatalogProduct
+  colourCode      String                          // e.g. "BLAC"
+  colourName      String                          // e.g. "Black"
+  imageUrl        String?                         // Colour-specific front image
+  rgb             String?                         // e.g. "51 51 51"
+  pantone         String?                         // e.g. "Black (Black)"
+  cmyk            String?                         // e.g. "0 0 0 100 (Black)"
+  primaryColour   String?                         // e.g. "Black"
+  colourShade     String?                         // e.g. "Black - Black"
+  cartonPrice     String?
+  packPrice       String?
+  singlePrice     String?
+  cartonQty       String?
+  packQty         String?
+  skuStatus       String?                         // "Live" / "Discontinued"
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  product         CatalogProduct  @relation(fields: [styleCode], references: [styleCode], onDelete: Cascade)
+
+  @@unique([styleCode, colourCode])
+  @@index([styleCode])
+  @@index([colourName])
+}

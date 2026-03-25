@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { registerAccountRoutes } from "./account-routes";
+import { registerCatalogRoutes } from "./catalog-routes";
 import { registerConversionRoutes } from "./conversion-routes";
 import { registerDecoWebhookRoutes } from "./deco-webhook-routes";
 import { registerHealthRoutes } from "./health-routes";
@@ -12,6 +13,7 @@ import { registerSyncRoutes } from "./sync-routes";
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await registerHealthRoutes(app);
   await registerAccountRoutes(app);
+  await registerCatalogRoutes(app);
   await registerConversionRoutes(app);
   await registerOrderRoutes(app);
   await registerJobRoutes(app);

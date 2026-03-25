@@ -41,7 +41,7 @@ export interface DesignerProductDetail {
   category?: string;
   colors: Array<{ id: number; name: string }>;
   sizes: Array<{ id: number; code: string }>;
-  images?: Array<{ url: string; type: string; color?: string }>;
+  images?: Array<{ url: string; type: string; color?: string; rgb?: string }>;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -376,8 +376,20 @@ export function DesignerModal({ open, onClose, onApply, productDetail, selectedC
 
   const activeColorCss = useMemo(() => {
     const selColor = effectiveColors.find((c) => c.id === activeColorId);
-    return selColor ? colorToCss(selColor.name) : undefined;
-  }, [effectiveColors, activeColorId]);
+    if (!selColor) return undefined;
+    // Prefer catalog RGB from image data (e.g. "51 51 51") over fuzzy name→hex mapping
+    const imgs = productDetail.images ?? [];
+    const colorMatch = imgs.find(
+      (i) => i.rgb && i.color && i.color.toLowerCase().replace(/\s+/g, "") === selColor.name.toLowerCase().replace(/\s+/g, ""),
+    );
+    if (colorMatch?.rgb) {
+      const parts = colorMatch.rgb.trim().split(/\s+/).map(Number);
+      if (parts.length >= 3 && parts.every((n) => !isNaN(n))) {
+        return `#${parts.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+      }
+    }
+    return colorToCss(selColor.name);
+  }, [effectiveColors, activeColorId, productDetail.images]);
 
   const { displayImage, isColorMatched } = useMemo(() => {
     const imgs = productDetail.images ?? [];

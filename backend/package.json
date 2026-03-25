@@ -18,6 +18,7 @@
     "@fastify/helmet": "^13.0.2",
     "@prisma/client": "^6.9.0",
     "bullmq": "^5.56.1",
+    "csv-parse": "^6.2.1",
     "dotenv": "^16.6.1",
     "fastify": "^5.6.1",
     "fastify-raw-body": "^5.0.0",

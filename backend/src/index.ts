@@ -30,6 +30,11 @@ export async function buildServer() {
     runFirst: true,
   });
 
+  // Parse text/csv and text/plain bodies as plain strings (for CSV import)
+  app.addContentTypeParser(["text/csv", "text/plain"], { parseAs: "string" }, (_req, body, done) => {
+    done(null, body);
+  });
+
   await app.register(registerRoutes, {
     prefix: "/api",
   });

@@ -2,6 +2,7 @@ import { EventProvider, type Prisma } from "@prisma/client";
 import { env, isDecoConfigured } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
+import { catalogImages } from "./catalog-service";
 import { createInboxEvent } from "./event-inbox-service";
 
 // ── DecoNetwork API client ──
@@ -1504,6 +1505,7 @@ export type DecoWebhookPayload = {
 export type ProductImage = {
   url: string;
   color?: string;           // colour name if colour-specific
+  rgb?: string;             // RGB values from catalog (e.g. "51 51 51")
   type: "front" | "back" | "side" | "gallery";
 };
 
@@ -1545,13 +1547,26 @@ async function fetchSupplierProductImages(
   productName?: string,
   orderSku?: string,
 ): Promise<ProductImage[]> {
-  // Primary: try Deco web session first — curated images uploaded by suppliers
+  // Priority 1: Ralawise product catalog (DB-backed, fast, reliable)
+  if (productCode) {
+    try {
+      const catImages = await catalogImages(productCode);
+      if (catImages.length > 0) {
+        logger.debug({ productCode, count: catImages.length }, "[Images] Using catalog images");
+        return catImages;
+      }
+    } catch (err) {
+      logger.debug({ err, productCode }, "[Images] Catalog lookup failed, falling back");
+    }
+  }
+
+  // Priority 2: Deco web session — curated images uploaded by suppliers
   if (decoProductId) {
     const decoImages = await fetchDecoProductImages(decoProductId);
     if (decoImages.length > 0) return decoImages;
   }
 
-  // Fallback: supplier-specific scrapers
+  // Priority 3: supplier-specific web scrapers
   const s = supplier.toLowerCase();
 
   if (s.includes("ralawise") || s.includes("pencarrie")) {
