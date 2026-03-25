@@ -60,6 +60,77 @@ export async function buildServer() {
 }
 
 async function start(): Promise<void> {
+  // Ensure catalog tables exist (idempotent)
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "CatalogProduct" (
+        "id" TEXT NOT NULL,
+        "styleCode" TEXT NOT NULL,
+        "manufacturerCode" TEXT,
+        "brand" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "productType" TEXT,
+        "gender" TEXT,
+        "ageGroup" TEXT,
+        "fabric" TEXT,
+        "weight" TEXT,
+        "sizeRange" TEXT,
+        "specification" TEXT,
+        "retailDescription" TEXT,
+        "primaryImageUrl" TEXT,
+        "categorisation" TEXT,
+        "accreditations" TEXT,
+        "tag" TEXT,
+        "sustainable" TEXT,
+        "printArea" TEXT,
+        "embroideryInfo" TEXT,
+        "sizeGuideUrl" TEXT,
+        "specSheetUrl" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL,
+        CONSTRAINT "CatalogProduct_pkey" PRIMARY KEY ("id")
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS "CatalogProduct_styleCode_key" ON "CatalogProduct"("styleCode");
+      CREATE INDEX IF NOT EXISTS "CatalogProduct_brand_idx" ON "CatalogProduct"("brand");
+      CREATE INDEX IF NOT EXISTS "CatalogProduct_productType_idx" ON "CatalogProduct"("productType");
+
+      CREATE TABLE IF NOT EXISTS "CatalogColour" (
+        "id" TEXT NOT NULL,
+        "styleCode" TEXT NOT NULL,
+        "colourCode" TEXT NOT NULL,
+        "colourName" TEXT NOT NULL,
+        "imageUrl" TEXT,
+        "rgb" TEXT,
+        "pantone" TEXT,
+        "cmyk" TEXT,
+        "primaryColour" TEXT,
+        "colourShade" TEXT,
+        "cartonPrice" TEXT,
+        "packPrice" TEXT,
+        "singlePrice" TEXT,
+        "cartonQty" TEXT,
+        "packQty" TEXT,
+        "skuStatus" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL,
+        CONSTRAINT "CatalogColour_pkey" PRIMARY KEY ("id")
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS "CatalogColour_styleCode_colourCode_key" ON "CatalogColour"("styleCode", "colourCode");
+      CREATE INDEX IF NOT EXISTS "CatalogColour_styleCode_idx" ON "CatalogColour"("styleCode");
+      CREATE INDEX IF NOT EXISTS "CatalogColour_colourName_idx" ON "CatalogColour"("colourName");
+
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CatalogColour_styleCode_fkey') THEN
+          ALTER TABLE "CatalogColour" ADD CONSTRAINT "CatalogColour_styleCode_fkey"
+            FOREIGN KEY ("styleCode") REFERENCES "CatalogProduct"("styleCode") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+    logger.info("[Startup] Catalog tables ensured");
+  } catch (err) {
+    logger.warn({ err }, "[Startup] Catalog table creation failed (non-fatal)");
+  }
+
   const app = await buildServer();
   const host = "0.0.0.0";
   await app.listen({
