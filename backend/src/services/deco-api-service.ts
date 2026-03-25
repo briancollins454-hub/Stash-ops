@@ -1342,17 +1342,27 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
         statusTests.placeOrder = { error: err instanceof Error ? err.message : String(err) };
       }
 
-      // Try update_order_status via JSON API (parameter is "new_status" not "status")
-      try {
-        const updateResult = await decoFetch<Record<string, unknown>>(
-          "/api/json/manage_orders/update_order_status",
-          { order_id: finalOrderNumber, new_status: "8" },
-        );
-        statusTests.updateStatus8 = {
-          response: JSON.stringify(updateResult).slice(0, 500),
-        };
-      } catch (err) {
-        statusTests.updateStatus8 = { error: err instanceof Error ? err.message : String(err) };
+      // Try update_order_status via JSON API with various values
+      const statusValues = ["pending", "active", "approved", "placed", "processing", "open",
+        "confirmed", "ordered", "production", "in_progress", "new", "submitted",
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+      for (const sv of statusValues) {
+        try {
+          const updateResult = await decoFetch<Record<string, unknown>>(
+            "/api/json/manage_orders/update_order_status",
+            { order_id: finalOrderNumber, new_status: sv },
+          );
+          const response = JSON.stringify(updateResult).slice(0, 300);
+          // Only log if it succeeded or gave a different error
+          if (!response.includes("invalid")) {
+            statusTests[`updateStatus_${sv}`] = { response };
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (!errMsg.includes("invalid")) {
+            statusTests[`updateStatus_${sv}`] = { error: errMsg };
+          }
+        }
       }
 
       // Now check if the order is visible
