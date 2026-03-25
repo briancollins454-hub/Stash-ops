@@ -28,16 +28,22 @@ interface DesignConfig {
   previewUrl?: string;
   stitchCount?: number;
   colorCount?: number;
-  threadColors?: string[];
+  threadColors?: string[] | string;
   dimensionWcm?: number;
   dimensionHcm?: number;
   notes?: string;
 }
 
 function getItemDesigns(item: QuoteJob["items"][number]): DesignConfig[] {
+  // Check customOptions.designs (saved from quote builder)
   const co = item.customOptions as Record<string, unknown> | null;
   if (co?.designs && Array.isArray(co.designs)) {
     return co.designs as DesignConfig[];
+  }
+  // Fallback: check metadata.designs (saved from job page "Save decoration")
+  const md = item.metadata as Record<string, unknown> | null;
+  if (md?.designs && Array.isArray(md.designs)) {
+    return md.designs as DesignConfig[];
   }
   return [];
 }
@@ -49,6 +55,29 @@ function getItemMeta(item: QuoteJob["items"][number]) {
     selectedColorId: m.selectedColorId as number | undefined,
     sizeBreakdown: m.sizeBreakdown as Record<string, number> | undefined,
   };
+}
+
+/** Derive "View" (Front/Back) from a placement string */
+function placementView(placement: string): string {
+  const p = placement.toLowerCase().replace(/[_-]/g, " ");
+  if (p.includes("back") || p.includes("full back")) return "Back";
+  if (p.includes("sleeve")) return "Side";
+  if (p.includes("collar")) return "Top";
+  return "Front";
+}
+
+/** Human-readable placement/area label */
+function humanPlacement(placement: string): string {
+  return placement
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Parse threadColors which can be string or string[] */
+function parseThreadColors(tc: string[] | string | undefined): string[] {
+  if (!tc) return [];
+  if (Array.isArray(tc)) return tc;
+  return tc.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export function QuotePrintView({ job }: { job: QuoteJob }) {
@@ -397,81 +426,96 @@ function ProductDetailPage({
       {/* Graphics Used Section */}
       {designs.length > 0 && (
         <div className="graphics-section">
-          <h3>Graphics Used in this Product</h3>
-          {designs.map((design, di) => (
-            <div key={di} className="graphic-row">
-              <div className="graphic-image">
-                {(design.previewUrl || design.artworkUrl) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={design.previewUrl || design.artworkUrl || ""}
-                    alt={design.artworkName || "Design"}
-                    crossOrigin="anonymous"
-                  />
-                ) : (
-                  <div className="graphic-placeholder">No Preview</div>
-                )}
+          <h3>Graphics Used for {item.productTitle}</h3>
+          {designs.map((design, di) => {
+            const colors = parseThreadColors(design.threadColors);
+            return (
+              <div key={di} className="graphic-row">
+                <div className="graphic-image">
+                  {(design.previewUrl || design.artworkUrl) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={design.previewUrl || design.artworkUrl || ""}
+                      alt={design.artworkName || "Design"}
+                    />
+                  ) : (
+                    <div className="graphic-placeholder">No Preview</div>
+                  )}
+                </div>
+                <div className="graphic-details">
+                  <table className="graphic-info-table">
+                    <tbody>
+                      {design.artworkName && (
+                        <tr>
+                          <td className="label">Graphic Name</td>
+                          <td>{design.artworkName}</td>
+                        </tr>
+                      )}
+                      {(design.dimensionWcm || design.dimensionHcm) && (
+                        <tr>
+                          <td className="label">Size</td>
+                          <td>
+                            {design.dimensionWcm?.toFixed(2) ?? "—"}cm × {design.dimensionHcm?.toFixed(2) ?? "—"}cm
+                          </td>
+                        </tr>
+                      )}
+                      {design.placement && (
+                        <>
+                          <tr>
+                            <td className="label">View</td>
+                            <td>{placementView(design.placement)}</td>
+                          </tr>
+                          <tr>
+                            <td className="label">Area</td>
+                            <td>{humanPlacement(design.placement)}</td>
+                          </tr>
+                        </>
+                      )}
+                      {design.decorationMethod && (
+                        <tr>
+                          <td className="label">Process</td>
+                          <td>{design.decorationMethod}</td>
+                        </tr>
+                      )}
+                      {design.stitchCount != null && design.stitchCount > 0 && (
+                        <tr>
+                          <td className="label">Stitch Count</td>
+                          <td>{design.stitchCount.toLocaleString()}</td>
+                        </tr>
+                      )}
+                      {colors.length > 0 && (
+                        <tr>
+                          <td className="label">Colorway Colors</td>
+                          <td>
+                            <div className="thread-colors">
+                              {colors.map((tc, ci) => (
+                                <span key={ci} className="thread-swatch">
+                                  <span className="swatch-dot" style={{ background: tc.startsWith("#") ? tc : undefined }} />
+                                  {tc}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {design.colorCount != null && design.colorCount > 0 && !colors.length && (
+                        <tr>
+                          <td className="label">Color Count</td>
+                          <td>{design.colorCount}</td>
+                        </tr>
+                      )}
+                      {design.notes && (
+                        <tr>
+                          <td className="label">Notes</td>
+                          <td>{design.notes}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="graphic-details">
-                <table className="graphic-info-table">
-                  <tbody>
-                    {design.artworkName && (
-                      <tr>
-                        <td className="label">Graphic Name</td>
-                        <td>{design.artworkName}</td>
-                      </tr>
-                    )}
-                    {(design.dimensionWcm || design.dimensionHcm) && (
-                      <tr>
-                        <td className="label">Size</td>
-                        <td>
-                          {design.dimensionWcm?.toFixed(2) ?? "—"} cm × {design.dimensionHcm?.toFixed(2) ?? "—"} cm
-                        </td>
-                      </tr>
-                    )}
-                    {design.placement && (
-                      <tr>
-                        <td className="label">View / Area</td>
-                        <td>{design.placement}</td>
-                      </tr>
-                    )}
-                    {design.decorationMethod && (
-                      <tr>
-                        <td className="label">Process</td>
-                        <td>{design.decorationMethod}</td>
-                      </tr>
-                    )}
-                    {design.stitchCount != null && design.stitchCount > 0 && (
-                      <tr>
-                        <td className="label">Stitch Count</td>
-                        <td>{design.stitchCount.toLocaleString()}</td>
-                      </tr>
-                    )}
-                    {design.threadColors && design.threadColors.length > 0 && (
-                      <tr>
-                        <td className="label">Thread Colors</td>
-                        <td>
-                          <div className="thread-colors">
-                            {design.threadColors.map((tc, ci) => (
-                              <span key={ci} className="thread-swatch">
-                                {tc}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {design.colorCount != null && design.colorCount > 0 && (
-                      <tr>
-                        <td className="label">Color Count</td>
-                        <td>{design.colorCount}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -916,11 +960,21 @@ const printStyles = `
     gap: 4px;
   }
   .thread-swatch {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 2px 8px;
     background: #f0f0f0;
     border: 1px solid #ddd;
     border-radius: 3px;
     font-size: 10px;
+  }
+  .swatch-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    border: 1px solid #ccc;
+    flex-shrink: 0;
   }
 `;
