@@ -1860,39 +1860,46 @@ export async function debugDecoProductViews(decoProductId: number): Promise<Reco
       signal: AbortSignal.timeout(15_000),
     });
     const html = await res.text();
-    // Extract all product_view_image URLs with surrounding context (200 chars each side)
-    const viewContexts: Array<{ url: string; before: string; after: string }> = [];
-    const viewPattern = /\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g;
+
+    // Extract ProductView JSON structures: product.views.add(new ProductView({...}));
+    const viewPattern = /new ProductView\((\{[^)]+\})\)/g;
+    const views: Array<{ name?: string; id?: number; imageUrls: string[]; imageCount: number; raw?: string }> = [];
     let m;
     while ((m = viewPattern.exec(html)) !== null) {
-      const start = Math.max(0, m.index - 300);
-      const end = Math.min(html.length, m.index + m[0].length + 300);
-      viewContexts.push({
-        url: m[0],
-        before: html.substring(start, m.index).replace(/\s+/g, " "),
-        after: html.substring(m.index + m[0].length, end).replace(/\s+/g, " "),
-      });
+      try {
+        const jsonStr = m[1];
+        // Extract name field
+        const nameMatch = jsonStr.match(/"name"\s*:\s*"([^"]+)"/);
+        const idMatch = jsonStr.match(/"id"\s*:\s*(\d+)/);
+        // Extract all image URLs within this view
+        const imgUrls: string[] = [];
+        const imgPattern = /\/product_view_image\/s\/image\/[^"?\s]+/g;
+        let im;
+        while ((im = imgPattern.exec(jsonStr)) !== null) {
+          imgUrls.push(im[0]);
+        }
+        views.push({
+          name: nameMatch?.[1],
+          id: idMatch ? Number(idMatch[1]) : undefined,
+          imageUrls: imgUrls.slice(0, 5), // First 5 per view
+          imageCount: imgUrls.length,
+          raw: jsonStr.substring(0, 200),
+        });
+      } catch { /* skip */ }
     }
-    // Also look for view labels/headings in the HTML
-    const viewLabels: string[] = [];
-    const labelPattern = /(?:view|location|position|side|sleeve|front|back|left|right)[^<]{0,100}/gi;
-    let lm;
-    while ((lm = labelPattern.exec(html)) !== null) {
-      viewLabels.push(lm[0].trim().substring(0, 150));
+
+    // Also try broader pattern for views data
+    const viewDataPattern = /"name"\s*:\s*"([^"]+)"[^}]*?"images"\s*:\s*\[/g;
+    const rawViewNames: string[] = [];
+    while ((m = viewDataPattern.exec(html)) !== null) {
+      rawViewNames.push(m[1]);
     }
-    // Look for product_view related sections
-    const viewSections: string[] = [];
-    const sectionPattern = /product.view[^<]{0,200}/gi;
-    let sm;
-    while ((sm = sectionPattern.exec(html)) !== null) {
-      viewSections.push(sm[0].trim().substring(0, 200));
-    }
+
     return {
       totalHtmlLength: html.length,
-      viewImageCount: viewContexts.length,
-      viewContexts: viewContexts.slice(0, 10),
-      viewLabels: viewLabels.slice(0, 30),
-      viewSections: viewSections.slice(0, 20),
+      productViewCount: views.length,
+      views,
+      rawViewNames,
       hasLoginRedirect: html.includes("Login Private"),
     };
   } catch (err) {
