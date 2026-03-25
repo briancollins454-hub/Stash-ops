@@ -5,8 +5,35 @@ import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { createManualJob } from "../services/order-service";
 import { fetchDecoProductDetail } from "../services/deco-api-service";
+import { catalogLookup, catalogImages } from "../services/catalog-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 import { emailQuote } from "../services/quote-email-service";
+
+// ── Size range parser ──
+
+const SIZE_ORDER = [
+  "XXS", "XS", "S", "M", "L", "XL", "2XL", "XXL", "3XL", "XXXL", "4XL", "XXXXL", "5XL", "6XL",
+  "3-4", "5-6", "7-8", "9-10", "11-12", "13",
+  "ONE SIZE",
+];
+
+function parseSizeRange(range: string): string[] {
+  if (!range) return ["ONE SIZE"];
+  // Handle "S to 3XL" or "S - 3XL" patterns
+  const toMatch = range.match(/^(\S+)\s+(?:to|-)\s+(\S+)$/i);
+  if (toMatch) {
+    const startIdx = SIZE_ORDER.findIndex((s) => s.toLowerCase() === toMatch[1].toLowerCase());
+    const endIdx = SIZE_ORDER.findIndex((s) => s.toLowerCase() === toMatch[2].toLowerCase());
+    if (startIdx >= 0 && endIdx >= 0 && endIdx >= startIdx) {
+      return SIZE_ORDER.slice(startIdx, endIdx + 1);
+    }
+  }
+  // Handle comma-separated "S, M, L, XL"
+  const parts = range.split(/[,/]+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length > 1) return parts;
+  // Single value
+  return [range.trim()];
+}
 
 // ── Schemas ──
 
@@ -392,13 +419,77 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // ── Product detail (live from Deco API — colors, sizes, per-SKU pricing) ──
+  // ── Product detail (DB-first, Deco API fallback) ──
   app.get("/v1/quotes/products/:decoProductId/detail", async (request, reply) => {
     const { decoProductId } = z.object({ decoProductId: z.string() }).parse(request.params);
-    const { sku } = z.object({ sku: z.string().optional() }).parse(request.query);
+    const { sku: querySku } = z.object({ sku: z.string().optional() }).parse(request.query);
 
+    // Step 1: Look up the DecoProduct in our DB to get the SKU / product code
+    const decoProduct = await prisma.decoProduct.findUnique({
+      where: { decoProductId },
+    });
+
+    const productCode = querySku || decoProduct?.sku || "";
+
+    // Step 2: Try to build detail from local CatalogProduct + CatalogColour
+    if (productCode) {
+      try {
+        const catalog = await catalogLookup(productCode);
+        if (catalog && catalog.colours.length > 0) {
+          // Build colors array from catalog colours (use index as ID for stability)
+          const colors = catalog.colours
+            .filter((c) => c.skuStatus !== "Discontinued")
+            .map((c, i) => ({
+              id: i + 1,
+              name: c.colourName.replace(/[*†]+$/g, "").trim(),
+            }));
+
+          // Parse sizes from catalog sizeRange (e.g. "S to 3XL")
+          const sizeNames = parseSizeRange(catalog.sizeRange ?? "");
+          const sizes = sizeNames.map((s, i) => ({ id: i + 1, name: s, code: s }));
+
+          // Build SKU grid (color × size) with pricing from catalog
+          const skus: Array<{ sizeId: number; colorId: number; price: number; cost: number; sku: string; dnSkuId: string }> = [];
+          for (const [ci, colour] of catalog.colours.filter((c) => c.skuStatus !== "Discontinued").entries()) {
+            const price = colour.singlePrice ? parseFloat(colour.singlePrice) : 0;
+            for (const [si] of sizes.entries()) {
+              skus.push({
+                sizeId: si + 1,
+                colorId: ci + 1,
+                price,
+                cost: 0,
+                sku: `${productCode}-${colour.colourCode}-${sizes[si].code}`,
+                dnSkuId: "",
+              });
+            }
+          }
+
+          // Get images from catalog
+          const images = await catalogImages(productCode);
+
+          logger.info({ decoProductId, productCode, colors: colors.length, sizes: sizes.length, images: images.length }, "Product detail served from local catalog");
+
+          return {
+            productId: parseInt(decoProductId) || 0,
+            productCode: catalog.styleCode,
+            productName: catalog.name,
+            supplier: catalog.brand,
+            brand: catalog.brand,
+            category: catalog.productType ?? decoProduct?.category ?? "",
+            colors,
+            sizes,
+            skus,
+            images,
+          };
+        }
+      } catch (err) {
+        logger.warn({ err, productCode }, "Catalog lookup failed, falling back to Deco API");
+      }
+    }
+
+    // Step 3: Fallback to live Deco API
     try {
-      const detail = await fetchDecoProductDetail(decoProductId, sku);
+      const detail = await fetchDecoProductDetail(decoProductId, querySku);
       return detail;
     } catch (err) {
       reply.status(502);
