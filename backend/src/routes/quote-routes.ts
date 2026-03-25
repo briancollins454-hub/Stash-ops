@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail, findDecoProductBySku } from "../services/deco-api-service";
+import { fetchDecoProductDetail } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 import { emailQuote } from "../services/quote-email-service";
 
@@ -353,12 +353,14 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
         const itemMeta = (item.metadata ?? {}) as Record<string, unknown>;
         let decoProductId = itemMeta.decoProductId as string | undefined;
 
-        // Fallback: look up product by SKU if decoProductId wasn't saved
+        // Fallback: look up product by SKU from local DB if decoProductId wasn't saved
         if (!decoProductId && item.sku) {
-          try {
-            decoProductId = (await findDecoProductBySku(item.sku)) ?? undefined;
-          } catch {
-            // ignore lookup failures
+          const localProduct = await prisma.decoProduct.findFirst({
+            where: { sku: { equals: item.sku, mode: "insensitive" }, active: true },
+            select: { decoProductId: true },
+          });
+          if (localProduct) {
+            decoProductId = localProduct.decoProductId;
           }
         }
 
