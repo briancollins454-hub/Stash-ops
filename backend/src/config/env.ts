@@ -27,6 +27,13 @@ const envSchema = z.object({
   DECO_PASSWORD: z.string().optional(),
   DECO_WEBHOOK_SECRET: z.string().optional(),
   DECO_SYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(25_000),
+
+  // ── Email (SMTP) ──
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default("Marx Corporate <accounts@marxcorporate.com>"),
 });
 
 export const env = envSchema.parse(process.env);
@@ -37,5 +44,9 @@ export function isShopifyConfigured(): boolean {
 
 export function isDecoConfigured(): boolean {
   return Boolean(env.DECO_BASE_URL && env.DECO_USERNAME && env.DECO_PASSWORD);
+}
+
+export function isSmtpConfigured(): boolean {
+  return Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
 }
 

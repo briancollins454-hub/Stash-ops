@@ -561,6 +561,36 @@ export default function QuoteBuilderPage() {
             <button
               className="btn"
               style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+              onClick={() => window.open(`/quotes/${result.jobId}/print`, "_blank")}
+            >
+              🖨 Print / PDF
+            </button>
+            <button
+              className="btn"
+              style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+              onClick={async () => {
+                if (!customerEmail) {
+                  alert("No customer email address on this quote.");
+                  return;
+                }
+                try {
+                  const res = await fetch(`/api/quotes/${result.jobId}/email`, { method: "POST" });
+                  const data = await res.json() as { ok?: boolean; error?: string };
+                  if (data.ok) {
+                    alert(`Quote emailed to ${customerEmail}`);
+                  } else {
+                    alert(data.error ?? "Failed to send email.");
+                  }
+                } catch {
+                  alert("Network error sending email.");
+                }
+              }}
+            >
+              ✉ Email Quote
+            </button>
+            <button
+              className="btn"
+              style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
               onClick={() => {
                 setResult(null);
                 setStep("Customer");

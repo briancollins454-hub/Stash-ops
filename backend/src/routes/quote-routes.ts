@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { createManualJob } from "../services/order-service";
 import { fetchDecoProductDetail } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
+import { emailQuote } from "../services/quote-email-service";
 
 // ── Schemas ──
 
@@ -310,5 +311,11 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
         { key: "other", label: "Other", description: "Custom method" },
       ],
     };
+  });
+
+  // ── Email quote to customer ──
+  app.post("/v1/quotes/:jobId/email", async (request) => {
+    const { jobId } = request.params as { jobId: string };
+    return emailQuote(jobId);
   });
 }

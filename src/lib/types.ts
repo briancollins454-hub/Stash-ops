@@ -110,6 +110,7 @@ export interface JobDetail {
   customerName: string | null;
   customerEmail: string | null;
   customerCompany: string | null;
+  customerPhone: string | null;
   schoolName: string | null;
   clubName: string | null;
   leaversYear: string | null;
@@ -142,6 +143,7 @@ export interface JobDetail {
   account: JobAccountInfo | null;
   externalLinks: JobExternalLink[];
   activityLogs: JobActivityEntry[];
+  metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 }
