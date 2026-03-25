@@ -1105,7 +1105,7 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
         order_number: o.order_number,
         job_number: o.job_number,
         status: o.status,
-        customer_name: o.customer_name ?? o.billing_details && (o.billing_details as Record<string, unknown>).name,
+        customer_name: o.customer_name ?? (o.billing_details ? (o.billing_details as Record<string, unknown>).name : undefined),
         items: o.items ?? o.line_items ?? o.configured_products,
         item_count: Array.isArray(o.items) ? o.items.length : Array.isArray(o.line_items) ? o.line_items.length : undefined,
         keys: Object.keys(o).slice(0, 30),
