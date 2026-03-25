@@ -120,6 +120,11 @@ async function start(): Promise<void> {
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogColour_styleCode_idx" ON "CatalogColour"("styleCode")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CatalogColour_colourName_idx" ON "CatalogColour"("colourName")`);
 
+    // Add image view columns if they don't exist yet
+    for (const col of ["backImageUrl", "sideImageUrl", "modelImageUrl", "detailImageUrl"]) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "CatalogColour" ADD COLUMN IF NOT EXISTS "${col}" TEXT`);
+    }
+
     // Add foreign key if not exists
     const fkExists = await prisma.$queryRawUnsafe<Array<{exists: boolean}>>(`SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname = 'CatalogColour_styleCode_fkey') as exists`);
     if (!fkExists[0]?.exists) {

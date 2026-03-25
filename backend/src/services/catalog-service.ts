@@ -91,16 +91,20 @@ export async function catalogImages(
     images.push({ url: product.primaryImageUrl, type: "front" });
   }
 
-  // Per-colour front images
+  // Per-colour images: front, back, side
   for (const colour of product.colours) {
-    if (colour.imageUrl && colour.skuStatus !== "Discontinued") {
-      const cleanName = colour.colourName.replace(/[*†]+$/g, "").trim();
-      images.push({
-        url: colour.imageUrl,
-        type: "front",
-        color: cleanName,
-        rgb: colour.rgb ?? undefined,
-      });
+    if (colour.skuStatus === "Discontinued") continue;
+    const cleanName = colour.colourName.replace(/[*†]+$/g, "").trim();
+    const rgbVal = colour.rgb ?? undefined;
+
+    if (colour.imageUrl) {
+      images.push({ url: colour.imageUrl, type: "front", color: cleanName, rgb: rgbVal });
+    }
+    if (colour.backImageUrl) {
+      images.push({ url: colour.backImageUrl, type: "back", color: cleanName, rgb: rgbVal });
+    }
+    if (colour.sideImageUrl) {
+      images.push({ url: colour.sideImageUrl, type: "side", color: cleanName, rgb: rgbVal });
     }
   }
 
@@ -139,22 +143,37 @@ export async function catalogSearch(
 
 // ── CSV Import ──
 
+// Supports both the old Ralawise CSV and the new PenCarrie/FullCollection CSV
 interface CsvRow {
   "Style Code": string;
   "Manufacturer Style Code"?: string;
+  "Supplier Code"?: string;
   Brand: string;
-  "Style Name": string;
-  "Colour Code": string;
-  "Colour Name": string;
+  "Style Name"?: string;
+  Title?: string;
+  "Colour Code"?: string;
+  "Colourway Code"?: string;
+  "Colour Name"?: string;
+  "Colourway Name"?: string;
+  "Colour Group"?: string;
   "Product Type"?: string;
+  Type?: string;
   Gender?: string;
   "Age Group"?: string;
   Fabric?: string;
+  Material?: string;
   "Weight (GSM)"?: string;
+  Weight?: string;
   "Size Range"?: string;
   Specification?: string;
   "Retail Description"?: string;
+  Body?: string;
   "Primary Product Image URL"?: string;
+  "Model Image"?: string;
+  "Front Image"?: string;
+  "Back Image"?: string;
+  "Side Image"?: string;
+  "Detail Image"?: string;
   "Colour Image"?: string;
   RGB?: string;
   Pantone?: string;
@@ -162,7 +181,10 @@ interface CsvRow {
   "Primary Colour"?: string;
   "Colour Shade"?: string;
   Categorisation?: string;
+  "Suggested Categories"?: string;
   Accreditations?: string;
+  Certifications?: string;
+  Features?: string;
   Tag?: string;
   "Sustainable/Organic"?: string;
   "Print Area"?: string;
@@ -170,11 +192,16 @@ interface CsvRow {
   "Size Guide"?: string;
   "Spec Sheet"?: string;
   "Carton Price"?: string;
+  "Carton List Price"?: string;
   "Pack Price"?: string;
+  "Pack List Price"?: string;
   "Single Price"?: string;
+  "Single List Price"?: string;
   "Carton Quantity"?: string;
   "Pack Quantity"?: string;
   "Sku Status"?: string;
+  Discontinued?: string;
+  [key: string]: string | undefined;
 }
 
 /** Import catalog data from parsed CSV rows */
@@ -190,7 +217,8 @@ export async function importCatalogFromRows(rows: CsvRow[]): Promise<{ products:
       styleMap.set(styleCode, { product: row, colours: new Map() });
     }
 
-    const colourCode = (row["Colour Code"] ?? "").trim();
+    // Support both old "Colour Code" and new "Colourway Code"
+    const colourCode = (row["Colour Code"] ?? row["Colourway Code"] ?? "").trim();
     if (colourCode) {
       const entry = styleMap.get(styleCode)!;
       if (!entry.colours.has(colourCode)) {
@@ -213,93 +241,63 @@ export async function importCatalogFromRows(rows: CsvRow[]): Promise<{ products:
       for (const [styleCode, data] of batch) {
         const row = data.product;
 
-        // Upsert the product
+        // Support both old (Ralawise) and new (PenCarrie/FullCollection) CSV column names
+        const productData = {
+          manufacturerCode: s(row["Manufacturer Style Code"] ?? row["Supplier Code"]),
+          brand: s(row.Brand) ?? "Unknown",
+          name: s(row["Style Name"] ?? row.Title) ?? styleCode,
+          productType: s(row["Product Type"] ?? row.Type),
+          gender: s(row.Gender),
+          ageGroup: s(row["Age Group"]),
+          fabric: s(row.Fabric ?? row.Material),
+          weight: s(row["Weight (GSM)"] ?? row.Weight),
+          sizeRange: s(row["Size Range"]),
+          specification: s(row.Specification),
+          retailDescription: s(row["Retail Description"] ?? row.Body),
+          primaryImageUrl: s(row["Primary Product Image URL"] ?? row["Model Image"]),
+          categorisation: s(row.Categorisation ?? row["Suggested Categories"]),
+          accreditations: s(row.Accreditations ?? row.Certifications),
+          tag: s(row.Tag ?? row.Features),
+          sustainable: s(row["Sustainable/Organic"]),
+          printArea: s(row["Print Area"]),
+          embroideryInfo: s(row["Embroidery Information"]),
+          sizeGuideUrl: s(row["Size Guide"]),
+          specSheetUrl: s(row["Spec Sheet"]),
+        };
+
         await tx.catalogProduct.upsert({
           where: { styleCode },
-          create: {
-            styleCode,
-            manufacturerCode: s(row["Manufacturer Style Code"]),
-            brand: s(row.Brand) ?? "Unknown",
-            name: s(row["Style Name"]) ?? styleCode,
-            productType: s(row["Product Type"]),
-            gender: s(row.Gender),
-            ageGroup: s(row["Age Group"]),
-            fabric: s(row.Fabric),
-            weight: s(row["Weight (GSM)"]),
-            sizeRange: s(row["Size Range"]),
-            specification: s(row.Specification),
-            retailDescription: s(row["Retail Description"]),
-            primaryImageUrl: s(row["Primary Product Image URL"]),
-            categorisation: s(row.Categorisation),
-            accreditations: s(row.Accreditations),
-            tag: s(row.Tag),
-            sustainable: s(row["Sustainable/Organic"]),
-            printArea: s(row["Print Area"]),
-            embroideryInfo: s(row["Embroidery Information"]),
-            sizeGuideUrl: s(row["Size Guide"]),
-            specSheetUrl: s(row["Spec Sheet"]),
-          },
-          update: {
-            manufacturerCode: s(row["Manufacturer Style Code"]),
-            brand: s(row.Brand) ?? "Unknown",
-            name: s(row["Style Name"]) ?? styleCode,
-            productType: s(row["Product Type"]),
-            gender: s(row.Gender),
-            ageGroup: s(row["Age Group"]),
-            fabric: s(row.Fabric),
-            weight: s(row["Weight (GSM)"]),
-            sizeRange: s(row["Size Range"]),
-            specification: s(row.Specification),
-            retailDescription: s(row["Retail Description"]),
-            primaryImageUrl: s(row["Primary Product Image URL"]),
-            categorisation: s(row.Categorisation),
-            accreditations: s(row.Accreditations),
-            tag: s(row.Tag),
-            sustainable: s(row["Sustainable/Organic"]),
-            printArea: s(row["Print Area"]),
-            embroideryInfo: s(row["Embroidery Information"]),
-            sizeGuideUrl: s(row["Size Guide"]),
-            specSheetUrl: s(row["Spec Sheet"]),
-          },
+          create: { styleCode, ...productData },
+          update: productData,
         });
         productCount++;
 
         // Upsert colours
         for (const [colourCode, cRow] of data.colours) {
+          const colourData = {
+            colourName: s(cRow["Colour Name"] ?? cRow["Colourway Name"]) ?? colourCode,
+            imageUrl: s(cRow["Colour Image"] ?? cRow["Front Image"]),
+            backImageUrl: s(cRow["Back Image"]),
+            sideImageUrl: s(cRow["Side Image"]),
+            modelImageUrl: s(cRow["Model Image"]),
+            detailImageUrl: s(cRow["Detail Image"]),
+            rgb: s(cRow.RGB),
+            pantone: s(cRow.Pantone),
+            cmyk: s(cRow.CMYK),
+            primaryColour: s(cRow["Primary Colour"]),
+            colourShade: s(cRow["Colour Shade"] ?? cRow["Colour Group"]),
+            cartonPrice: s(cRow["Carton Price"] ?? cRow["Carton List Price"]),
+            packPrice: s(cRow["Pack Price"] ?? cRow["Pack List Price"]),
+            singlePrice: s(cRow["Single Price"] ?? cRow["Single List Price"]),
+            cartonQty: s(cRow["Carton Quantity"]),
+            packQty: s(cRow["Pack Quantity"]),
+            skuStatus: cRow.Discontinued === "TRUE" ? "Discontinued" : s(cRow["Sku Status"]),
+          };
+
           await tx.catalogColour.upsert({
             where: { styleCode_colourCode: { styleCode, colourCode } },
-            create: {
-              styleCode,
-              colourCode,
-              colourName: s(cRow["Colour Name"]) ?? colourCode,
-              imageUrl: s(cRow["Colour Image"]),
-              rgb: s(cRow.RGB),
-              pantone: s(cRow.Pantone),
-              cmyk: s(cRow.CMYK),
-              primaryColour: s(cRow["Primary Colour"]),
-              colourShade: s(cRow["Colour Shade"]),
-              cartonPrice: s(cRow["Carton Price"]),
-              packPrice: s(cRow["Pack Price"]),
-              singlePrice: s(cRow["Single Price"]),
-              cartonQty: s(cRow["Carton Quantity"]),
-              packQty: s(cRow["Pack Quantity"]),
-              skuStatus: s(cRow["Sku Status"]),
-            },
-            update: {
-              colourName: s(cRow["Colour Name"]) ?? colourCode,
-              imageUrl: s(cRow["Colour Image"]),
-              rgb: s(cRow.RGB),
-              pantone: s(cRow.Pantone),
-              cmyk: s(cRow.CMYK),
-              primaryColour: s(cRow["Primary Colour"]),
-              colourShade: s(cRow["Colour Shade"]),
-              cartonPrice: s(cRow["Carton Price"]),
-              packPrice: s(cRow["Pack Price"]),
-              singlePrice: s(cRow["Single Price"]),
-              cartonQty: s(cRow["Carton Quantity"]),
-              packQty: s(cRow["Pack Quantity"]),
-              skuStatus: s(cRow["Sku Status"]),
-            },
+            create: { styleCode, colourCode, ...colourData },
+            update: colourData,
           });
           colourCount++;
         }

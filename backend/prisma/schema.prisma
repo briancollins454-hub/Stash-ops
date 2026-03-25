@@ -684,6 +684,10 @@ model CatalogColour {
   colourCode      String                          // e.g. "BLAC"
   colourName      String                          // e.g. "Black"
   imageUrl        String?                         // Colour-specific front image
+  backImageUrl    String?                         // Back view image URL
+  sideImageUrl    String?                         // Side view image URL
+  modelImageUrl   String?                         // Model/lifestyle image URL
+  detailImageUrl  String?                         // Detail/closeup image URL
   rgb             String?                         // e.g. "51 51 51"
   pantone         String?                         // e.g. "Black (Black)"
   cmyk            String?                         // e.g. "0 0 0 100 (Black)"
