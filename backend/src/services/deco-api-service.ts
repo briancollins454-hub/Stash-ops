@@ -1145,14 +1145,30 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
     results.apiGet = { error: err instanceof Error ? err.message : String(err) };
   }
 
-  // 4. Search recent orders and show full order_lines for the target order
+  // 4. Search by job name (field=3=job_name, condition=3=contains)
+  try {
+    const nameSearch = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+      "/api/json/manage_orders/find",
+      { field: "3", condition: "3", string: decoOrderId, limit: "5" },
+    );
+    results.nameSearch = {
+      total: (nameSearch as { total?: number }).total,
+      orders: ((nameSearch as { orders?: Array<Record<string, unknown>> }).orders ?? []).map((o) => ({
+        order_id: o.order_id,
+        job_name: o.job_name,
+      })),
+    };
+  } catch (err) {
+    results.nameSearch = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 5. Get all recent orders (bigger limit) with full order_lines for target
   try {
     const recent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
       "/api/json/manage_orders/find",
-      { limit: "20", offset: "0", field: "1", condition: "4", date1: "2026-03-01 00:00:00" },
+      { limit: "50", offset: "0", field: "1", condition: "4", date1: "2026-03-20 00:00:00" },
     );
     const targetOrder = (recent.orders ?? []).find((o) => String(o.order_id) === decoOrderId);
-    // Full order_lines for the target order
     if (targetOrder) {
       results.targetOrder = {
         order_id: targetOrder.order_id,
@@ -1164,34 +1180,20 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
         notes: targetOrder.notes,
       };
     } else {
-      results.targetOrder = { found: false, searched: decoOrderId };
+      results.targetOrder = { found: false, searched: decoOrderId, totalInPeriod: recent.total };
     }
-    // Summary of all recent orders (id + name only)
-    results.allRecentOrders = (recent.orders ?? []).map((o) => ({
-      order_id: o.order_id,
-      job_name: o.job_name,
-      item_amount: o.item_amount,
-      order_lines_count: Array.isArray(o.order_lines) ? o.order_lines.length : 0,
-    }));
-  } catch (err) {
-    results.recentOrders = { error: err instanceof Error ? err.message : String(err) };
-  }
-
-  // 5. Also try searching by cart/quote ID (the long numeric ID from create_quote)
-  try {
-    const cartSearch = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
-      "/api/json/manage_orders/find",
-      { field: "0", condition: "1", string: decoOrderId, limit: "5" },
-    );
-    results.cartSearch = {
-      total: (cartSearch as { total?: number }).total,
-      orders: ((cartSearch as { orders?: Array<Record<string, unknown>> }).orders ?? []).map((o) => ({
+    // Summary of all recent orders
+    results.allRecentOrders = {
+      total: recent.total,
+      orders: (recent.orders ?? []).map((o) => ({
         order_id: o.order_id,
         job_name: o.job_name,
+        item_amount: o.item_amount,
+        order_lines_count: Array.isArray(o.order_lines) ? o.order_lines.length : 0,
       })),
     };
   } catch (err) {
-    results.cartSearch = { error: err instanceof Error ? err.message : String(err) };
+    results.recentOrders = { error: err instanceof Error ? err.message : String(err) };
   }
 
   return results;
