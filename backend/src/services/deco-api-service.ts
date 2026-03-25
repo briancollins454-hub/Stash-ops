@@ -1804,36 +1804,61 @@ async function fetchDecoProductImages(decoProductId: number): Promise<ProductIma
     const images: ProductImage[] = [];
     const seen = new Set<string>();
 
-    // 1. Main display image: /supplier_product/s/display_image/{a}/{b}/{c}/filename.jpg
-    for (const m of html.matchAll(/\/supplier_product\/s\/display_image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
-      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1"); // strip size suffix
-      const url = `${base}/supplier_product/s/display_image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
-      if (!seen.has(url)) {
+    // ── Strategy A: Parse product view structures from inline JS ──
+    // Deco embeds view data as JSON objects with "name", "areas", "images" fields.
+    // Each "images":[ { "url": "/product_view_image/s/image/..." } ] array is
+    // preceded (up to ~2000 chars) by the view's "name" field.
+    const imgArrayPattern = /"images"\s*:\s*\[/g;
+    let am;
+    while ((am = imgArrayPattern.exec(html)) !== null) {
+      // Search back up to 10000 chars for the nearest "name" field (view name)
+      const searchStart = Math.max(0, am.index - 10000);
+      const beforeCtx = html.substring(searchStart, am.index);
+      const nameMatches = [...beforeCtx.matchAll(/"name"\s*:\s*"([^"]+)"/g)];
+      const viewName = nameMatches.length > 0 ? nameMatches[nameMatches.length - 1][1] : "";
+
+      // Map view name → image type
+      const viewType = classifyViewName(viewName);
+
+      // Extract all product_view_image URLs from this images array (until closing "]")
+      const afterCtx = html.substring(am.index, Math.min(html.length, am.index + 100000));
+      const closeBracket = afterCtx.indexOf("]");
+      const imagesSection = closeBracket > 0 ? afterCtx.substring(0, closeBracket) : afterCtx.substring(0, 50000);
+
+      for (const vm of imagesSection.matchAll(/\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
+        const filename = vm[4].replace(/\?\d+$/, ""); // strip timestamp suffix
+        const cleanFilename = filename.replace(/-\d+(\.\w+)$/, "$1"); // strip size suffix
+        const url = `${base}/product_view_image/s/image/${vm[1]}/${vm[2]}/${vm[3]}/${cleanFilename}`;
+        if (seen.has(url)) continue;
         seen.add(url);
-        const viewType = classifyFilename(filename);
-        images.push({ url, type: viewType });
+
+        // Extract colour from filename: "Purple.jpg" → "Purple", "PowderBlue.jpg" → "Powder Blue"
+        const colourName = cleanFilename.replace(/\.\w+$/, "")
+          .replace(/([a-z])([A-Z])/g, "$1 $2") // camelCase → "Camel Case"
+          .replace(/_/g, " ");
+
+        images.push({ url, type: viewType, color: colourName });
       }
     }
 
-    // 2. Extra product images: /supplier_product_image/s/image/{a}/{b}/{c}/filename.jpg
+    // ── Strategy B (fallback): Extract non-view images ──
+    // 1. Main display image: /supplier_product/s/display_image/{a}/{b}/{c}/filename
+    for (const m of html.matchAll(/\/supplier_product\/s\/display_image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
+      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1");
+      const url = `${base}/supplier_product/s/display_image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        images.push({ url, type: classifyFilename(filename) });
+      }
+    }
+
+    // 2. Extra product images: /supplier_product_image/s/image/{a}/{b}/{c}/filename
     for (const m of html.matchAll(/\/supplier_product_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
       const filename = m[4].replace(/-\d+(\.\w+)$/, "$1");
       const url = `${base}/supplier_product_image/s/image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
       if (!seen.has(url)) {
         seen.add(url);
-        const viewType = classifyFilename(filename);
-        images.push({ url, type: viewType });
-      }
-    }
-
-    // 3. Product view images: /product_view_image/s/image/{a}/{b}/{c}/filename.jpg
-    for (const m of html.matchAll(/\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)) {
-      const filename = m[4].replace(/-\d+(\.\w+)$/, "$1");
-      const url = `${base}/product_view_image/s/image/${m[1]}/${m[2]}/${m[3]}/${filename}`;
-      if (!seen.has(url)) {
-        seen.add(url);
-        const viewType = classifyFilename(filename);
-        images.push({ url, type: viewType });
+        images.push({ url, type: classifyFilename(filename) });
       }
     }
 
@@ -1846,6 +1871,16 @@ async function fetchDecoProductImages(decoProductId: number): Promise<ProductIma
     logger.debug({ err, decoProductId }, "[DecoWeb] Failed to fetch product edit page");
     return [];
   }
+}
+
+/** Map a Deco product view name to our image type */
+function classifyViewName(viewName: string): ProductImage["type"] {
+  const lower = viewName.toLowerCase();
+  if (/back/i.test(lower)) return "back";
+  if (/sleeve|side/i.test(lower)) return "side";
+  if (/front|chest|body/i.test(lower)) return "front";
+  // Default front for unrecognised view names (e.g. "Left Chest" is the front)
+  return "front";
 }
 
 /** Diagnostic: dump HTML structure around product_view_image URLs for a product */
