@@ -7,7 +7,7 @@ import { prisma } from "../lib/prisma";
 import { eventInboxQueue, decoSyncQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
-import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
+import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus, inspectDecoOrder } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs, seedAccountsFromDecoCustomers, backfillDecoJobSourceGroups } from "../services/account-seed-service";
 import { processDecoOrderEvent } from "../services/deco-event-processor";
 
@@ -158,6 +158,12 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
       logger.error({ jobId: job.id, error: msg, stack: err instanceof Error ? err.stack : undefined }, "pushJobToDeco failed");
       return { ok: false, error: msg };
     }
+  });
+
+  app.get("/sync/deco/inspect/:decoOrderId", async (request) => {
+    const { decoOrderId } = request.params as { decoOrderId: string };
+    const result = await inspectDecoOrder(decoOrderId);
+    return result;
   });
 
   // ── Deco reprocess existing events into Jobs ──

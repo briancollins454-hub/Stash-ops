@@ -1084,6 +1084,55 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
   }
 }
 
+// ── Diagnostic: check what Deco sees for an order ──
+
+export async function inspectDecoOrder(decoOrderId: string): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  try {
+    // Force fresh login
+    decoWebCookies = null;
+    decoWebCookieExpiry = 0;
+    const cookies = await getDecoWebSession();
+    if (!cookies) return { error: "Failed to establish Deco web session" };
+
+    const { csrfToken, clientId } = await getDecoSessionContext(cookies);
+    const base = baseUrl();
+    const headers: Record<string, string> = {
+      Cookie: cookies,
+      "X-CSRF-Token": csrfToken,
+      "X-Requested-With": "XMLHttpRequest",
+    };
+
+    // Try get_order_data
+    const dataRes = await fetch(`${base}/bh/orders/get_order_data?id=${encodeURIComponent(decoOrderId)}`, { headers });
+    const dataText = await dataRes.text();
+
+    // Try the edit page to find items
+    const editRes = await fetch(`${base}/bh/orders/${encodeURIComponent(decoOrderId)}/edit`, { headers: { Cookie: cookies }, redirect: "follow" });
+    const editHtml = await editRes.text();
+    const quoteEmpty = editHtml.toLowerCase().includes("quote is empty");
+    const hasItems = editHtml.includes("configured_product") || editHtml.includes("line_item") || editHtml.includes("cart_item");
+
+    // Extract any JSON data from the page
+    const jsVars: Record<string, string> = {};
+    const varMatches = editHtml.matchAll(/var\s+(\w+)\s*=\s*({[^;]+|"[^"]+"|'[^']+'|\[[^\]]+\]|\d+)/g);
+    for (const m of varMatches) {
+      if (m[1].length < 30) jsVars[m[1]] = m[2].slice(0, 300);
+    }
+
+    return {
+      decoOrderId,
+      clientId,
+      getOrderData: { status: dataRes.status, body: dataText.slice(0, 1000) },
+      editPage: { status: editRes.status, quoteEmpty, hasItems, htmlLength: editHtml.length },
+      jsVars: Object.keys(jsVars).length > 0 ? jsVars : "none found",
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ── Webhook payload processing ──
 
 export type DecoWebhookPayload = {

@@ -6,7 +6,7 @@ opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
 # Step 1: Log in to get session cookie
 login_data = urllib.parse.urlencode({
     'Username': 'briansinclair',
-    'Password': 'Beehive55!',
+    'Password': 'Beehive55',
 }).encode()
 
 login_urls = [
@@ -29,7 +29,7 @@ print(f"\nAll cookies: {[(c.name, c.domain) for c in cj]}")
 # Step 2: Try API with session cookies
 params = urllib.parse.urlencode({
     'Username': 'briansinclair',
-    'Password': 'Beehive55!',
+    'Password': 'Beehive55',
     'Limit': '3'
 })
 api_url = f'https://marxcorporate.secure-decoration.com/api/json/manage_orders/find?{params}'
@@ -43,7 +43,7 @@ except Exception as e:
 
 # Step 3: Also try without session but with Basic Auth
 import base64
-creds = base64.b64encode(b'briansinclair:Beehive55!').decode()
+creds = base64.b64encode(b'briansinclair:Beehive55').decode()
 try:
     req2 = urllib.request.Request(
         f'https://marxcorporate.secure-decoration.com/api/json/manage_orders/find?Limit=3',
