@@ -1194,6 +1194,12 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
       const dataSources = ordersHtml.match(/data-source="([^"]+)"/g) ?? [];
       // Find any table-related JS
       const tableInit = ordersHtml.match(/DataTable|dataTable|datatable|orders_table|ajax\s*:\s*{[^}]*url[^}]*}/gi) ?? [];
+      // Extract SPA module/component references related to orders
+      const orderModules = ordersHtml.match(/DnOrders|OrderManager|order_list|OrdersView|manage_orders|dnm-order/gi) ?? [];
+      // Find AJAX data loading URLs
+      const ajaxUrls = [...new Set(ordersHtml.match(/(?:url|href|src|ajax|fetch|load)\s*[:=]\s*['"][^'"]*order[^'"]*['"]/gi) ?? [])];
+      // Find /manage/orders/index or similar data endpoints
+      const manageUrls = [...new Set(ordersHtml.match(/\/manage\/orders\/\w+/g) ?? [])];
       results.ordersPage = {
         status: ordersPageRes.status,
         finalUrl: ordersPageRes.url,
@@ -1201,11 +1207,24 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
         orderLinks: orderLinks.slice(0, 10),
         dataSources: dataSources.slice(0, 5),
         tableInit: tableInit.slice(0, 5),
-        // Extract the SPA app initialization
-        appInit: ordersHtml.match(/new\s+\w+App|initApp|createApp|OrdersApp|dnm_init/gi)?.slice(0, 5) ?? [],
-        // Find any AJAX/API URLs
+        orderModules: [...new Set(orderModules)].slice(0, 10),
+        ajaxUrls: ajaxUrls.slice(0, 10),
+        manageUrls: [...new Set(manageUrls)].slice(0, 10),
         apiUrls: [...new Set(ordersHtml.match(/\/(?:bh|manage|api|shared)\/[a-z_]+\/[a-z_]+/g) ?? [])].slice(0, 20),
       };
+
+      // Try /manage/orders/index as a data endpoint
+      const indexRes = await fetch(`${base}/manage/orders/index`, {
+        headers: ajaxHeaders,
+      });
+      const indexText = await indexRes.text();
+      results.manageOrdersIndex = {
+        status: indexRes.status,
+        contentType: indexRes.headers.get("content-type"),
+        preview: indexText.slice(0, 500),
+        isJson: indexText.trim().startsWith("{") || indexText.trim().startsWith("["),
+      };
+
     } catch (err) {
       results.ordersPage = { error: err instanceof Error ? err.message : String(err) };
     }
