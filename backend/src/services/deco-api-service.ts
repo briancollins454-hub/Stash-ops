@@ -1861,45 +1861,48 @@ export async function debugDecoProductViews(decoProductId: number): Promise<Reco
     });
     const html = await res.text();
 
-    // Extract ProductView JSON structures: product.views.add(new ProductView({...}));
-    const viewPattern = /new ProductView\((\{[^)]+\})\)/g;
-    const views: Array<{ name?: string; id?: number; imageUrls: string[]; imageCount: number; raw?: string }> = [];
+    // Find ProductView constructions - extract name + image count
+    const views: Array<{ name?: string; imageCount: number; snippet: string }> = [];
+    const pvPattern = /ProductView\(/g;
     let m;
-    while ((m = viewPattern.exec(html)) !== null) {
-      try {
-        const jsonStr = m[1];
-        // Extract name field
-        const nameMatch = jsonStr.match(/"name"\s*:\s*"([^"]+)"/);
-        const idMatch = jsonStr.match(/"id"\s*:\s*(\d+)/);
-        // Extract all image URLs within this view
-        const imgUrls: string[] = [];
-        const imgPattern = /\/product_view_image\/s\/image\/[^"?\s]+/g;
-        let im;
-        while ((im = imgPattern.exec(jsonStr)) !== null) {
-          imgUrls.push(im[0]);
-        }
-        views.push({
-          name: nameMatch?.[1],
-          id: idMatch ? Number(idMatch[1]) : undefined,
-          imageUrls: imgUrls.slice(0, 5), // First 5 per view
-          imageCount: imgUrls.length,
-          raw: jsonStr.substring(0, 200),
-        });
-      } catch { /* skip */ }
+    while ((m = pvPattern.exec(html)) !== null) {
+      const chunk = html.substring(m.index, Math.min(html.length, m.index + 2000));
+      const nameMatch = chunk.match(/"name"\s*:\s*"([^"]+)"/);
+      const imgUrls = chunk.match(/\/product_view_image\/s\/image\/[^"?\s]+/g) ?? [];
+      views.push({
+        name: nameMatch?.[1],
+        imageCount: imgUrls.length,
+        snippet: chunk.substring(0, 300),
+      });
     }
 
-    // Also try broader pattern for views data
-    const viewDataPattern = /"name"\s*:\s*"([^"]+)"[^}]*?"images"\s*:\s*\[/g;
-    const rawViewNames: string[] = [];
-    while ((m = viewDataPattern.exec(html)) !== null) {
-      rawViewNames.push(m[1]);
+    // Find all "images":[ arrays and what comes before them (to find view name)
+    const imagesArrays: Array<{ viewContext: string; firstImage?: string }> = [];
+    const imgArrayPattern = /"images"\s*:\s*\[/g;
+    while ((m = imgArrayPattern.exec(html)) !== null) {
+      const beforeCtx = html.substring(Math.max(0, m.index - 500), m.index);
+      const afterCtx = html.substring(m.index, Math.min(html.length, m.index + 300));
+      const nameMatch = beforeCtx.match(/"name"\s*:\s*"([^"]+)"/g);
+      const firstName = afterCtx.match(/\/product_view_image\/s\/image\/[^"?\s]+/);
+      imagesArrays.push({
+        viewContext: nameMatch ? nameMatch[nameMatch.length - 1] : "no-name",
+        firstImage: firstName?.[0],
+      });
+    }
+
+    // Also search for views.add patterns
+    const addPattern = /views\.add\(/g;
+    const viewAddSnippets: string[] = [];
+    while ((m = addPattern.exec(html)) !== null) {
+      viewAddSnippets.push(html.substring(m.index, Math.min(html.length, m.index + 200)));
     }
 
     return {
       totalHtmlLength: html.length,
-      productViewCount: views.length,
-      views,
-      rawViewNames,
+      productViewConstructions: views.length,
+      views: views.slice(0, 10),
+      imagesArrayContexts: imagesArrays.slice(0, 20),
+      viewAddSnippets: viewAddSnippets.slice(0, 10),
       hasLoginRedirect: html.includes("Login Private"),
     };
   } catch (err) {
