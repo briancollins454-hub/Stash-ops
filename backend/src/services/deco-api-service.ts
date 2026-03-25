@@ -1861,48 +1861,53 @@ export async function debugDecoProductViews(decoProductId: number): Promise<Reco
     });
     const html = await res.text();
 
-    // Find ProductView constructions - extract name + image count
-    const views: Array<{ name?: string; imageCount: number; snippet: string }> = [];
-    const pvPattern = /ProductView\(/g;
-    let m;
-    while ((m = pvPattern.exec(html)) !== null) {
-      const chunk = html.substring(m.index, Math.min(html.length, m.index + 2000));
-      const nameMatch = chunk.match(/"name"\s*:\s*"([^"]+)"/);
-      const imgUrls = chunk.match(/\/product_view_image\/s\/image\/[^"?\s]+/g) ?? [];
-      views.push({
-        name: nameMatch?.[1],
-        imageCount: imgUrls.length,
-        snippet: chunk.substring(0, 300),
-      });
-    }
-
-    // Find all "images":[ arrays and what comes before them (to find view name)
-    const imagesArrays: Array<{ viewContext: string; firstImage?: string }> = [];
+    // Find all "images":[  arrays and search far back for the nearest "name" field
+    const imagesArrays: Array<{ viewName: string; viewId?: string; firstImages: string[]; imageCount: number; distanceToName: number }> = [];
     const imgArrayPattern = /"images"\s*:\s*\[/g;
+    let m;
     while ((m = imgArrayPattern.exec(html)) !== null) {
-      const beforeCtx = html.substring(Math.max(0, m.index - 500), m.index);
-      const afterCtx = html.substring(m.index, Math.min(html.length, m.index + 300));
-      const nameMatch = beforeCtx.match(/"name"\s*:\s*"([^"]+)"/g);
-      const firstName = afterCtx.match(/\/product_view_image\/s\/image\/[^"?\s]+/);
+      // Search 10000 chars back for a "name" field
+      const searchStart = Math.max(0, m.index - 10000);
+      const beforeCtx = html.substring(searchStart, m.index);
+      // Find all "name" fields and take the last one (closest to images)
+      const nameMatches = [...beforeCtx.matchAll(/"name"\s*:\s*"([^"]+)"/g)];
+      const viewName = nameMatches.length > 0 ? nameMatches[nameMatches.length - 1][1] : "unknown";
+      const distanceToName = nameMatches.length > 0 ? 
+        (m.index - searchStart) - (nameMatches[nameMatches.length - 1].index ?? 0) : -1;
+
+      // Extract all product_view_image URLs from this images array until next "]"
+      const afterCtx = html.substring(m.index, Math.min(html.length, m.index + 50000));
+      const closeBracket = afterCtx.indexOf("]");
+      const imagesSection = closeBracket > 0 ? afterCtx.substring(0, closeBracket) : afterCtx;
+      const imgUrls = [...imagesSection.matchAll(/\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)];
+
+      // Extract view ID from the second path segment (consistent per view)
+      const viewId = imgUrls.length > 0 ? imgUrls[0][2] : undefined;
+
       imagesArrays.push({
-        viewContext: nameMatch ? nameMatch[nameMatch.length - 1] : "no-name",
-        firstImage: firstName?.[0],
+        viewName,
+        viewId,
+        firstImages: imgUrls.slice(0, 3).map(u => u[0]),
+        imageCount: imgUrls.length,
+        distanceToName,
       });
     }
 
-    // Also search for views.add patterns
-    const addPattern = /views\.add\(/g;
-    const viewAddSnippets: string[] = [];
-    while ((m = addPattern.exec(html)) !== null) {
-      viewAddSnippets.push(html.substring(m.index, Math.min(html.length, m.index + 200)));
+    // Group all product_view_image URLs by their second path segment
+    const allViewImages = [...html.matchAll(/\/product_view_image\/s\/image\/(\d+)\/(\d+)\/(\d+)\/([^"?\s]+)/g)];
+    const bySegment: Record<string, { count: number; firstFiles: string[] }> = {};
+    for (const vm of allViewImages) {
+      const seg = vm[2];
+      if (!bySegment[seg]) bySegment[seg] = { count: 0, firstFiles: [] };
+      bySegment[seg].count++;
+      if (bySegment[seg].firstFiles.length < 3) bySegment[seg].firstFiles.push(vm[4]);
     }
 
     return {
       totalHtmlLength: html.length,
-      productViewConstructions: views.length,
-      views: views.slice(0, 10),
-      imagesArrayContexts: imagesArrays.slice(0, 20),
-      viewAddSnippets: viewAddSnippets.slice(0, 10),
+      viewArrays: imagesArrays,
+      imagesBySegment: bySegment,
+      totalViewImages: allViewImages.length,
       hasLoginRedirect: html.includes("Login Private"),
     };
   } catch (err) {
