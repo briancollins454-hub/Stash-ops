@@ -333,6 +333,14 @@ function ProductDetailPage({
   const selectedColor = pd?.colors.find((c) => c.id === itemMeta.selectedColorId);
   const sizeBreakdown = itemMeta.sizeBreakdown;
 
+  // Compute total from sizeBreakdown (more reliable than item.quantity which can drift)
+  const sizeTotal = sizeBreakdown
+    ? Object.values(sizeBreakdown).reduce((sum, qty) => sum + qty, 0)
+    : item.quantity;
+
+  // Resolve color name: prefer matched color from product detail, fall back to variantTitle
+  const colorName = selectedColor?.name ?? item.variantTitle ?? null;
+
   // Pick the best product image
   const mainImage =
     pd?.images.find((img) => img.color?.toLowerCase() === selectedColor?.name.toLowerCase()) ??
@@ -390,27 +398,18 @@ function ProductDetailPage({
                   ))}
                   <tr className="size-total">
                     <td>Total</td>
-                    <td className="r">{item.quantity}</td>
+                    <td className="r">{sizeTotal}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* Colors */}
-          {pd && pd.colors.length > 0 && (
+          {/* Colour */}
+          {colorName && (
             <div className="detail-block">
-              <h4>Colors</h4>
-              <div className="color-list">
-                {pd.colors.map((c) => (
-                  <span
-                    key={c.id}
-                    className={`color-chip ${c.id === itemMeta.selectedColorId ? "selected" : ""}`}
-                  >
-                    {c.name}
-                  </span>
-                ))}
-              </div>
+              <h4>Colour</h4>
+              <span className="color-chip selected">{colorName}</span>
             </div>
           )}
 
@@ -450,34 +449,10 @@ function ProductDetailPage({
           <h3>Graphics Used for {item.productTitle}</h3>
           {designs.map((design, di) => {
             const colors = parseThreadColors(design.threadColors);
-            const hasPosition = design.x != null && design.y != null && design.w != null && design.h != null;
             return (
               <div key={di} className="graphic-row">
                 <div className="graphic-image">
-                  {/* Show garment with graphic overlaid if we have position data */}
-                  {hasPosition && mainImage && (design.artworkUrl || design.previewUrl) ? (
-                    <div className="garment-overlay-container">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={mainImage.url}
-                        alt={item.productTitle}
-                        className="garment-overlay-bg"
-                      />
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={design.previewUrl || design.artworkUrl || ""}
-                        alt={design.artworkName || "Design"}
-                        className="garment-overlay-graphic"
-                        style={{
-                          left: `${design.x}%`,
-                          top: `${design.y}%`,
-                          width: `${design.w}%`,
-                          height: `${design.h}%`,
-                          transform: design.rotation ? `rotate(${design.rotation}deg)` : undefined,
-                        }}
-                      />
-                    </div>
-                  ) : (design.previewUrl || design.artworkUrl) ? (
+                  {(design.previewUrl || design.artworkUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={design.previewUrl || design.artworkUrl || ""}

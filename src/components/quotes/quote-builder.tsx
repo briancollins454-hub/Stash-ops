@@ -541,7 +541,15 @@ export default function QuoteBuilderPage({ editJobId }: { editJobId?: string }) 
   }
 
   function canProceedFromProducts(): boolean {
-    return lineItems.some((item) => item.productTitle.trim().length >= 1 && item.quantity >= 1);
+    return lineItems.some((item) => {
+      if (!item.productTitle.trim() || item.quantity < 1) return false;
+      // If product has size breakdown, at least one size must have qty > 0
+      if (item.sizeQuantities) {
+        const total = Object.values(item.sizeQuantities).reduce((sum, q) => sum + q, 0);
+        if (total === 0) return false;
+      }
+      return true;
+    });
   }
 
   // ── Submit ──
@@ -1615,13 +1623,18 @@ export default function QuoteBuilderPage({ editJobId }: { editJobId?: string }) 
             >
               ← Back
             </button>
-            <button
-              className="btn btn--primary"
-              disabled={!canProceedFromProducts()}
-              onClick={() => setStep("Review")}
-            >
-              Next: Review →
-            </button>
+            <div className="flex items-center gap-3">
+              {!canProceedFromProducts() && lineItems.some((i) => i.productTitle.trim() && i.sizeQuantities && Object.values(i.sizeQuantities).reduce((s, q) => s + q, 0) === 0) && (
+                <span className="text-xs" style={{ color: "var(--danger)" }}>Please select sizes for each product</span>
+              )}
+              <button
+                className="btn btn--primary"
+                disabled={!canProceedFromProducts()}
+                onClick={() => setStep("Review")}
+              >
+                Next: Review →
+              </button>
+            </div>
           </div>
         </div>
       )}
