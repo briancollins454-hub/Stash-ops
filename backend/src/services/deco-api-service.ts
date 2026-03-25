@@ -610,7 +610,7 @@ export async function updateDecoOrderStatus(
       "/api/json/manage_orders/update_order_status",
       {
         order_id: decoOrderId,
-        status,
+        new_status: status,
       },
     );
 
@@ -1342,11 +1342,11 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
         statusTests.placeOrder = { error: err instanceof Error ? err.message : String(err) };
       }
 
-      // Try update_order_status via JSON API
+      // Try update_order_status via JSON API (parameter is "new_status" not "status")
       try {
         const updateResult = await decoFetch<Record<string, unknown>>(
           "/api/json/manage_orders/update_order_status",
-          { order_id: finalOrderNumber, status: "8" },
+          { order_id: finalOrderNumber, new_status: "8" },
         );
         statusTests.updateStatus8 = {
           response: JSON.stringify(updateResult).slice(0, 500),
