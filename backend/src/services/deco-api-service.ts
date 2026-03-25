@@ -1382,17 +1382,33 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
         }
       }
 
-      // Now check if the order is visible
-      await new Promise((r) => setTimeout(r, 2000)); // Wait a bit
+      // Now try "active" status too
+      try {
+        const updateResult = await decoFetch<Record<string, unknown>>(
+          "/api/json/manage_orders/update_order_status",
+          { order_id: finalOrderNumber, new_status: "active" },
+        );
+        statusTests.updateToActive = {
+          response: JSON.stringify(updateResult).slice(0, 500),
+          success: true,
+        };
+      } catch (err) {
+        statusTests.updateToActive = { error: err instanceof Error ? err.message : String(err) };
+      }
+
+      // Wait 5 seconds for Deco to propagate
+      await new Promise((r) => setTimeout(r, 5000));
+
+      // Now check with broader search
       try {
         const checkRecent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
           "/api/json/manage_orders/find",
-          { limit: "50", offset: "0", field: "1", condition: "4", date1: "2026-03-25 00:00:00" },
+          { limit: "50", offset: "0", field: "1", condition: "4", date1: "2026-03-01 00:00:00" },
         );
         const found = (checkRecent.orders ?? []).find(
           (o) => String(o.order_id) === finalOrderNumber,
         );
-        statusTests.afterPlaceOrderSearch = {
+        statusTests.broadSearch = {
           found: !!found,
           total: checkRecent.total,
           allIds: (checkRecent.orders ?? []).map((o) => o.order_id),
@@ -1403,7 +1419,7 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
             order_status: found.order_status,
             order_type: found.order_type,
             source_type: found.source_type,
-            order_lines_count: Array.isArray(found.order_lines) ? found.order_lines.length : 0,
+            order_lines: found.order_lines,
           } : null,
         };
       } catch (err) {
