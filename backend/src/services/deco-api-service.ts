@@ -1098,36 +1098,90 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
 
     const { csrfToken, clientId } = await getDecoSessionContext(cookies);
     const base = baseUrl();
-    const headers: Record<string, string> = {
+    const ajaxHeaders: Record<string, string> = {
       Cookie: cookies,
       "X-CSRF-Token": csrfToken,
       "X-Requested-With": "XMLHttpRequest",
     };
 
-    // Try get_order_data
-    const dataRes = await fetch(`${base}/bh/orders/get_order_data?id=${encodeURIComponent(decoOrderId)}`, { headers });
-    const dataText = await dataRes.text();
+    // Try multiple URL patterns to find the order
+    const endpoints: Record<string, string> = {
+      edit: `/bh/orders/${decoOrderId}/edit`,
+      show: `/bh/orders/${decoOrderId}`,
+      manageEdit: `/manage/orders/${decoOrderId}/edit`,
+      manageShow: `/manage/orders/${decoOrderId}`,
+      getOrderData: `/bh/orders/get_order_data?id=${decoOrderId}`,
+      loadOrder: `/bh/orders/load/${decoOrderId}`,
+      editDataAjax: `/bh/orders/edit_data/${decoOrderId}`,
+    };
 
-    // Try the edit page to find items
-    const editRes = await fetch(`${base}/bh/orders/${encodeURIComponent(decoOrderId)}/edit`, { headers: { Cookie: cookies }, redirect: "follow" });
-    const editHtml = await editRes.text();
-    const quoteEmpty = editHtml.toLowerCase().includes("quote is empty");
-    const hasItems = editHtml.includes("configured_product") || editHtml.includes("line_item") || editHtml.includes("cart_item");
-
-    // Extract any JSON data from the page
-    const jsVars: Record<string, string> = {};
-    const varMatches = editHtml.matchAll(/var\s+(\w+)\s*=\s*({[^;]+|"[^"]+"|'[^']+'|\[[^\]]+\]|\d+)/g);
-    for (const m of varMatches) {
-      if (m[1].length < 30) jsVars[m[1]] = m[2].slice(0, 300);
-    }
-
-    return {
+    const results: Record<string, unknown> = {
       decoOrderId,
       clientId,
-      getOrderData: { status: dataRes.status, body: dataText.slice(0, 1000) },
-      editPage: { status: editRes.status, quoteEmpty, hasItems, htmlLength: editHtml.length },
-      jsVars: Object.keys(jsVars).length > 0 ? jsVars : "none found",
     };
+
+    for (const [name, path] of Object.entries(endpoints)) {
+      try {
+        const url = `${base}${path}`;
+        const res = await fetch(url, {
+          headers: name.includes("Ajax") || name === "getOrderData" || name === "loadOrder"
+            ? ajaxHeaders
+            : { Cookie: cookies },
+          redirect: "follow",
+        });
+        const text = await res.text();
+        const isHtml = text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html");
+        const isJson = text.trim().startsWith("{") || text.trim().startsWith("[");
+
+        const info: Record<string, unknown> = { status: res.status };
+        if (isJson) {
+          try {
+            const json = JSON.parse(text);
+            info.json = typeof json === "object" ? Object.keys(json as Record<string, unknown>).slice(0, 20) : "primitive";
+            info.preview = text.slice(0, 500);
+          } catch {
+            info.preview = text.slice(0, 300);
+          }
+        } else if (isHtml) {
+          info.htmlLength = text.length;
+          info.quoteEmpty = text.toLowerCase().includes("quote is empty");
+          info.hasOrderData = text.includes("order_data") || text.includes("configured_product");
+          info.title = text.match(/<title>([^<]+)/)?.[1]?.trim() ?? "";
+          // Check for order number in the page
+          const orderNum = text.match(/Order\s*#?\s*(\d+)/i);
+          if (orderNum) info.orderNumOnPage = orderNum[1];
+        } else {
+          info.preview = text.slice(0, 300);
+        }
+        results[name] = info;
+      } catch (err) {
+        results[name] = { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    // Also: try to list recent orders via the orders table AJAX
+    try {
+      const tableRes = await fetch(`${base}/bh/orders?draw=1&start=0&length=5`, {
+        headers: ajaxHeaders,
+      });
+      const tableText = await tableRes.text();
+      if (tableText.trim().startsWith("{")) {
+        const tableData = JSON.parse(tableText);
+        results.ordersTable = {
+          status: tableRes.status,
+          keys: Object.keys(tableData),
+          recordsTotal: tableData.recordsTotal,
+          dataCount: Array.isArray(tableData.data) ? tableData.data.length : "not array",
+          firstRecord: Array.isArray(tableData.data) && tableData.data[0] ? JSON.stringify(tableData.data[0]).slice(0, 300) : null,
+        };
+      } else {
+        results.ordersTable = { status: tableRes.status, preview: tableText.slice(0, 200) };
+      }
+    } catch (err) {
+      results.ordersTable = { error: err instanceof Error ? err.message : String(err) };
+    }
+
+    return results;
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
