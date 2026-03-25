@@ -1153,14 +1153,22 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
     );
     results.recentOrders = {
       total: recent.total,
-      orders: (recent.orders ?? []).map((o) => ({
-        order_id: o.order_id,
-        order_number: o.order_number,
-        job_number: o.job_number,
-        status: o.status,
-        date_ordered: o.date_ordered,
-        items: Array.isArray(o.items) ? o.items.length : Array.isArray(o.line_items) ? o.line_items.length : undefined,
-      })),
+      orders: (recent.orders ?? []).map((o) => {
+        // Capture ALL keys and key values to understand the schema
+        const summary: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(o)) {
+          if (Array.isArray(v)) {
+            summary[k] = `[array len=${v.length}]`;
+            // Show first item of arrays
+            if (v.length > 0) summary[`${k}_first`] = JSON.stringify(v[0]).slice(0, 200);
+          } else if (typeof v === "object" && v !== null) {
+            summary[k] = `{obj keys=${Object.keys(v as Record<string, unknown>).join(",")}}`;
+          } else {
+            summary[k] = v;
+          }
+        }
+        return summary;
+      }),
     };
   } catch (err) {
     results.recentOrders = { error: err instanceof Error ? err.message : String(err) };
