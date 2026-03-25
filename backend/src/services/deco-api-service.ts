@@ -1200,87 +1200,149 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
 }
 
 /**
- * Probe the Deco JSON API for order creation capabilities.
- * Tests /api/json/manage_orders/create, /save, and other write endpoints.
+ * Probe Deco web admin endpoints for order/item creation.
+ * Tests various AJAX endpoints used by the Deco admin interface.
  */
 export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
   if (!isDecoConfigured()) return { error: "Deco not configured" };
 
   const results: Record<string, unknown> = {};
 
-  // 1. Try GET on /manage_orders/create to discover required fields
+  // Get an authenticated web session
   try {
-    const createGet = await decoFetch<Record<string, unknown>>(
-      "/api/json/manage_orders/create",
-      {},
-    );
-    results.createGetResponse = {
-      keys: Object.keys(createGet).slice(0, 30),
-      preview: JSON.stringify(createGet).slice(0, 1000),
-    };
-  } catch (err) {
-    results.createGetResponse = { error: err instanceof Error ? err.message : String(err) };
-  }
+    decoWebCookies = null;
+    decoWebCookieExpiry = 0;
+    const cookies = await getDecoWebSession();
+    if (!cookies) {
+      return { error: "Failed to get web session" };
+    }
+    const { csrfToken, clientId } = await getDecoSessionContext(cookies);
+    const base = baseUrl();
+    results.session = { csrfToken: csrfToken.slice(0, 20) + "...", clientId };
 
-  // 2. Try POST on /manage_orders/create with minimal data
-  try {
-    const createPost = await decoFetch<Record<string, unknown>>(
-      "/api/json/manage_orders/create",
-      {},
+    const webHeaders: Record<string, string> = {
+      Cookie: cookies,
+      "X-CSRF-Token": csrfToken,
+      "X-Requested-With": "XMLHttpRequest",
+      "Content-Type": "application/x-www-form-urlencoded",
+      Referer: `${base}/manage/orders`,
+    };
+
+    // Step 1: Create a test quote
+    const createBody = buildDecoFormBody([["cust_id", "80029646"]]); // Known customer
+    const createRes = await fetch(`${base}/bh/orders/create_quote`, {
+      method: "POST",
+      headers: webHeaders,
+      body: createBody,
+    });
+    const createText = await createRes.text();
+    let testCartId: string | undefined;
+    try {
+      const createData = JSON.parse(createText) as { id?: number };
+      testCartId = createData.id ? String(createData.id) : undefined;
+    } catch {
+      // not JSON
+    }
+    results.createQuote = {
+      status: createRes.status,
+      response: createText.slice(0, 500),
+      cartId: testCartId,
+    };
+
+    if (!testCartId) {
+      return results;
+    }
+
+    // Step 2: Try to save with JUST the header fields (no items) - simplest test
+    const minimalPairs: Array<[string, string]> = [
+      ["dt[jn]", "API-TEST-DELETE-ME"],
+      ["dt[po]", "TEST-PO"],
+      ["dt[brid]", "12015397"],
+      ["ct[u]", "80029646"],
+    ];
+
+    const minimalBody = buildDecoFormBody(minimalPairs);
+    const minimalQueryStr = buildDecoFormBody([["c", testCartId], ["cid", clientId]]);
+
+    const minimalSaveRes = await fetch(
+      `${base}/bh/orders/save_order?${minimalQueryStr}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test: true }),
+        headers: { ...webHeaders, "X-Progress-ID": testCartId },
+        body: minimalBody,
       },
     );
-    results.createPostResponse = {
-      keys: Object.keys(createPost).slice(0, 30),
-      preview: JSON.stringify(createPost).slice(0, 1000),
-    };
-  } catch (err) {
-    results.createPostResponse = { error: err instanceof Error ? err.message : String(err) };
-  }
+    const minimalSaveText = await minimalSaveRes.text();
 
-  // 3. Try /manage_orders/save
-  try {
-    const saveGet = await decoFetch<Record<string, unknown>>(
-      "/api/json/manage_orders/save",
-      {},
-    );
-    results.saveGetResponse = {
-      keys: Object.keys(saveGet).slice(0, 30),
-      preview: JSON.stringify(saveGet).slice(0, 1000),
-    };
-  } catch (err) {
-    results.saveGetResponse = { error: err instanceof Error ? err.message : String(err) };
-  }
+    // Poll progress
+    const progressMatch = minimalSaveText.match(/continueAsyncProgress\('([^']+)'/);
+    let progressMessages: string[] = [];
+    let finalOrderNumber: string | undefined;
 
-  // 4. Try /manage_orders/add_line_item
-  try {
-    const addLine = await decoFetch<Record<string, unknown>>(
-      "/api/json/manage_orders/add_line_item",
-      {},
-    );
-    results.addLineItemResponse = {
-      keys: Object.keys(addLine).slice(0, 30),
-      preview: JSON.stringify(addLine).slice(0, 1000),
-    };
-  } catch (err) {
-    results.addLineItemResponse = { error: err instanceof Error ? err.message : String(err) };
-  }
+    if (progressMatch) {
+      const progressKey = progressMatch[1];
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const ts = Date.now();
+        const pRes = await fetch(
+          `${base}/shared/lookups/async_progress?key=${encodeURIComponent(progressKey)}&ts=${ts}&qt=false`,
+          { headers: { Cookie: cookies } },
+        );
+        const pText = await pRes.text();
+        progressMessages.push(pText.slice(0, 200));
 
-  // 5. Try /manage_orders/update (common REST pattern)
-  try {
-    const update = await decoFetch<Record<string, unknown>>(
-      "/api/json/manage_orders/update",
-      {},
-    );
-    results.updateResponse = {
-      keys: Object.keys(update).slice(0, 30),
-      preview: JSON.stringify(update).slice(0, 1000),
+        const pMatch = pText.match(/updateAsyncProgress\("([^"]*)",\s*([\d.]+)/);
+        if (pMatch) {
+          const msg = pMatch[1];
+          const pct = parseFloat(pMatch[2]);
+          if (pct >= 100) {
+            const numMatch = msg.match(/(\d+)/);
+            finalOrderNumber = numMatch ? numMatch[1] : undefined;
+            break;
+          }
+          if (msg.toLowerCase().includes("error")) {
+            break;
+          }
+        }
+      }
+    }
+
+    results.minimalSave = {
+      status: minimalSaveRes.status,
+      response: minimalSaveText.slice(0, 500),
+      hasProgress: !!progressMatch,
+      progressKey: progressMatch?.[1],
+      progressMessages,
+      finalOrderNumber,
     };
+
+    // Step 3: Check if the order was actually created
+    if (finalOrderNumber) {
+      try {
+        const checkRecent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+          "/api/json/manage_orders/find",
+          { limit: "5", offset: "0", field: "1", condition: "4", date1: "2026-03-25 00:00:00" },
+        );
+        const found = (checkRecent.orders ?? []).find(
+          (o) => String(o.order_id) === finalOrderNumber,
+        );
+        results.orderVerification = {
+          searched: finalOrderNumber,
+          found: !!found,
+          orderData: found ? {
+            order_id: found.order_id,
+            job_name: found.job_name,
+            item_amount: found.item_amount,
+            order_status: found.order_status,
+            order_lines_count: Array.isArray(found.order_lines) ? found.order_lines.length : 0,
+          } : null,
+        };
+      } catch (err) {
+        results.orderVerification = { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
   } catch (err) {
-    results.updateResponse = { error: err instanceof Error ? err.message : String(err) };
+    results.error = err instanceof Error ? err.message : String(err);
   }
 
   return results;
