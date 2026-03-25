@@ -436,13 +436,23 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
       try {
         const catalog = await catalogLookup(productCode);
         if (catalog && catalog.colours.length > 0) {
-          // Build colors array from catalog colours (use index as ID for stability)
-          const colors = catalog.colours
-            .filter((c) => c.skuStatus !== "Discontinued")
-            .map((c, i) => ({
-              id: i + 1,
-              name: c.colourName.replace(/[*†]+$/g, "").trim(),
-            }));
+          // Deduplicate colours: prefer "Live" status, then first occurrence
+          const seenNames = new Map<string, typeof catalog.colours[0]>();
+          for (const c of catalog.colours) {
+            if (c.skuStatus === "Discontinued") continue;
+            const cleanName = c.colourName.replace(/[*†]+$/g, "").trim();
+            const existing = seenNames.get(cleanName);
+            if (!existing || (c.skuStatus === "Live" && existing.skuStatus !== "Live")) {
+              seenNames.set(cleanName, c);
+            }
+          }
+          const uniqueColours = Array.from(seenNames.values());
+
+          // Build colors array from deduplicated colours
+          const colors = uniqueColours.map((c, i) => ({
+            id: i + 1,
+            name: c.colourName.replace(/[*†]+$/g, "").trim(),
+          }));
 
           // Parse sizes from catalog sizeRange (e.g. "S to 3XL")
           const sizeNames = parseSizeRange(catalog.sizeRange ?? "");
@@ -450,7 +460,7 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
 
           // Build SKU grid (color × size) with pricing from catalog
           const skus: Array<{ sizeId: number; colorId: number; price: number; cost: number; sku: string; dnSkuId: string }> = [];
-          for (const [ci, colour] of catalog.colours.filter((c) => c.skuStatus !== "Discontinued").entries()) {
+          for (const [ci, colour] of uniqueColours.entries()) {
             const price = colour.singlePrice ? parseFloat(colour.singlePrice) : 0;
             for (const [si] of sizes.entries()) {
               skus.push({

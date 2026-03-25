@@ -11,6 +11,14 @@ import { clamp } from "./types";
    Fabric.js Canvas Engine
    ═══════════════════════════════════════════════════════════ */
 
+/** Proxy external URLs through our image-proxy API to avoid CORS issues */
+function proxyUrl(url: string): string {
+  if (!url) return url;
+  // Already relative or data URL — no proxy needed
+  if (url.startsWith("/") || url.startsWith("data:")) return url;
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 1000;
 
@@ -191,7 +199,7 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
     existing.forEach((o) => canvas.remove(o));
 
     if (backgroundImageUrl) {
-      FabricImage.fromURL(backgroundImageUrl, { crossOrigin: "anonymous" }).then((img) => {
+      FabricImage.fromURL(proxyUrl(backgroundImageUrl), { crossOrigin: "anonymous" }).then((img) => {
         if (!fabricRef.current) return;
         const scale = Math.min(
           CANVAS_WIDTH / (img.width ?? CANVAS_WIDTH),
@@ -624,7 +632,7 @@ async function createFabricObject(canvas: Canvas, dObj: DesignObject): Promise<F
     // If we have a renderable URL, load it
     if (url) {
       try {
-        const img = await FabricImage.fromURL(url, { crossOrigin: "anonymous" });
+        const img = await FabricImage.fromURL(proxyUrl(url), { crossOrigin: "anonymous" });
         const imgW = img.width ?? width;
         const imgH = img.height ?? height;
 
