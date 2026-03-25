@@ -783,9 +783,9 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       Referer: `${base}/manage/orders`,
     };
 
-    // Step 2: Create a quote in Deco via the web admin endpoint
+    // Step 2: Create an order in Deco via the web admin endpoint
     const createBody = buildDecoFormBody([["cust_id", decoCustomerId]]);
-    const createRes = await fetch(`${base}/bh/orders/create_quote`, {
+    const createRes = await fetch(`${base}/bh/orders/create_order`, {
       method: "POST",
       headers: webHeaders,
       body: createBody,
@@ -793,17 +793,17 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
 
     if (!createRes.ok) {
       const text = await createRes.text();
-      throw new Error(`create_quote failed (${createRes.status}): ${text.slice(0, 200)}`);
+      throw new Error(`create_order failed (${createRes.status}): ${text.slice(0, 200)}`);
     }
 
     const createData = (await createRes.json()) as { id?: number };
     if (!createData.id) {
-      throw new Error("create_quote returned no quote ID");
+      throw new Error("create_order returned no order ID");
     }
 
     const decoOrderId = String(createData.id);
     // eslint-disable-next-line no-console
-    console.log(`[DECO-PUSH] Created quote ${decoOrderId}`);
+    console.log(`[DECO-PUSH] Created order cart ${decoOrderId}`);
 
     // Step 3: Build the save_order body — use manual encoding matching Deco's client-side JS
     const DECO_BRAND_ID = "12015397";
@@ -813,6 +813,7 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
       ["dt[jn]", job.internalJobId ?? `Job-${jobId.slice(0, 8)}`],
       ["dt[po]", job.shopifyOrderName ?? job.internalJobId ?? ""],
       ["dt[brid]", DECO_BRAND_ID],
+      ["dt[ot]", "3"], // order_type=3 required for the order to be visible in the API
       ["ct[u]", decoCustomerId],
     ];
 
@@ -983,6 +984,19 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
     } else if (!saveRes.ok) {
       logger.warn({ decoOrderId, status: saveRes.status, body: saveText.slice(0, 300) }, "save_order failed");
       throw new Error(`save_order failed (${saveRes.status})`);
+    }
+
+    // Step 4b: Activate the order via the JSON API so it becomes visible
+    if (decoJobNumber) {
+      try {
+        await decoFetch<unknown>(
+          "/api/json/manage_orders/update_order_status",
+          { order_id: decoJobNumber, new_status: "pending" },
+        );
+        logger.info({ decoJobNumber }, "Deco order status set to pending");
+      } catch (statusErr) {
+        logger.warn({ decoJobNumber, error: statusErr }, "Failed to set Deco order status to pending");
+      }
     }
 
     // Step 5: Add internal note with line item details
