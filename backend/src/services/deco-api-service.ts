@@ -1547,73 +1547,93 @@ async function fetchSupplierProductImages(
   productName?: string,
   orderSku?: string,
 ): Promise<ProductImage[]> {
-  // Priority 1: Ralawise product catalog (DB-backed, fast, reliable)
+  // Layer 1: Ralawise product catalog (DB-backed, fast, reliable) — fronts with RGB
+  let catalogFronts: ProductImage[] = [];
   if (productCode) {
     try {
       const catImages = await catalogImages(productCode);
       if (catImages.length > 0) {
-        logger.debug({ productCode, count: catImages.length }, "[Images] Using catalog images");
-        return catImages;
+        catalogFronts = catImages;
+        logger.debug({ productCode, count: catImages.length }, "[Images] Catalog fronts loaded");
       }
     } catch (err) {
-      logger.debug({ err, productCode }, "[Images] Catalog lookup failed, falling back");
+      logger.debug({ err, productCode }, "[Images] Catalog lookup failed");
     }
   }
 
-  // Priority 2: Deco web session — curated images uploaded by suppliers
+  // Layer 2: Deco web session + supplier scrapers — may have back/side views
+  let otherImages: ProductImage[] = [];
+
   if (decoProductId) {
     const decoImages = await fetchDecoProductImages(decoProductId);
-    if (decoImages.length > 0) return decoImages;
+    if (decoImages.length > 0) otherImages = decoImages;
   }
 
-  // Priority 3: supplier-specific web scrapers
-  const s = supplier.toLowerCase();
+  // Layer 3: supplier-specific web scrapers (if Deco didn't return much)
+  if (otherImages.filter((i) => i.type === "back" || i.type === "side").length === 0) {
+    const s = supplier.toLowerCase();
+    let scraperImages: ProductImage[] = [];
 
-  if (s.includes("ralawise") || s.includes("pencarrie")) {
-    return fetchRalawiseImages(productCode);
-  }
-
-  if (s.includes("uneek")) {
-    return fetchUneekImages(productCode);
-  }
-
-  if (s.includes("canterbury") || s.includes("pentland") || s.includes("cottonridge")) {
-    const nameCodeMatch = productName?.match(/^([A-Z0-9]{2,}[A-Z0-9]*[K]?)\s*[-–—]/i);
-    let brandCode = nameCodeMatch?.[1]?.trim();
-
-    if (!brandCode && orderSku) {
-      const skuParts = orderSku.split(/[-\s]+/).filter((p) => p.length >= 2);
-      for (const part of skuParts) {
-        if (part.match(/^[A-Z]\d+[A-Z]?$/i)) {
-          brandCode = part;
-          logger.info({ orderSku, brandCode }, "[Canterbury] Extracted brand code from order SKU");
-          break;
-        }
-      }
-      if (!brandCode) {
+    if (s.includes("ralawise") || s.includes("pencarrie")) {
+      scraperImages = await fetchRalawiseImages(productCode);
+    } else if (s.includes("uneek")) {
+      scraperImages = await fetchUneekImages(productCode);
+    } else if (s.includes("canterbury") || s.includes("pentland") || s.includes("cottonridge")) {
+      const nameCodeMatch = productName?.match(/^([A-Z0-9]{2,}[A-Z0-9]*[K]?)\s*[-–—]/i);
+      let brandCode = nameCodeMatch?.[1]?.trim();
+      if (!brandCode && orderSku) {
+        const skuParts = orderSku.split(/[-\s]+/).filter((p) => p.length >= 2);
         for (const part of skuParts) {
-          if (part.length >= 2 && part.length <= 10) {
+          if (part.match(/^[A-Z]\d+[A-Z]?$/i)) {
             brandCode = part;
             break;
           }
         }
+        if (!brandCode) {
+          for (const part of skuParts) {
+            if (part.length >= 2 && part.length <= 10) {
+              brandCode = part;
+              break;
+            }
+          }
+        }
+      }
+      if (brandCode) {
+        scraperImages = await fetchCottonridgeImages(brandCode);
+        if (scraperImages.length === 0) scraperImages = await fetchRalawiseImages(brandCode);
+      }
+      if (scraperImages.length === 0) scraperImages = await fetchCanterburyImages(productCode, productName);
+    }
+
+    // Merge scraper back/side images into otherImages
+    for (const img of scraperImages) {
+      if (img.type === "back" || img.type === "side") {
+        otherImages.push(img);
       }
     }
-
-    if (brandCode) {
-      const cottonridgeImages = await fetchCottonridgeImages(brandCode);
-      if (cottonridgeImages.length > 0) return cottonridgeImages;
+    // If we have no catalog fronts, use scraper fronts too
+    if (catalogFronts.length === 0) {
+      for (const img of scraperImages) {
+        if (img.type === "front" || img.type === "gallery") {
+          otherImages.push(img);
+        }
+      }
     }
-
-    if (brandCode) {
-      const ralawiseImages = await fetchRalawiseImages(brandCode);
-      if (ralawiseImages.length > 0) return ralawiseImages;
-    }
-
-    return fetchCanterburyImages(productCode, productName);
   }
 
-  return [];
+  // Merge: catalog fronts (with RGB) take priority, then other sources for back/side/gallery
+  if (catalogFronts.length > 0) {
+    const seenUrls = new Set(catalogFronts.map((i) => i.url));
+    for (const img of otherImages) {
+      if (!seenUrls.has(img.url)) {
+        seenUrls.add(img.url);
+        catalogFronts.push(img);
+      }
+    }
+    return catalogFronts;
+  }
+
+  return otherImages;
 }
 
 // ── Deco Web Session (channel manager) ──
@@ -1827,9 +1847,9 @@ async function fetchDecoProductImages(decoProductId: number): Promise<ProductIma
 /** Classify a product image filename into front/back/side/gallery */
 function classifyFilename(filename: string): ProductImage["type"] {
   const lower = filename.toLowerCase();
-  if (/\bback\b|_back[_.-]|_back\d/.test(lower)) return "back";
-  if (/\bside\b|_side[_.-]|_side\d/.test(lower)) return "side";
-  if (/\bfront\b|_front[_.-]|_front\d/.test(lower)) return "front";
+  if (/\bback\b|_back[_.-]|_back\d|_bk\d?\./i.test(lower)) return "back";
+  if (/\bside\b|_side[_.-]|_side\d|_sd\d?\./i.test(lower)) return "side";
+  if (/\bfront\b|_front[_.-]|_front\d|_ft\d?\.|_f_/i.test(lower)) return "front";
   return "gallery";
 }
 
