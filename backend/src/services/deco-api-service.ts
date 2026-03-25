@@ -1318,28 +1318,100 @@ export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
 
     // Step 3: Check if the order was actually created
     if (finalOrderNumber) {
+      // Try multiple search approaches
+      const verifications: Record<string, unknown> = { searched: finalOrderNumber };
+
+      // 3a: Recent orders by date
       try {
-        const checkRecent = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+        const check1 = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
           "/api/json/manage_orders/find",
-          { limit: "5", offset: "0", field: "1", condition: "4", date1: "2026-03-25 00:00:00" },
+          { limit: "50", offset: "0", field: "1", condition: "4", date1: "2026-03-25 00:00:00" },
         );
-        const found = (checkRecent.orders ?? []).find(
+        const found1 = (check1.orders ?? []).find(
           (o) => String(o.order_id) === finalOrderNumber,
         );
-        results.orderVerification = {
-          searched: finalOrderNumber,
-          found: !!found,
-          orderData: found ? {
-            order_id: found.order_id,
-            job_name: found.job_name,
-            item_amount: found.item_amount,
-            order_status: found.order_status,
-            order_lines_count: Array.isArray(found.order_lines) ? found.order_lines.length : 0,
-          } : null,
+        verifications.byDate = {
+          found: !!found1,
+          total: check1.total,
+          allIds: (check1.orders ?? []).map((o) => o.order_id),
         };
       } catch (err) {
-        results.orderVerification = { error: err instanceof Error ? err.message : String(err) };
+        verifications.byDate = { error: err instanceof Error ? err.message : String(err) };
       }
+
+      // 3b: Try searching by order status (maybe quotes have different status)
+      for (const status of ["0", "1", "2", "3", "4", "5"]) {
+        try {
+          const check = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+            "/api/json/manage_orders/find",
+            { limit: "5", offset: "0", field: "8", condition: "1", string: status },
+          );
+          const found = (check.orders ?? []).find(
+            (o) => String(o.order_id) === finalOrderNumber,
+          );
+          if (found || (check.total ?? 0) > 0) {
+            verifications[`byStatus_${status}`] = {
+              found: !!found,
+              total: check.total,
+              sampleIds: (check.orders ?? []).slice(0, 3).map((o) => o.order_id),
+            };
+          }
+        } catch {
+          // skip invalid statuses
+        }
+      }
+
+      // 3c: Try searching by order_type (quote=1? vs order=3?)
+      for (const otype of ["0", "1", "2", "3", "4"]) {
+        try {
+          const check = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+            "/api/json/manage_orders/find",
+            { limit: "5", offset: "0", field: "9", condition: "1", string: otype },
+          );
+          if ((check.total ?? 0) > 0) {
+            const found = (check.orders ?? []).find(
+              (o) => String(o.order_id) === finalOrderNumber,
+            );
+            verifications[`byOrderType_${otype}`] = {
+              found: !!found,
+              total: check.total,
+              sampleIds: (check.orders ?? []).slice(0, 3).map((o) => o.order_id),
+            };
+          }
+        } catch {
+          // skip invalid types
+        }
+      }
+
+      // 3d: Try the find with no filter at all (just limit)
+      try {
+        const checkAll = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+          "/api/json/manage_orders/find",
+          { limit: "5", offset: "0" },
+        );
+        verifications.noFilter = {
+          total: checkAll.total,
+          sampleIds: (checkAll.orders ?? []).slice(0, 5).map((o) => o.order_id),
+        };
+      } catch (err) {
+        verifications.noFilter = { error: err instanceof Error ? err.message : String(err) };
+      }
+
+      // 3e: Try the quotes endpoint specifically
+      try {
+        const checkQuotes = await decoFetch<Record<string, unknown>>(
+          "/api/json/manage_quotes/find",
+          { limit: "5", offset: "0", field: "1", condition: "4", date1: "2026-03-25 00:00:00" },
+        );
+        verifications.quotesEndpoint = {
+          keys: Object.keys(checkQuotes).slice(0, 10),
+          preview: JSON.stringify(checkQuotes).slice(0, 500),
+        };
+      } catch (err) {
+        verifications.quotesEndpoint = { error: err instanceof Error ? err.message : String(err) };
+      }
+
+      results.orderVerification = verifications;
     }
   } catch (err) {
     results.error = err instanceof Error ? err.message : String(err);
