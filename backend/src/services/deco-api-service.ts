@@ -727,7 +727,7 @@ function buildDecoFormBody(pairs: Array<[string, string]>): string {
  * Search for a Deco product by SKU/product code.
  * Returns the Deco product ID if found, or null.
  */
-async function findDecoProductBySku(sku: string): Promise<string | null> {
+export async function findDecoProductBySku(sku: string): Promise<string | null> {
   if (!sku) return null;
   try {
     const data = await decoFetch<{ products?: Array<{ product_id?: number; product_code?: string }> }>(

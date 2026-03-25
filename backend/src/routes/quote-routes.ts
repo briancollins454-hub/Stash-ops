@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { createManualJob } from "../services/order-service";
-import { fetchDecoProductDetail } from "../services/deco-api-service";
+import { fetchDecoProductDetail, findDecoProductBySku } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 import { emailQuote } from "../services/quote-email-service";
 
@@ -347,11 +347,20 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Quote not found" };
     }
 
-    // Enrich each item with Deco product details where decoProductId is available
+    // Enrich each item with Deco product details
     const enrichedItems = await Promise.all(
       job.items.map(async (item) => {
         const itemMeta = (item.metadata ?? {}) as Record<string, unknown>;
-        const decoProductId = itemMeta.decoProductId as string | undefined;
+        let decoProductId = itemMeta.decoProductId as string | undefined;
+
+        // Fallback: look up product by SKU if decoProductId wasn't saved
+        if (!decoProductId && item.sku) {
+          try {
+            decoProductId = (await findDecoProductBySku(item.sku)) ?? undefined;
+          } catch {
+            // ignore lookup failures
+          }
+        }
 
         let productDetail = null;
         if (decoProductId) {
