@@ -1199,6 +1199,93 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
   return results;
 }
 
+/**
+ * Probe the Deco JSON API for order creation capabilities.
+ * Tests /api/json/manage_orders/create, /save, and other write endpoints.
+ */
+export async function probeDecoOrderApi(): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  const results: Record<string, unknown> = {};
+
+  // 1. Try GET on /manage_orders/create to discover required fields
+  try {
+    const createGet = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/create",
+      {},
+    );
+    results.createGetResponse = {
+      keys: Object.keys(createGet).slice(0, 30),
+      preview: JSON.stringify(createGet).slice(0, 1000),
+    };
+  } catch (err) {
+    results.createGetResponse = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 2. Try POST on /manage_orders/create with minimal data
+  try {
+    const createPost = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/create",
+      {},
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ test: true }),
+      },
+    );
+    results.createPostResponse = {
+      keys: Object.keys(createPost).slice(0, 30),
+      preview: JSON.stringify(createPost).slice(0, 1000),
+    };
+  } catch (err) {
+    results.createPostResponse = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 3. Try /manage_orders/save
+  try {
+    const saveGet = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/save",
+      {},
+    );
+    results.saveGetResponse = {
+      keys: Object.keys(saveGet).slice(0, 30),
+      preview: JSON.stringify(saveGet).slice(0, 1000),
+    };
+  } catch (err) {
+    results.saveGetResponse = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 4. Try /manage_orders/add_line_item
+  try {
+    const addLine = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/add_line_item",
+      {},
+    );
+    results.addLineItemResponse = {
+      keys: Object.keys(addLine).slice(0, 30),
+      preview: JSON.stringify(addLine).slice(0, 1000),
+    };
+  } catch (err) {
+    results.addLineItemResponse = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 5. Try /manage_orders/update (common REST pattern)
+  try {
+    const update = await decoFetch<Record<string, unknown>>(
+      "/api/json/manage_orders/update",
+      {},
+    );
+    results.updateResponse = {
+      keys: Object.keys(update).slice(0, 30),
+      preview: JSON.stringify(update).slice(0, 1000),
+    };
+  } catch (err) {
+    results.updateResponse = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return results;
+}
+
 // ── Webhook payload processing ──
 
 export type DecoWebhookPayload = {
