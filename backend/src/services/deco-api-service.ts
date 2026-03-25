@@ -1181,6 +1181,35 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
       results.ordersTable = { error: err instanceof Error ? err.message : String(err) };
     }
 
+    // Try fetching the orders page HTML to find order links
+    try {
+      const ordersPageRes = await fetch(`${base}/manage/orders`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+      });
+      const ordersHtml = await ordersPageRes.text();
+      // Find any order links in the page
+      const orderLinks = [...new Set(ordersHtml.match(/\/(?:bh|manage)\/orders\/\d+/g) ?? [])];
+      // Find data-source or AJAX URLs
+      const dataSources = ordersHtml.match(/data-source="([^"]+)"/g) ?? [];
+      // Find any table-related JS
+      const tableInit = ordersHtml.match(/DataTable|dataTable|datatable|orders_table|ajax\s*:\s*{[^}]*url[^}]*}/gi) ?? [];
+      results.ordersPage = {
+        status: ordersPageRes.status,
+        finalUrl: ordersPageRes.url,
+        htmlLength: ordersHtml.length,
+        orderLinks: orderLinks.slice(0, 10),
+        dataSources: dataSources.slice(0, 5),
+        tableInit: tableInit.slice(0, 5),
+        // Extract the SPA app initialization
+        appInit: ordersHtml.match(/new\s+\w+App|initApp|createApp|OrdersApp|dnm_init/gi)?.slice(0, 5) ?? [],
+        // Find any AJAX/API URLs
+        apiUrls: [...new Set(ordersHtml.match(/\/(?:bh|manage|api|shared)\/[a-z_]+\/[a-z_]+/g) ?? [])].slice(0, 20),
+      };
+    } catch (err) {
+      results.ordersPage = { error: err instanceof Error ? err.message : String(err) };
+    }
+
     return results;
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
