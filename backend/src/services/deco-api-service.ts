@@ -911,17 +911,18 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
 
       // Fallback: CP_FREE_FORM
       if (!usedCatalog) {
-        const name = item.productTitle;
-        const desc = [item.sku, item.variantTitle, item.decorationMethod]
-          .filter(Boolean)
-          .join(" | ");
+        // Use SKU as name so Deco can match the catalog product
+        const name = item.sku || item.productTitle;
+        const desc = item.productTitle;
+        const color = extractColorFromVariant(item.variantTitle ?? "");
         const size = extractSizeFromVariant(item.variantTitle ?? "") || item.variantTitle || "";
+        const decoMethod = item.decorationMethod ?? "";
 
         bodyPairs.push([`${prefix}[t]`, String(CP_FREE_FORM)]);
         bodyPairs.push([`${prefix}[cart_id]`, decoOrderId]);
         bodyPairs.push([`${prefix}[name]`, name]);
         bodyPairs.push([`${prefix}[desc]`, desc]);
-        bodyPairs.push([`${prefix}[color]`, extractColorFromVariant(item.variantTitle ?? "")]);
+        bodyPairs.push([`${prefix}[color]`, color]);
         bodyPairs.push([`${prefix}[size]`, size]);
         bodyPairs.push([`${prefix}[q]`, qty]);
         bodyPairs.push([`${prefix}[dis]`, "0"]);
@@ -937,9 +938,12 @@ export async function pushJobToDeco(jobId: string): Promise<DecoPushOrderResult>
         bodyPairs.push([`${prefix}[use_po]`, "0"]);
         bodyPairs.push([`${prefix}[inc_tax]`, "false"]);
         bodyPairs.push([`${prefix}[pos]`, pos]);
+        if (decoMethod) {
+          bodyPairs.push([`${prefix}[screen_method]`, decoMethod]);
+        }
 
         // eslint-disable-next-line no-console
-        console.log(`[DECO-PUSH] Item ${pos}: free-form "${name}" qty=${qty} price=${price}`);
+        console.log(`[DECO-PUSH] Item ${pos}: free-form "${name}" qty=${qty} price=${price} method=${decoMethod}`);
       }
     }
 
