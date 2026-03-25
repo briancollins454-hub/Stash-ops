@@ -6,6 +6,7 @@ import type {
   DispatchOrder,
   DecoratorProduct,
   DecoratorTemplate,
+  EnrichedQuoteDetail,
   InboxThread,
   IntegrationHealth,
   JobDetail,
@@ -76,6 +77,19 @@ export async function getJob(jobId: string): Promise<JobDetail | null> {
       `/api/v1/jobs/${encodeURIComponent(jobId)}`,
     );
     return job;
+  } catch {
+    return null;
+  }
+}
+
+export async function getEnrichedQuoteDetail(jobId: string): Promise<EnrichedQuoteDetail | null> {
+  if (!isBackendApiConfigured()) return null;
+
+  try {
+    return await fetchBackendJson<EnrichedQuoteDetail>(
+      `/api/v1/quotes/${encodeURIComponent(jobId)}/detail`,
+      { timeoutMs: 30_000 },
+    );
   } catch {
     return null;
   }

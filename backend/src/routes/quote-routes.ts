@@ -2,6 +2,7 @@ import { MatchStatus, type Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { logger } from "../lib/logger";
 import { createManualJob } from "../services/order-service";
 import { fetchDecoProductDetail } from "../services/deco-api-service";
 import { normalizeMatchToken } from "../services/shopify-order-context";
@@ -38,6 +39,9 @@ const quoteCreateSchema = z.object({
         placement: z.string().optional(),
         unitPricePounds: z.coerce.number().min(0).optional(),
         decoProductId: z.string().optional(),
+        designs: z.array(z.record(z.string(), z.unknown())).optional(),
+        selectedColorId: z.number().optional(),
+        sizeBreakdown: z.record(z.string(), z.number()).optional(),
       }),
     )
     .min(1),
@@ -236,12 +240,17 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
         variantTitle: item.variantTitle,
         quantity: item.quantity,
         decorationMethod: item.decorationMethod,
+        decorationPlacement: item.placement,
         requiresArtwork:
           !!item.decorationMethod && item.decorationMethod !== "other",
         unitPriceMinor:
           item.unitPricePounds !== undefined
             ? Math.round(item.unitPricePounds * 100)
             : undefined,
+        decoProductId: item.decoProductId,
+        designs: item.designs,
+        selectedColorId: item.selectedColorId,
+        sizeBreakdown: item.sizeBreakdown,
       })),
     };
 
@@ -317,5 +326,52 @@ export async function registerQuoteRoutes(app: FastifyInstance): Promise<void> {
   app.post("/v1/quotes/:jobId/email", async (request) => {
     const { jobId } = request.params as { jobId: string };
     return emailQuote(jobId);
+  });
+
+  // ── Enriched quote detail (job + Deco product details per item) ──
+  app.get("/v1/quotes/:jobId/detail", async (request, reply) => {
+    const { jobId } = z.object({ jobId: z.string() }).parse(request.params);
+
+    const job = await prisma.job.findFirst({
+      where: {
+        OR: [{ id: jobId }, { internalJobId: jobId }],
+      },
+      include: {
+        items: true,
+        account: { include: { aliases: true } },
+      },
+    });
+
+    if (!job) {
+      reply.status(404);
+      return { error: "Quote not found" };
+    }
+
+    // Enrich each item with Deco product details where decoProductId is available
+    const enrichedItems = await Promise.all(
+      job.items.map(async (item) => {
+        const itemMeta = (item.metadata ?? {}) as Record<string, unknown>;
+        const decoProductId = itemMeta.decoProductId as string | undefined;
+
+        let productDetail = null;
+        if (decoProductId) {
+          try {
+            productDetail = await fetchDecoProductDetail(decoProductId, item.sku ?? undefined);
+          } catch (err) {
+            logger.warn({ err, decoProductId, itemId: item.id }, "Failed to fetch Deco product detail for enrichment");
+          }
+        }
+
+        return {
+          ...item,
+          productDetail,
+        };
+      }),
+    );
+
+    return {
+      ...job,
+      items: enrichedItems,
+    };
   });
 }

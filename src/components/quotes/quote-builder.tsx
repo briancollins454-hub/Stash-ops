@@ -509,6 +509,15 @@ export default function QuoteBuilderPage() {
             placement: (item.placements ?? [item.placement]).join(", ") || undefined,
             unitPricePounds: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
             decoProductId: item.decoProductId,
+            designs: item.designs && item.designs.length > 0 ? item.designs : undefined,
+            selectedColorId: item.selectedColorId ?? undefined,
+            sizeBreakdown: item.sizeQuantities && item.productDetail
+              ? Object.fromEntries(
+                  item.productDetail.sizes
+                    .filter((s) => s.code !== "MS" && (item.sizeQuantities?.[s.id] ?? 0) > 0)
+                    .map((s) => [s.name, item.sizeQuantities![s.id]])
+                )
+              : undefined,
           };
         }),
     };

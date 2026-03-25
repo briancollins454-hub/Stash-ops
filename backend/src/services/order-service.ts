@@ -82,8 +82,13 @@ export type ManualOrderInput = {
     variantTitle?: string;
     quantity: number;
     decorationMethod?: string;
+    decorationPlacement?: string;
     requiresArtwork?: boolean;
     unitPriceMinor?: number;
+    decoProductId?: string;
+    designs?: Record<string, unknown>[];
+    selectedColorId?: number;
+    sizeBreakdown?: Record<string, number>;
   }>;
 };
 
@@ -454,9 +459,20 @@ export async function createManualJob(input: ManualOrderInput): Promise<{ jobId:
         variantTitle: item.variantTitle,
         quantity: item.quantity,
         decorationMethod: item.decorationMethod,
+        decorationPlacement: item.decorationPlacement,
         unitPriceMinor: item.unitPriceMinor,
         totalPriceMinor:
           item.unitPriceMinor !== undefined ? item.unitPriceMinor * item.quantity : undefined,
+        customOptions: item.designs && item.designs.length > 0
+          ? { designs: item.designs } as Prisma.InputJsonValue
+          : undefined,
+        metadata: (item.decoProductId || item.selectedColorId || item.sizeBreakdown)
+          ? {
+              decoProductId: item.decoProductId ?? null,
+              selectedColorId: item.selectedColorId ?? null,
+              sizeBreakdown: item.sizeBreakdown ?? null,
+            } as Prisma.InputJsonValue
+          : undefined,
       })),
     });
 

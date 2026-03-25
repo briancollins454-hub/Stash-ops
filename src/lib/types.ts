@@ -60,6 +60,7 @@ export interface JobLineItem {
   garmentReference: string | null;
   decorationMethod: string | null;
   decorationPlacement: string | null;
+  customOptions: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   stockRequirement: JobStockRequirement | null;
 }
@@ -146,6 +147,42 @@ export interface JobDetail {
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Enriched quote detail (job + Deco product info per line item) ──
+
+export interface ProductImage {
+  url: string;
+  color?: string;
+  type: "front" | "back" | "side" | "gallery";
+}
+
+export interface DecoProductDetail {
+  productId: number;
+  productCode: string;
+  productName: string;
+  supplier: string;
+  brand: string;
+  category: string;
+  colors: Array<{ id: number; name: string }>;
+  sizes: Array<{ id: number; name: string; code: string }>;
+  skus: Array<{
+    sizeId: number;
+    colorId: number;
+    price: number;
+    cost: number;
+    sku: string;
+    dnSkuId: string;
+  }>;
+  images: ProductImage[];
+}
+
+export interface EnrichedLineItem extends JobLineItem {
+  productDetail: DecoProductDetail | null;
+}
+
+export interface EnrichedQuoteDetail extends Omit<JobDetail, 'items'> {
+  items: EnrichedLineItem[];
 }
 
 export interface Customer {
