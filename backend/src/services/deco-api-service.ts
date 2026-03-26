@@ -3253,7 +3253,7 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
     while (true) {
       const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
         "/api/json/manage_orders/find",
-        { field: "1", condition: "4", date1: "2024-01-01", limit: String(batchSize), offset: String(offset) },
+        { field: "1", condition: "4", date1: "2018-01-01", limit: String(batchSize), offset: String(offset) },
       );
       const batch = data.orders ?? [];
       if (batch.length === 0) break;
