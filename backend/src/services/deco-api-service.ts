@@ -3200,6 +3200,135 @@ export async function scrapeDecoOrderArtwork(options?: { limit?: number; custome
   return results;
 }
 
+/**
+ * Probe Deco for customer design/upload endpoints.
+ * The decorator's "Customer Design > MY UPLOADS" loads designs per customer.
+ * This function tries to discover what API serves that data.
+ */
+export async function probeCustomerDesigns(customerId: string, orderId?: string): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  const cookies = await getDecoWebSession();
+  if (!cookies) return { error: "Failed to establish Deco web session" };
+
+  const base = baseUrl();
+  const results: Record<string, unknown> = { customerId, orderId };
+
+  // 1. Try JSON API endpoints for customer designs
+  const jsonApiPaths = [
+    "/api/json/customer_designs/find",
+    "/api/json/customer_files/find",
+    "/api/json/designs/find",
+    "/api/json/user_files/find",
+    "/api/json/online_designer/customer_designs",
+    "/api/json/online_designer/user_designs",
+    "/api/json/production/customer_designs",
+    "/api/json/production/designs",
+    "/api/json/manage_designs/find",
+    "/api/json/manage_customer_files/find",
+  ];
+
+  const jsonResults: Record<string, unknown> = {};
+  for (const path of jsonApiPaths) {
+    try {
+      const params: Record<string, string> = { limit: "5" };
+      if (customerId) params.customer_id = customerId;
+      const data = await decoFetch<Record<string, unknown>>(path, params);
+      jsonResults[path] = { keys: Object.keys(data), preview: JSON.stringify(data).slice(0, 500) };
+    } catch (err) {
+      jsonResults[path] = { error: err instanceof Error ? err.message.slice(0, 200) : "unknown" };
+    }
+  }
+  results.jsonApi = jsonResults;
+
+  // 2. Try web scraping paths for customer designs
+  const webPaths = [
+    `/bh/production/customer_designs/${customerId}`,
+    `/bh/production/user_designs/${customerId}`,
+    `/bh/production/get_customer_designs/${customerId}`,
+    `/bh/production/designs?user_id=${customerId}`,
+    `/bh/production/designs?customer_id=${customerId}`,
+    `/bh/customer_files/${customerId}`,
+    `/manage/customer_files/${customerId}`,
+    `/bh/user_files/${customerId}`,
+    ...(orderId ? [
+      `/bh/production/designer/${orderId}`,
+      `/bh/production/decorator/${orderId}`,
+      `/bh/orders/${orderId}/designer`,
+      `/bh/orders/${orderId}/decorator`,
+      `/bh/online_designer/${orderId}`,
+      `/manage/orders/${orderId}/designer`,
+    ] : []),
+  ];
+
+  const webResults: Record<string, unknown> = {};
+  for (const path of webPaths) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers: { Cookie: cookies },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+      const status = res.status;
+      if (status === 200) {
+        const body = await res.text();
+        const isHtml = body.trimStart().startsWith("<!") || body.trimStart().startsWith("<html");
+        const isJson = body.trimStart().startsWith("{") || body.trimStart().startsWith("[");
+        webResults[path] = {
+          status,
+          type: isJson ? "json" : isHtml ? "html" : "other",
+          length: body.length,
+          preview: body.slice(0, 500),
+          // Look for design/artwork URLs in the response
+          ...(isHtml ? {
+            designUrls: [...body.matchAll(/(?:get_design|customer_design|user_file|artwork_file|design_file)\/[^"'\s)]+/g)].map(m => m[0]).slice(0, 20),
+            ajaxEndpoints: [...body.matchAll(/(?:url|action)\s*[:=]\s*["']([^"']*(?:design|artwork|upload|file|customer)[^"']*)/gi)].map(m => m[1]).slice(0, 20),
+          } : {}),
+        };
+      } else {
+        const loc = res.headers.get("location");
+        webResults[path] = { status, ...(loc ? { redirectTo: loc } : {}) };
+      }
+    } catch (err) {
+      webResults[path] = { error: err instanceof Error ? err.message.slice(0, 100) : "unknown" };
+    }
+  }
+  results.webPaths = webPaths;
+  results.webResults = webResults;
+
+  // 3. Try loading an order's product designer to find AJAX endpoints
+  if (orderId) {
+    try {
+      const orderRes = await fetch(`${base}/bh/orders/${orderId}`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const html = await orderRes.text();
+      
+      // Find decorator/designer launch URLs
+      const decoratorLinks = [...html.matchAll(/(?:href|onclick|data-url|data-href)\s*=\s*["']([^"']*(?:decorator|designer|online_designer|production_studio)[^"']*)/gi)].map(m => m[1]).slice(0, 20);
+      
+      // Find JS with API endpoints
+      const apiEndpoints = [...html.matchAll(/["']\/(?:api|bh|manage)\/[^"']*(?:design|artwork|upload|file|customer_design|user_file)[^"']*/gi)].map(m => m[0]).slice(0, 30);
+      
+      // Find order line IDs (needed for decorator)
+      const lineIds = [...html.matchAll(/(?:line_item_id|order_line_id|configured_product_id)\s*[:=]\s*["']?(\d+)/gi)].map(m => ({ field: m[0].split(/[:=]/)[0].trim(), id: m[1] })).slice(0, 20);
+
+      results.orderPage = {
+        length: html.length,
+        decoratorLinks,
+        apiEndpoints,
+        lineIds,
+      };
+    } catch (err) {
+      results.orderPage = { error: err instanceof Error ? err.message : "unknown" };
+    }
+  }
+
+  return results;
+}
+
 // ── Account Deco Artwork aggregation ──
 
 export type DecoArtworkItem = {
