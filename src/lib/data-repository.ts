@@ -59,7 +59,7 @@ export async function listOrders(): Promise<Order[]> {
         lane: "active" | "fulfilled" | "all";
         total: number;
         items: BackendJobRecord[];
-      }>("/api/v1/orders?lane=all&limit=300");
+      }>("/api/v1/orders?lane=all&limit=1000");
 
       return payload.items.map(mapBackendJobToUiOrder);
     } catch (error) {
