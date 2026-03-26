@@ -2990,6 +2990,193 @@ export async function scrapeDecoArtwork(customerId?: string): Promise<Record<str
   return results;
 }
 
+/**
+ * Deep scrape Deco orders for decoration artwork images.
+ * Uses the JSON API to find orders, then scrapes each order's detail page
+ * for artwork/design image URLs.
+ */
+export async function scrapeDecoOrderArtwork(options?: { limit?: number; customerId?: string }): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  const cookies = await getDecoWebSession();
+  if (!cookies) return { error: "Failed to establish Deco web session" };
+
+  const base = baseUrl();
+  const limit = options?.limit ?? 10;
+
+  // Use the JSON API to get recent orders
+  let orders: DecoRawOrder[] = [];
+  try {
+    // Get most recent orders
+    const data = await decoFetch<{ orders?: DecoRawOrder[] }>(
+      "/api/json/manage_orders/find",
+      { field: "1", condition: "4", date1: "2025-01-01", limit: String(limit), offset: "0" },
+    );
+    orders = data.orders ?? [];
+  } catch (err) {
+    return { error: `Failed to fetch orders: ${err instanceof Error ? err.message : "unknown"}` };
+  }
+
+  const results: Record<string, unknown> = {
+    orderCount: orders.length,
+    orderIds: orders.map(o => o.order_id),
+  };
+
+  // Scrape each order's detail page(s) for artwork
+  const orderArtwork: Array<Record<string, unknown>> = [];
+
+  for (const order of orders.slice(0, Math.min(limit, 10))) {
+    const orderId = order.order_id;
+    if (!orderId) continue;
+
+    const orderResult: Record<string, unknown> = {
+      orderId,
+      customerName: order.billing_details?.company ?? `${order.billing_details?.firstname ?? ""} ${order.billing_details?.lastname ?? ""}`.trim(),
+      status: order.order_status_name,
+    };
+
+    // Try multiple URL patterns for the order detail page
+    const pagesScraped: Array<Record<string, unknown>> = [];
+    const urlPatterns = [
+      `/bh/orders/${orderId}`,
+      `/manage/orders/edit/${orderId}`,
+      `/bh/orders/${orderId}/edit`,
+    ];
+
+    for (const path of urlPatterns) {
+      try {
+        const res = await fetch(`${base}${path}`, {
+          headers: { Cookie: cookies },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15_000),
+        });
+        const html = await res.text();
+
+        if (html.includes("/user/login") || html.length < 500) continue;
+
+        const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+
+        // Collect ALL image URLs (not just artwork-named ones)
+        const allImageUrls: string[] = [];
+
+        // Decoration/artwork image paths
+        for (const m of html.matchAll(/(?:src|href|data-src|data-image)\s*=\s*["']([^"']*(?:decoration|artwork|design|logo|customer_artwork|order_design|order_artwork|proof|mockup)[^"']*)/gi)) {
+          const url = m[1].startsWith("http") ? m[1] : `${base}${m[1]}`;
+          if (!allImageUrls.includes(url)) allImageUrls.push(url);
+        }
+
+        // Generic image paths from Deco
+        for (const m of html.matchAll(/(?:\/(?:order_line_item_artwork|decoration_image|customer_file|user_file|design_image|design_file|artwork_file|proof_image)\/[^"'\s)]+)/g)) {
+          const url = m[0].startsWith("http") ? m[0] : `${base}${m[0]}`;
+          if (!allImageUrls.includes(url)) allImageUrls.push(url);
+        }
+
+        // Any image URL containing /s/image/ (Deco's asset path pattern)
+        for (const m of html.matchAll(/(?:\/\w+\/s\/(?:image|display_image|file)\/\d+\/\d+\/\d+\/[^"'\s)]+)/g)) {
+          const url = m[0].startsWith("http") ? m[0] : `${base}${m[0]}`;
+          if (!allImageUrls.includes(url) && !url.includes("product_view_image") && !url.includes("supplier_product")) {
+            allImageUrls.push(url);
+          }
+        }
+
+        // Check for inline JS/JSON with design data
+        const designRefs: string[] = [];
+        for (const m of html.matchAll(/"(?:design_id|artwork_id|logo_id|decoration_id|design_file_id|artwork_file_id)"\s*:\s*(?:"([^"]+)"|(\d+))/g)) {
+          designRefs.push(m[0]);
+        }
+
+        // Check for decoration detail links
+        const decoLinks: string[] = [];
+        for (const m of html.matchAll(/href="([^"]*(?:decoration|artwork|proof|design)[^"]*)"/gi)) {
+          if (!decoLinks.includes(m[1]) && decoLinks.length < 20) decoLinks.push(m[1]);
+        }
+
+        // Extract any thumbnail images that might be artwork
+        const thumbnails: string[] = [];
+        for (const m of html.matchAll(/(?:class="[^"]*(?:thumb|preview|artwork|design|logo)[^"]*"[^>]*src="([^"]+)"|src="([^"]+)"[^>]*class="[^"]*(?:thumb|preview|artwork|design|logo)[^"]*")/gi)) {
+          const url = (m[1] || m[2]);
+          if (url && !thumbnails.includes(url) && thumbnails.length < 20) thumbnails.push(url);
+        }
+
+        if (allImageUrls.length > 0 || designRefs.length > 0 || decoLinks.length > 0) {
+          pagesScraped.push({
+            path,
+            title,
+            artworkUrls: allImageUrls,
+            designRefs,
+            decorationLinks: decoLinks,
+            thumbnails,
+            htmlLength: html.length,
+          });
+        } else {
+          pagesScraped.push({
+            path,
+            title,
+            htmlLength: html.length,
+            noArtworkFound: true,
+          });
+        }
+      } catch {
+        // silently skip failed pages
+      }
+    }
+
+    orderResult.pages = pagesScraped;
+    orderArtwork.push(orderResult);
+  }
+
+  results.orders = orderArtwork;
+
+  // 5. Also try probing decoration-related admin pages
+  const decorationPages = [
+    "/manage/decorations",
+    "/manage/decoration_methods",
+    "/bh/decorations",
+    "/manage/online_designer",
+    "/manage/manage_designs",
+    "/manage/customer_files",
+    "/manage/order_files",
+    "/bh/customer_files",
+    "/bh/order_files",
+    "/manage/proofs",
+    "/bh/proofs",
+  ];
+
+  const pageResults: Record<string, unknown> = {};
+  for (const path of decorationPages) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers: { Cookie: cookies },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.status === 200) {
+        const html = await res.text();
+        const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+        if (!html.includes("/user/login")) {
+          const links: string[] = [];
+          for (const m of html.matchAll(/href="([^"]{5,100})"/g)) {
+            if (!links.includes(m[1]) && links.length < 30) links.push(m[1]);
+          }
+          pageResults[path] = { status: 200, title, htmlLength: html.length, sampleLinks: links.slice(0, 20) };
+        } else {
+          pageResults[path] = { status: 200, loginPage: true };
+        }
+      } else if (res.status === 301 || res.status === 302) {
+        pageResults[path] = { status: res.status, redirectTo: res.headers.get("location") };
+      } else {
+        pageResults[path] = { status: res.status };
+      }
+      try { await res.text(); } catch {}
+    } catch {
+      pageResults[path] = { error: "timeout" };
+    }
+  }
+  results.decorationPages = pageResults;
+
+  return results;
+}
+
 export async function processDecoWebhook(
   topic: string,
   payload: DecoWebhookPayload,
