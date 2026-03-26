@@ -385,11 +385,18 @@ async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail |
 
   if (scored.length === 0) return null;
 
-  const best = scored[0];
-  if (best.source === "catalog") {
-    return fetchCatalogDetail(best.result.styleCode, item);
+  // Try results in score order, falling back if detail fetch fails
+  for (const entry of scored) {
+    if (entry.source === "catalog") {
+      const detail = await fetchCatalogDetail(entry.result.styleCode, item);
+      if (detail && detail.images && detail.images.length > 0) return detail;
+    } else {
+      const detail = await fetchProductDetail(entry.result.decoProductId, item);
+      if (detail) return detail;
+    }
   }
-  return fetchProductDetail(best.result.decoProductId, item);
+
+  return null;
 }
 
 /* ── Component ── */
