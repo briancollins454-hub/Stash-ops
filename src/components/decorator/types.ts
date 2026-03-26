@@ -45,8 +45,8 @@ export interface ZoneDef {
 
 export const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
   tshirt: [
-    { key: "left_chest",         label: "Left Chest",    view: "front", x: 50, y: 26, w: 18, h: 16, actualWidthMm: 90,  actualHeightMm: 112 },
-    { key: "right_chest",        label: "Right Chest",   view: "front", x: 28, y: 26, w: 18, h: 16, actualWidthMm: 90,  actualHeightMm: 112 },
+    { key: "left_chest",         label: "Left Chest",    view: "front", x: 47, y: 23, w: 24, h: 22, actualWidthMm: 120, actualHeightMm: 154 },
+    { key: "right_chest",        label: "Right Chest",   view: "front", x: 25, y: 23, w: 24, h: 22, actualWidthMm: 120, actualHeightMm: 154 },
     { key: "centre_chest",       label: "Centre Chest",  view: "front", x: 28, y: 24, w: 40, h: 20, actualWidthMm: 200, actualHeightMm: 140 },
     { key: "main_body",          label: "Main Body",     view: "front", x: 20, y: 22, w: 56, h: 42, actualWidthMm: 280, actualHeightMm: 294 },
     { key: "full_back",          label: "Full Back",     view: "back",  x: 18, y: 18, w: 60, h: 48, actualWidthMm: 300, actualHeightMm: 336 },
@@ -54,8 +54,8 @@ export const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
     { key: "right_sleeve_short", label: "Right Sleeve",  view: "right", x: 40, y: 18, w: 30, h: 22, actualWidthMm: 150, actualHeightMm: 154 },
   ],
   hoodie: [
-    { key: "left_chest",         label: "Left Chest",    view: "front", x: 50, y: 30, w: 18, h: 16, actualWidthMm: 94,  actualHeightMm: 115 },
-    { key: "right_chest",        label: "Right Chest",   view: "front", x: 28, y: 30, w: 18, h: 16, actualWidthMm: 94,  actualHeightMm: 115 },
+    { key: "left_chest",         label: "Left Chest",    view: "front", x: 47, y: 27, w: 24, h: 22, actualWidthMm: 125, actualHeightMm: 158 },
+    { key: "right_chest",        label: "Right Chest",   view: "front", x: 25, y: 27, w: 24, h: 22, actualWidthMm: 125, actualHeightMm: 158 },
     { key: "centre_chest",       label: "Centre Chest",  view: "front", x: 28, y: 28, w: 40, h: 20, actualWidthMm: 208, actualHeightMm: 144 },
     { key: "main_body",          label: "Main Body",     view: "front", x: 20, y: 24, w: 56, h: 42, actualWidthMm: 291, actualHeightMm: 302 },
     { key: "full_back",          label: "Full Back",     view: "back",  x: 18, y: 20, w: 60, h: 48, actualWidthMm: 312, actualHeightMm: 346 },
@@ -64,16 +64,16 @@ export const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
     { key: "hood",               label: "Hood",          view: "back",  x: 30, y: 2,  w: 36, h: 18, actualWidthMm: 187, actualHeightMm: 130 },
   ],
   polo: [
-    { key: "left_chest",         label: "Left Chest",    view: "front", x: 50, y: 26, w: 18, h: 16, actualWidthMm: 90,  actualHeightMm: 112 },
-    { key: "right_chest",        label: "Right Chest",   view: "front", x: 28, y: 26, w: 18, h: 16, actualWidthMm: 90,  actualHeightMm: 112 },
+    { key: "left_chest",         label: "Left Chest",    view: "front", x: 47, y: 23, w: 24, h: 22, actualWidthMm: 120, actualHeightMm: 154 },
+    { key: "right_chest",        label: "Right Chest",   view: "front", x: 25, y: 23, w: 24, h: 22, actualWidthMm: 120, actualHeightMm: 154 },
     { key: "main_body",          label: "Main Body",     view: "front", x: 20, y: 22, w: 56, h: 42, actualWidthMm: 280, actualHeightMm: 294 },
     { key: "full_back",          label: "Full Back",     view: "back",  x: 18, y: 18, w: 60, h: 48, actualWidthMm: 300, actualHeightMm: 336 },
     { key: "left_sleeve_short",  label: "Left Sleeve",   view: "left",  x: 28, y: 18, w: 30, h: 22, actualWidthMm: 150, actualHeightMm: 154 },
     { key: "right_sleeve_short", label: "Right Sleeve",  view: "right", x: 40, y: 18, w: 30, h: 22, actualWidthMm: 150, actualHeightMm: 154 },
   ],
   jacket: [
-    { key: "left_chest",         label: "Left Chest",    view: "front", x: 50, y: 28, w: 18, h: 16, actualWidthMm: 97,  actualHeightMm: 117 },
-    { key: "right_chest",        label: "Right Chest",   view: "front", x: 28, y: 28, w: 18, h: 16, actualWidthMm: 97,  actualHeightMm: 117 },
+    { key: "left_chest",         label: "Left Chest",    view: "front", x: 47, y: 25, w: 24, h: 22, actualWidthMm: 130, actualHeightMm: 161 },
+    { key: "right_chest",        label: "Right Chest",   view: "front", x: 25, y: 25, w: 24, h: 22, actualWidthMm: 130, actualHeightMm: 161 },
     { key: "main_body",          label: "Main Body",     view: "front", x: 20, y: 24, w: 56, h: 42, actualWidthMm: 302, actualHeightMm: 307 },
     { key: "full_back",          label: "Full Back",     view: "back",  x: 18, y: 18, w: 60, h: 48, actualWidthMm: 324, actualHeightMm: 350 },
     { key: "left_sleeve_long",   label: "Left Sleeve",   view: "left",  x: 22, y: 14, w: 34, h: 38, actualWidthMm: 184, actualHeightMm: 277 },
