@@ -2,6 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { IntegrationsHub } from "@/components/integrations/integrations-hub";
 import { CatalogImportUploader } from "@/components/modules/catalog-import-uploader";
+import { BulkDecoArtworkImporter } from "@/components/modules/bulk-deco-artwork-importer";
 import { shellCopy } from "@/lib/content";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,14 @@ export default async function AdminPage() {
         detail="Click an integration to configure & sync"
       >
         <IntegrationsHub />
+      </SectionCard>
+
+      <SectionCard
+        kicker="Artwork"
+        title="Bulk Deco artwork import"
+        detail="Import artwork for all accounts at once"
+      >
+        <BulkDecoArtworkImporter />
       </SectionCard>
 
       <SectionCard

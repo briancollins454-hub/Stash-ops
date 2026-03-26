@@ -2,6 +2,7 @@ import { AssetType, ProductMatcherType, type AccountType } from "@prisma/client"
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { logger } from "../lib/logger";
 import { normalizeMatchToken } from "../services/shopify-order-context";
 import { getAccountDecoArtwork } from "../services/deco-api-service";
 
@@ -411,5 +412,99 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     }
 
     return { imported, skipped, total: result.items.length };
+  });
+
+  // ── Bulk import Deco artwork for ALL accounts ──
+  app.post("/v1/accounts/bulk-import-deco-artwork", async (request, reply) => {
+    // Find all accounts that have a decoCustomerId
+    const accounts = await prisma.account.findMany({
+      where: { decoCustomerId: { not: null } },
+      select: { id: true, name: true, decoCustomerId: true },
+    });
+
+    if (accounts.length === 0) {
+      return { accountsProcessed: 0, accountsWithArtwork: 0, totalImported: 0, totalSkipped: 0, note: "No accounts with Deco customer IDs found." };
+    }
+
+    // De-duplicate: group accounts by their unique decoCustomerId to avoid fetching duplicates
+    const customerIdToAccounts = new Map<string, typeof accounts>();
+    for (const acct of accounts) {
+      const cid = acct.decoCustomerId!;
+      const list = customerIdToAccounts.get(cid) ?? [];
+      list.push(acct);
+      customerIdToAccounts.set(cid, list);
+    }
+
+    let accountsProcessed = 0;
+    let accountsWithArtwork = 0;
+    let totalImported = 0;
+    let totalSkipped = 0;
+    const errors: string[] = [];
+
+    // Process unique customer IDs in batches of 5 to avoid hammering Deco
+    const customerIds = [...customerIdToAccounts.keys()];
+    const batchSize = 5;
+
+    for (let i = 0; i < customerIds.length; i += batchSize) {
+      const batch = customerIds.slice(i, i + batchSize);
+
+      for (const customerId of batch) {
+        try {
+          const result = await getAccountDecoArtwork([customerId]);
+          const linkedAccounts = customerIdToAccounts.get(customerId)!;
+
+          for (const acct of linkedAccounts) {
+            accountsProcessed++;
+
+            if (!result.items.length) continue;
+            accountsWithArtwork++;
+
+            // Check existing assets for this account
+            const existing = await prisma.accountAsset.findMany({
+              where: { accountId: acct.id, decoDesignId: { in: result.items.map((it) => it.id) } },
+              select: { decoDesignId: true },
+            });
+            const existingIds = new Set(existing.map((e) => e.decoDesignId));
+
+            for (const item of result.items) {
+              if (existingIds.has(item.id)) {
+                totalSkipped++;
+                continue;
+              }
+              await prisma.accountAsset.create({
+                data: {
+                  accountId: acct.id,
+                  assetType: "LOGO" as AssetType,
+                  label: item.name,
+                  decoDesignId: item.id,
+                  fileUrl: item.thumbnailUrl,
+                  active: true,
+                  priority: 100,
+                },
+              });
+              totalImported++;
+            }
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn(`[BulkDecoImport] Error for customer ${customerId}: ${msg}`);
+          errors.push(`Customer ${customerId}: ${msg}`);
+        }
+      }
+
+      // Small delay between batches to be polite to Deco
+      if (i + batchSize < customerIds.length) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+
+    return {
+      accountsProcessed,
+      accountsWithArtwork,
+      totalImported,
+      totalSkipped,
+      uniqueDecoCustomers: customerIds.length,
+      errors: errors.length > 0 ? errors : undefined,
+    };
   });
 }
