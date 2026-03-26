@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { AccountAsset } from "./page";
+
+interface DecoDesign {
+  id: string;
+  name: string;
+  thumbnailUrl: string;
+  fullUrl: string;
+  decoCustomerId: string;
+}
 
 interface Props {
   accountId: string;
@@ -285,6 +293,9 @@ export function AccountAssetsManager({ accountId, accountName, initialAssets }: 
         )}
       </div>
 
+      {/* Deco Artwork from customer uploads */}
+      <DecoArtworkSection accountId={accountId} />
+
       {/* Other assets */}
       {others.length > 0 && (
         <div className="card p-5">
@@ -380,6 +391,97 @@ function AssetCard({
           </svg>
         )}
       </button>
+    </div>
+  );
+}
+
+function DecoArtworkSection({ accountId }: { accountId: string }) {
+  const [designs, setDesigns] = useState<DecoDesign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/v1/accounts/${accountId}/deco-artwork`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.items) setDesigns(data.items);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [accountId]);
+
+  if (!loading && designs.length === 0) return null;
+
+  return (
+    <div className="card p-5">
+      <button onClick={() => setExpanded(!expanded)} className="flex w-full items-center justify-between mb-4">
+        <div className="text-left">
+          <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+            Deco Artwork
+            {designs.length > 0 && (
+              <span
+                className="inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-bold"
+                style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24", minWidth: "1.2rem" }}
+              >
+                {designs.length}
+              </span>
+            )}
+          </h3>
+          <p className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+            Customer designs synced from DecoNetwork
+          </p>
+        </div>
+        <svg
+          className="h-4 w-4 transition-transform"
+          style={{ color: "var(--text-tertiary)", transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        loading ? (
+          <p className="py-6 text-center text-xs" style={{ color: "var(--text-tertiary)" }}>
+            Loading Deco artwork...
+          </p>
+        ) : (
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+            {designs.map((d) => (
+              <div
+                key={d.id}
+                className="group relative rounded-xl overflow-hidden transition-all hover:brightness-110 hover:ring-1 hover:ring-[#f59e0b]/40"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <div className="aspect-square flex items-center justify-center" style={{ background: "rgba(255,255,255,0.02)" }}>
+                  {d.thumbnailUrl ? (
+                    <img
+                      src={`/api/image-proxy?url=${encodeURIComponent(d.thumbnailUrl)}`}
+                      alt={d.name}
+                      className="h-full w-full object-contain p-3"
+                    />
+                  ) : (
+                    <div className="text-3xl">🎨</div>
+                  )}
+                </div>
+                <div className="p-2.5">
+                  <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                    {d.name}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase"
+                      style={{ background: "rgba(245,158,11,0.12)", color: "#fbbf24" }}
+                    >
+                      Deco
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }
