@@ -3243,14 +3243,14 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
 
   const customerIdSet = new Set(decoCustomerIds.map(String));
 
-  // Fetch orders and filter by customer_id client-side
+  // Fetch ALL orders and filter by customer_id client-side
   const allOrders: DecoRawOrder[] = [];
   const batchSize = 100;
   let offset = 0;
-  const maxOrders = 500;
 
   try {
-    while (offset < maxOrders) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
       const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
         "/api/json/manage_orders/find",
         { field: "1", condition: "4", date1: "2024-01-01", limit: String(batchSize), offset: String(offset) },
