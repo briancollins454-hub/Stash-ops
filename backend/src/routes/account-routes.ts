@@ -93,6 +93,24 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     };
   });
 
+  // ── Artwork stats (must be before :accountId param route) ──
+  app.get("/v1/accounts/artwork-stats", async () => {
+    const [total, archived, external, accountsWithArtwork] = await Promise.all([
+      prisma.accountAsset.count(),
+      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "data:" } } }),
+      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "http" } } }),
+      prisma.accountAsset.groupBy({ by: ["accountId"], _count: true }).then((g) => g.length),
+    ]);
+
+    return {
+      totalAssets: total,
+      archived,
+      external,
+      noImage: total - archived - external,
+      accountsWithArtwork,
+    };
+  });
+
   app.get("/v1/accounts/:accountId", async (request, reply) => {
     const params = z
       .object({
@@ -582,21 +600,4 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     };
   });
 
-  // ── Artwork stats ──
-  app.get("/v1/accounts/artwork-stats", async () => {
-    const [total, archived, external, accountsWithArtwork] = await Promise.all([
-      prisma.accountAsset.count(),
-      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "data:" } } }),
-      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "http" } } }),
-      prisma.accountAsset.groupBy({ by: ["accountId"], _count: true }).then((g) => g.length),
-    ]);
-
-    return {
-      totalAssets: total,
-      archived,
-      external,
-      noImage: total - archived - external,
-      accountsWithArtwork,
-    };
-  });
 }
