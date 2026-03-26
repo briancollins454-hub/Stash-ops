@@ -596,8 +596,8 @@ export const useDecoratorStore = create<DecoratorState>()((set, get) => ({
           stitchCount: config?.stitchCount,
           colorCount: config?.colorCount,
           threadColors: config?.threadColors,
-          dimensionWcm: config?.dimensionWcm ?? (primaryImg.w / 100) * ref.w,
-          dimensionHcm: config?.dimensionHcm ?? (primaryImg.h / 100) * ref.h,
+          dimensionWcm: +((primaryImg.w / 100) * ref.w).toFixed(1),
+          dimensionHcm: +((primaryImg.h / 100) * ref.h).toFixed(1),
           notes: config?.notes,
         });
       } else if (config?.decorationMethod) {

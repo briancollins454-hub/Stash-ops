@@ -541,7 +541,7 @@ function ProductDetailPage({
                         <tr>
                           <td className="label">Size</td>
                           <td>
-                            {design.dimensionWcm?.toFixed(2) ?? "—"}cm × {design.dimensionHcm?.toFixed(2) ?? "—"}cm
+                            {design.dimensionWcm?.toFixed(1) ?? "—"}cm × {design.dimensionHcm?.toFixed(1) ?? "—"}cm
                           </td>
                         </tr>
                       )}

@@ -219,9 +219,6 @@ function PropertiesTab({
     );
   }
 
-  const wcm = ((selectedObj.w / 100) * garmentRef.w).toFixed(1);
-  const hcm = ((selectedObj.h / 100) * garmentRef.h).toFixed(1);
-
   return (
     <div className="space-y-4">
       {/* Type badge */}
@@ -262,9 +259,26 @@ function PropertiesTab({
             }
           }} min={1} max={100} step={0.5} />
         </div>
-        <p className="mt-1.5 text-[11px]" style={{ color: "var(--text-tertiary, #64748b)" }}>
-          ≈ {wcm} × {hcm} cm
-        </p>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <NumField label="W (cm)" value={+((selectedObj.w / 100) * garmentRef.w).toFixed(1)} onChange={(v) => {
+            const wPct = (v / garmentRef.w) * 100;
+            if (selectedObj.lockAspect && selectedObj.w > 0) {
+              const ratio = selectedObj.h / selectedObj.w;
+              onUpdate(selectedObj.id, { w: +wPct.toFixed(2), h: +(wPct * ratio).toFixed(2) });
+            } else {
+              onUpdate(selectedObj.id, { w: +wPct.toFixed(2) });
+            }
+          }} min={0.5} max={garmentRef.w} step={0.5} />
+          <NumField label="H (cm)" value={+((selectedObj.h / 100) * garmentRef.h).toFixed(1)} onChange={(v) => {
+            const hPct = (v / garmentRef.h) * 100;
+            if (selectedObj.lockAspect && selectedObj.h > 0) {
+              const ratio = selectedObj.w / selectedObj.h;
+              onUpdate(selectedObj.id, { h: +hPct.toFixed(2), w: +(hPct * ratio).toFixed(2) });
+            } else {
+              onUpdate(selectedObj.id, { h: +hPct.toFixed(2) });
+            }
+          }} min={0.5} max={garmentRef.h} step={0.5} />
+        </div>
       </div>
 
       {/* Rotation */}
@@ -417,20 +431,7 @@ function MethodTab({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <NumField
-              label="Width (cm)"
-              value={config?.dimensionWcm ?? 0}
-              onChange={(v) => onSetConfig(zoneKey, { dimensionWcm: v })}
-              min={0} max={100} step={0.5}
-            />
-            <NumField
-              label="Height (cm)"
-              value={config?.dimensionHcm ?? 0}
-              onChange={(v) => onSetConfig(zoneKey, { dimensionHcm: v })}
-              min={0} max={100} step={0.5}
-            />
-          </div>
+
 
           {/* Method constraints info */}
           <div className="text-[11px] space-y-0.5" style={{ color: "var(--text-tertiary, #64748b)" }}>
