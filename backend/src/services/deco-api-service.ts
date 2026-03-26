@@ -3590,9 +3590,16 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
         const name = nameMatch ? nameMatch[1] : `Design ${designId}`;
         const thumbPath = imgMatch ? imgMatch[1] : null;
 
-        // Construct URLs — thumb100 for thumbnail, replace with full size
+        // Construct URLs — thumbnail for display, full size for placement
         const thumbnailUrl = thumbPath ? `${base}${thumbPath}` : "";
-        const fullUrl = thumbPath ? `${base}${thumbPath.replace("thumb100", "thumb500")}` : "";
+        // Try to get a larger version: thumb100→thumb500, thumb200c→original format
+        let fullPath = thumbPath ?? "";
+        if (fullPath.includes("thumb100")) {
+          fullPath = fullPath.replace("thumb100", "thumb500");
+        } else if (fullPath.includes("thumb200c")) {
+          fullPath = fullPath.replace("/thumb200c.jpg", "/thumb500.png");
+        }
+        const fullUrl = fullPath ? `${base}${fullPath}` : thumbnailUrl;
 
         items.push({
           id: designId,
