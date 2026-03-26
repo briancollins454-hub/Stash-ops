@@ -3306,25 +3306,79 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
       });
       const html = await orderRes.text();
       
-      // Find decorator/designer launch URLs
-      const decoratorLinks = [...html.matchAll(/(?:href|onclick|data-url|data-href)\s*=\s*["']([^"']*(?:decorator|designer|online_designer|production_studio)[^"']*)/gi)].map(m => m[1]).slice(0, 20);
+      // Find decorator/designer launch URLs - search broadly
+      const decoratorLinks = [...html.matchAll(/(?:href|onclick|data-url|data-href|action|src)\s*=\s*["']([^"']*(?:decorator|designer|online_designer|production_studio|production|configured_product|design)[^"']*)/gi)].map(m => m[1]).slice(0, 30);
       
-      // Find JS with API endpoints
-      const apiEndpoints = [...html.matchAll(/["']\/(?:api|bh|manage)\/[^"']*(?:design|artwork|upload|file|customer_design|user_file)[^"']*/gi)].map(m => m[0]).slice(0, 30);
+      // Find ALL JS/AJAX API endpoints - very broad search
+      const apiEndpoints = [...html.matchAll(/["']([\/][^"'\s]{5,}(?:design|artwork|upload|file|customer|user_file|production|decorator|configured)[^"'\s]*)/gi)].map(m => m[1]).slice(0, 40);
       
-      // Find order line IDs (needed for decorator)
-      const lineIds = [...html.matchAll(/(?:line_item_id|order_line_id|configured_product_id)\s*[:=]\s*["']?(\d+)/gi)].map(m => ({ field: m[0].split(/[:=]/)[0].trim(), id: m[1] })).slice(0, 20);
+      // Find ALL script src references
+      const scriptSrcs = [...html.matchAll(/src\s*=\s*["']([^"']+\.js[^"']*)/gi)].map(m => m[1]).slice(0, 30);
+      
+      // Find all form actions
+      const formActions = [...html.matchAll(/action\s*=\s*["']([^"']+)/gi)].map(m => m[1]).slice(0, 20);
+      
+      // Find ALL iframe srcs
+      const iframeSrcs = [...html.matchAll(/<iframe[^>]*src\s*=\s*["']([^"']+)/gi)].map(m => m[1]).slice(0, 10);
+      
+      // Find data attributes that reference configurable/design IDs
+      const dataAttrs = [...html.matchAll(/data-(?:id|order|product|line|configured|design|artwork)[^=]*=\s*["']([^"']+)/gi)].map(m => `${m[0].split('=')[0].trim()}=${m[1]}`).slice(0, 30);
+      
+      // Find JavaScript variable assignments with design/production URLs
+      const jsVars = [...html.matchAll(/(?:var|let|const|window\.)?\s*\w*(?:design|artwork|decorator|production|upload|configured)\w*\s*[:=]\s*["']([^"']+)/gi)].map(m => m[0].slice(0, 200)).slice(0, 20);
+      
+      // Search for configured_product_id patterns (key for decorator)
+      const configuredProductIds = [...html.matchAll(/configured_product(?:_id)?\s*[:=\[]\s*["']?(\d+)/gi)].map(m => m[1]).slice(0, 20);
+      
+      // Any mention of "edit" buttons with links
+      const editButtons = [...html.matchAll(/(?:class|id)\s*=\s*["'][^"']*(?:edit|design|decorate|configure)[^"']*["'][^>]*(?:href|onclick|data-url)\s*=\s*["']([^"']+)/gi)].map(m => m[1]).slice(0, 20);
 
       results.orderPage = {
         length: html.length,
         decoratorLinks,
         apiEndpoints,
-        lineIds,
+        scriptSrcs: scriptSrcs.slice(0, 10),
+        formActions,
+        iframeSrcs,
+        dataAttrs,
+        jsVars,
+        configuredProductIds,
+        editButtons,
       };
     } catch (err) {
       results.orderPage = { error: err instanceof Error ? err.message : "unknown" };
     }
   }
+
+  // 4. Try production endpoints with user[id] parameter format (Deco bracket notation)
+  const bracketPaths = [
+    `/bh/production/list_designs?user[id]=${customerId}`,
+    `/bh/production/get_designs?user[id]=${customerId}`,
+    `/bh/production/user_uploads?user[id]=${customerId}`,
+    `/bh/production/customer_uploads?user[id]=${customerId}`,
+    `/bh/production/my_uploads?user[id]=${customerId}`,
+    `/bh/production/files?user[id]=${customerId}`,
+  ];
+  const bracketResults: Record<string, unknown> = {};
+  for (const path of bracketPaths) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers: { Cookie: cookies },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+      const status = res.status;
+      if (status === 200) {
+        const body = await res.text();
+        bracketResults[path] = { status, length: body.length, preview: body.slice(0, 300) };
+      } else {
+        bracketResults[path] = { status };
+      }
+    } catch {
+      bracketResults[path] = { error: "timeout" };
+    }
+  }
+  results.bracketResults = bracketResults;
 
   return results;
 }
