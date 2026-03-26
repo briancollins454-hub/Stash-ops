@@ -7,6 +7,8 @@ import {
   catalogStats,
   importCatalogFromRows,
 } from "../services/catalog-service";
+import { prisma } from "../lib/prisma";
+import { logger } from "../lib/logger";
 
 export async function registerCatalogRoutes(app: FastifyInstance): Promise<void> {
   // ── Stats ──
@@ -57,5 +59,77 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
       reply.status(500);
       return { error: err instanceof Error ? err.message : "Import failed" };
     }
+  });
+
+  // ── Browse products grouped by brand ──
+  app.get("/v1/catalog/browse", async (request) => {
+    const { brand, productType } = z
+      .object({
+        brand: z.string().optional(),
+        productType: z.string().optional(),
+      })
+      .parse(request.query);
+
+    const where: Record<string, unknown> = {};
+    if (brand) where.brand = brand;
+    if (productType) where.productType = productType;
+
+    const [products, brands, productTypes] = await Promise.all([
+      prisma.catalogProduct.findMany({
+        where,
+        include: { _count: { select: { colours: true } } },
+        orderBy: [{ brand: "asc" }, { name: "asc" }],
+      }),
+      prisma.catalogProduct.groupBy({
+        by: ["brand"],
+        _count: true,
+        orderBy: { brand: "asc" },
+      }),
+      prisma.catalogProduct.groupBy({
+        by: ["productType"],
+        _count: true,
+        orderBy: { productType: "asc" },
+      }),
+    ]);
+
+    return {
+      total: products.length,
+      brands: brands.map((b) => ({ name: b.brand, count: b._count })),
+      productTypes: productTypes
+        .filter((t) => t.productType)
+        .map((t) => ({ name: t.productType!, count: t._count })),
+      items: products.map((p) => ({
+        id: p.id,
+        styleCode: p.styleCode,
+        brand: p.brand,
+        name: p.name,
+        productType: p.productType,
+        gender: p.gender,
+        primaryImageUrl: p.primaryImageUrl,
+        colourCount: p._count.colours,
+        updatedAt: p.updatedAt,
+      })),
+    };
+  });
+
+  // ── Delete a single product ──
+  app.delete("/v1/catalog/products/:styleCode", async (request, reply) => {
+    const { styleCode } = z.object({ styleCode: z.string() }).parse(request.params);
+    try {
+      await prisma.catalogProduct.delete({ where: { styleCode: styleCode.toUpperCase() } });
+      return { ok: true, deleted: styleCode.toUpperCase() };
+    } catch {
+      reply.status(404);
+      return { error: `Product ${styleCode} not found` };
+    }
+  });
+
+  // ── Delete all products for a brand ──
+  app.delete("/v1/catalog/brands/:brand", async (request) => {
+    const { brand } = z.object({ brand: z.string() }).parse(request.params);
+    const decoded = decodeURIComponent(brand);
+    const result = await prisma.catalogProduct.deleteMany({ where: { brand: decoded } });
+    logger.info(`[Catalog] Deleted ${result.count} products for brand "${decoded}"`);
+    return { ok: true, deleted: result.count, brand: decoded };
   });
 }
