@@ -3380,137 +3380,93 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
   }
   results.bracketResults = bracketResults;
 
-  // 5. Scrape the admin order edit page AND the dnm.js for designer endpoints
-  if (orderId) {
-    // Try the manage/orders/edit page (admin view where designer launches from)
+  // 5. Focus on finding the designer/decorator JS bundle and its API endpoints
+  {
     try {
-      // Try different admin URL patterns
-      for (const editPath of [
-        `/manage/orders/edit_order/${orderId}`,
-        `/manage/orders/${orderId}/edit`,
-        `/manage/orders/${orderId}`,
-      ]) {
-        const res = await fetch(`${base}${editPath}`, {
-          headers: { Cookie: cookies },
-          redirect: "follow",
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (res.status === 200) {
-          const html = await res.text();
-          const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
-          if (!title.includes("Not Found") && !title.includes("404")) {
-            results.adminEditPage = { path: editPath, length: html.length, title, found: true };
-            break;
-          }
-        }
-      }
-      if (!results.adminEditPage) {
-        results.adminEditPage = { found: false };
-      }
-    } catch (err) {
-      results.adminEditPage = { error: err instanceof Error ? err.message : "unknown" };
-    }
-
-    // Try manage_orders/find with extra include params to get decoration/views data
-    const includeParams = [
-      { include_decoration_data: "1" },
-      { include_views: "1" },
-      { include_artwork: "1" },
-      { include_design_data: "1" },
-      { include_all: "1" },
-      { include_configured_products: "1" },
-      { include_decoration_data: "1", include_workflow_data: "1" },
-    ];
-
-    const includeResults: Array<Record<string, unknown>> = [];
-    for (const extra of includeParams) {
-      try {
-        const data = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
-          "/api/json/manage_orders/find",
-          { field: "1", condition: "4", date1: "2026-03-25 00:00:00", limit: "1", offset: "0", ...extra },
-        );
-        const order = data.orders?.[0];
-        if (order) {
-          const lines = (order.order_lines ?? order.items ?? []) as Array<Record<string, unknown>>;
-          const firstLine = lines[0] as Record<string, unknown> | undefined;
-          includeResults.push({
-            params: extra,
-            orderId: order.order_id,
-            lineCount: lines.length,
-            firstLineKeys: firstLine ? Object.keys(firstLine) : [],
-            hasViews: firstLine ? "views" in firstLine : false,
-            hasDesign: firstLine ? Object.keys(firstLine).some(k => k.includes("design") || k.includes("artwork") || k.includes("decoration")) : false,
-          });
-        }
-      } catch (err) {
-        includeResults.push({ params: extra, error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
-      }
-    }
-    results.orderApiIncludes = includeResults;
-
-    // Scrape dnm.js for API patterns
-    try {
-      const dnmRes = await fetch(`${base}/javascripts/dnm.js`, {
-        headers: { Cookie: cookies },
-        signal: AbortSignal.timeout(15_000),
-      });
-      const dnmJs = await dnmRes.text();
-
-      // Search for customer design/upload API endpoints in JS
-      const designEndpoints = [...dnmJs.matchAll(/["']([\/][^"'\s]{3,}(?:design|artwork|upload|customer_file|user_file|my_upload|production\/get|configured_product)[^"'\s]*)/gi)].map(m => m[1]).slice(0, 40);
-      
-      // Search for "my_uploads" or "customer_design" references
-      const uploadRefs = [...dnmJs.matchAll(/(?:my_upload|customer_design|user_design|user_upload|customer_file|user_file|design_library|artwork_library)\w*/gi)].map(m => m[0]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 20);
-
-      results.dnmJs = {
-        length: dnmJs.length,
-        designEndpoints,
-        uploadRefs,
-      };
-    } catch (err) {
-      results.dnmJs = { error: err instanceof Error ? err.message : "unknown" };
-    }
-
-    // Try loading the Business Hub SPA JavaScript bundle
-    try {
+      // Load the BH page and find JS bundles
       const bhRes = await fetch(`${base}/bh/orders`, {
         headers: { Cookie: cookies },
         redirect: "follow",
         signal: AbortSignal.timeout(15_000),
       });
       const bhHtml = await bhRes.text();
-      
-      // Find all JS bundle URLs
       const jsBundles = [...bhHtml.matchAll(/src\s*=\s*["']([^"']+\.js[^"']*)/gi)].map(m => m[1]);
       results.bhJsBundles = jsBundles;
-      
-      // Load each JS bundle and search for design/upload endpoints
-      const bundleDesignRefs: Record<string, unknown> = {};
-      for (const bundle of jsBundles.filter(b => !b.includes('cloudflare') && !b.includes('jquery') && !b.includes('webfont')).slice(0, 3)) {
+
+      // Download each non-CDN JS bundle and search comprehensively
+      const bundleFindings: Record<string, unknown> = {};
+      for (const bundle of jsBundles.filter(b => !b.includes('cloudflare') && !b.includes('jquery') && !b.includes('webfont'))) {
         try {
           const bundleUrl = bundle.startsWith("http") ? bundle : `${base}${bundle}`;
-          const bundleRes = await fetch(bundleUrl, { signal: AbortSignal.timeout(15_000) });
+          const bundleRes = await fetch(bundleUrl, { signal: AbortSignal.timeout(20_000) });
           const js = await bundleRes.text();
           
-          // Search for design/upload/customer-related URL patterns
-          const urls = [...js.matchAll(/["']([\/][^"'\s]{3,}(?:design|artwork|upload|customer_file|user_file|my_upload|configured|decoration|production)[^"'\s]*)/gi)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 30);
+          // Search for ALL URL path patterns in the JS (very broad)
+          const allPaths = [...js.matchAll(/["'](\/(api|bh|manage|shared|production|online_designer|ssc|order|customer|user|design|artwork|decoration|upload)\/?[^"'\s]{2,})/gi)]
+            .map(m => m[1])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .slice(0, 100);
           
-          // Search for "customer_design" or "my_uploads" references
-          const refs = [...js.matchAll(/(?:my_upload|customer_design|user_design|CustomerDesign|userDesign|customer_file|design_library|artwork_library|savedDesign|saved_design)\w*/gi)].map(m => m[0]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 20);
+          // Search for function/method names related to design
+          const designFunctions = [...js.matchAll(/(?:function\s+|\.)\b(\w*(?:design|artwork|upload|decoration|customer_file|configured|production_studio)\w*)\b/gi)]
+            .map(m => m[1])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .slice(0, 40);
           
-          if (urls.length > 0 || refs.length > 0) {
-            bundleDesignRefs[bundle] = { jsSize: js.length, urls, refs };
-          } else {
-            bundleDesignRefs[bundle] = { jsSize: js.length, noDesignRefs: true };
-          }
-        } catch {
-          bundleDesignRefs[bundle] = { error: "failed to load" };
+          // Search for AJAX/fetch call patterns
+          const ajaxCalls = [...js.matchAll(/(?:ajax|fetch|get|post|put|request)\s*\(\s*["']([^"']{5,})/gi)]
+            .map(m => m[1])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .slice(0, 40);
+          
+          bundleFindings[bundle] = {
+            jsSize: js.length,
+            allPathsCount: allPaths.length,
+            allPaths,
+            designFunctions,
+            ajaxCalls,
+          };
+        } catch (err) {
+          bundleFindings[bundle] = { error: err instanceof Error ? err.message : "failed" };
         }
       }
-      results.bundleDesignRefs = bundleDesignRefs;
+      results.bundleFindings = bundleFindings;
     } catch (err) {
       results.bhPage = { error: err instanceof Error ? err.message : "unknown" };
     }
+  }
+
+  // 6. Try manage_orders/find with decoration include params
+  {
+    const includeTests: Array<Record<string, unknown>> = [];
+    const paramSets = [
+      { include_decoration_data: "1" },
+      { include_views: "1" },
+      { include_all: "1" },
+      { include_configured_products: "1" },
+      { include_design_data: "1" },
+    ];
+    for (const extra of paramSets) {
+      try {
+        const data = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+          "/api/json/manage_orders/find",
+          { field: "1", condition: "4", date1: "2026-03-25 00:00:00", limit: "1", ...extra },
+        );
+        const order = data.orders?.[0];
+        if (order) {
+          const lines = (order.order_lines ?? []) as Array<Record<string, unknown>>;
+          const firstLine = lines[0];
+          includeTests.push({
+            params: extra,
+            firstLineKeys: firstLine ? Object.keys(firstLine) : [],
+            hasViews: firstLine ? "views" in firstLine : false,
+          });
+        }
+      } catch (err) {
+        includeTests.push({ params: extra, error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+      }
+    }
+    results.includeTests = includeTests;
   }
 
   return results;
