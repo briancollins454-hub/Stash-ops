@@ -3248,32 +3248,34 @@ export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
 
   for (const orderId of decoOrderIds) {
     try {
-      const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
-        "/api/json/manage_orders/find",
-        { field: "7", condition: "1", string: orderId, limit: "1" },
+      // Try manage_orders/get with direct id lookup first
+      const data = await decoFetch<DecoRawOrder & { order_id?: number; order_lines?: DecoRawOrderLine[] }>(
+        "/api/json/manage_orders/get",
+        { id: orderId },
       );
-      const orders = data.orders ?? [];
-      if (orders.length > 0) {
-        allOrders.push(orders[0]);
-        // Capture raw data from first 2 orders for debugging
+      if (data.order_id) {
+        allOrders.push(data as DecoRawOrder);
         if (rawSamples.length < 2) {
-          const o = orders[0];
           rawSamples.push({
-            order_id: o.order_id,
-            job_name: o.job_name,
-            line_count: o.order_lines?.length,
-            first_line: o.order_lines?.[0] ? {
-              product_name: o.order_lines[0].product_name,
-              has_views: !!o.order_lines[0].views,
-              view_count: o.order_lines[0].views?.length,
-              first_view: o.order_lines[0].views?.[0],
-              keys: Object.keys(o.order_lines[0]),
+            method: "get",
+            order_id: data.order_id,
+            job_name: (data as DecoRawOrder).job_name,
+            line_count: data.order_lines?.length,
+            first_line: data.order_lines?.[0] ? {
+              product_name: data.order_lines[0].product_name,
+              has_views: !!data.order_lines[0].views,
+              view_count: data.order_lines[0].views?.length,
+              first_view: data.order_lines[0].views?.[0] ? { 
+                view_name: data.order_lines[0].views[0].view_name,
+                area_count: data.order_lines[0].views[0].areas?.length,
+              } : null,
+              keys: Object.keys(data.order_lines[0]),
             } : null,
           });
         }
       } else {
         if (rawSamples.length < 3) {
-          rawSamples.push({ orderId, status: "no_orders_returned", rawKeys: Object.keys(data), total: (data as Record<string, unknown>).total });
+          rawSamples.push({ orderId, method: "get", status: "no_order_id", rawKeys: Object.keys(data) });
         }
       }
     } catch (err) {
