@@ -214,11 +214,11 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/accounts-receivable", async (request) => {
     const query = z
       .object({
-        limit: z.coerce.number().int().min(1).max(500).optional(),
+        limit: z.coerce.number().int().min(1).max(5000).optional(),
       })
       .parse(request.query);
 
-    const limit = query.limit ?? 300;
+    const limit = query.limit ?? 2000;
 
     const jobs = await prisma.job.findMany({
       where: {

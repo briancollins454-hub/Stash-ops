@@ -289,7 +289,7 @@ export async function listOutstandingAccounts(): Promise<OutstandingAccount[]> {
     const payload = await fetchBackendJson<{
       total: number;
       items: ARItem[];
-    }>("/api/v1/accounts-receivable?limit=300");
+    }>("/api/v1/accounts-receivable?limit=2000");
 
     return payload.items.map((j) => ({
       id: j.id,
