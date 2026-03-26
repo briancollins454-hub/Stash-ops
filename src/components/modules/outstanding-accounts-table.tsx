@@ -97,16 +97,32 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
 
   return (
     <div className="space-y-4">
-      {/* Search + summary */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Search + sort + summary */}
+      <div className="flex items-center gap-3 flex-wrap">
         <input
           type="text"
           placeholder="Search by customer, company, or job ID…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full max-w-md rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+          className="flex-1 min-w-[200px] max-w-md rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
         />
-        <div className="shrink-0 text-sm font-medium text-gray-700">
+        <select
+          value={`${sortField}-${sortAsc ? "asc" : "desc"}`}
+          onChange={(e) => {
+            const [f, d] = e.target.value.split("-") as [typeof sortField, string];
+            setSortField(f);
+            setSortAsc(d === "asc");
+          }}
+          className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-white"
+        >
+          <option value="value-desc">Balance: High → Low</option>
+          <option value="value-asc">Balance: Low → High</option>
+          <option value="date-desc">Date: Newest first</option>
+          <option value="date-asc">Date: Oldest first</option>
+          <option value="customer-asc">Customer: A → Z</option>
+          <option value="customer-desc">Customer: Z → A</option>
+        </select>
+        <div className="ml-auto shrink-0 text-sm font-medium text-gray-700">
           Total: <span className="text-indigo-600">{formatCurrency(totalValue / 100)}</span>
         </div>
       </div>
@@ -136,7 +152,7 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
           </thead>
           <tbody className="divide-y divide-gray-100">
             {sorted.map((a) => (
-              <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+              <tr key={a.id}>
                 <td className="px-4 py-3 font-mono text-xs">
                   <Link href={`/jobs/${a.id}`} className="text-indigo-600 hover:underline">
                     {a.internalJobId}
