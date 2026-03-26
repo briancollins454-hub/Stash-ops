@@ -2785,6 +2785,211 @@ export async function probeDecoDesigns(customerId?: string): Promise<Record<stri
   return results;
 }
 
+/**
+ * Scrape Deco template detail pages and order artwork images.
+ * Fetches actual template edit pages to find artwork URLs,
+ * and also checks orders for inline design/artwork image references.
+ */
+export async function scrapeDecoArtwork(customerId?: string): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  const cookies = await getDecoWebSession();
+  if (!cookies) return { error: "Failed to establish Deco web session" };
+
+  const base = baseUrl();
+  const results: Record<string, unknown> = {};
+
+  // 1. Scrape the templates list page to find all template IDs
+  try {
+    const listRes = await fetch(`${base}/manage/templates`, {
+      headers: { Cookie: cookies },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const listHtml = await listRes.text();
+
+    // Extract all template links
+    const templateIds: string[] = [];
+    for (const m of listHtml.matchAll(/\/manage\/templates\/edit\/(\d+)/g)) {
+      if (!templateIds.includes(m[1])) templateIds.push(m[1]);
+    }
+    results.templateIds = templateIds;
+
+    // Extract template names from the list page
+    const templateRows: Array<{ id: string; name?: string }> = [];
+    // Templates list typically has a table or list with names
+    for (const id of templateIds) {
+      // Find text near the template link
+      const linkIdx = listHtml.indexOf(`/manage/templates/edit/${id}`);
+      if (linkIdx > 0) {
+        const context = listHtml.substring(Math.max(0, linkIdx - 200), linkIdx + 200);
+        const nameMatch = context.match(/>([^<]{2,60})<\/a/);
+        templateRows.push({ id, name: nameMatch?.[1]?.trim() });
+      }
+    }
+    results.templates = templateRows;
+
+    // 2. Scrape each template detail page for artwork/image URLs
+    const templateDetails: Array<Record<string, unknown>> = [];
+    for (const id of templateIds.slice(0, 10)) {
+      try {
+        const detailRes = await fetch(`${base}/manage/templates/edit/${id}`, {
+          headers: { Cookie: cookies },
+          signal: AbortSignal.timeout(15_000),
+        });
+        const detailHtml = await detailRes.text();
+        const title = detailHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+
+        // Find all image URLs on the template page
+        const imageUrls: string[] = [];
+        for (const m of detailHtml.matchAll(/(?:\/(?:order_template|design|artwork|logo|customer_artwork|product_view_image|supplier_product)(?:_image)?\/s?\/?\w+\/\d+\/\d+\/\d+\/[^"'\s)]+)/g)) {
+          const url = m[0].startsWith("http") ? m[0] : `${base}${m[0]}`;
+          if (!imageUrls.includes(url)) imageUrls.push(url);
+        }
+
+        // Find any data-image, data-src, background-image URLs
+        for (const m of detailHtml.matchAll(/(?:data-(?:image|src|url)|background-image)\s*[:=]\s*["']?(?:url\(["']?)?([^"'\s)]+\.(?:png|jpg|jpeg|gif|svg|eps|pdf|ai))/gi)) {
+          const url = m[1].startsWith("http") ? m[1] : `${base}${m[1]}`;
+          if (!imageUrls.includes(url)) imageUrls.push(url);
+        }
+
+        // Find form fields that might contain design references
+        const formFields: Record<string, string> = {};
+        for (const m of detailHtml.matchAll(/name="([^"]*(?:design|artwork|image|logo|file|template)[^"]*)"[^>]*value="([^"]*)"/gi)) {
+          formFields[m[1]] = m[2];
+        }
+
+        // Look for embedded JS data
+        const jsData: string[] = [];
+        for (const m of detailHtml.matchAll(/(?:artwork|design|logo|image)(?:_url|Url|_path|Path|_src|Src)\s*[:=]\s*["']([^"']+)/gi)) {
+          jsData.push(m[1]);
+        }
+
+        // Look for order_template_image patterns
+        for (const m of detailHtml.matchAll(/\/order_template(?:_image)?\/[^"'\s)]+/g)) {
+          const url = m[0].startsWith("http") ? m[0] : `${base}${m[0]}`;
+          if (!imageUrls.includes(url)) imageUrls.push(url);
+        }
+
+        templateDetails.push({
+          id,
+          title,
+          imageUrls,
+          formFields: Object.keys(formFields).length > 0 ? formFields : undefined,
+          jsData: jsData.length > 0 ? jsData : undefined,
+        });
+      } catch (err) {
+        templateDetails.push({ id, error: err instanceof Error ? err.message : "unknown" });
+      }
+    }
+    results.templateDetails = templateDetails;
+  } catch (err) {
+    results.templateListError = err instanceof Error ? err.message : "unknown";
+  }
+
+  // 3. Check recent orders for artwork/design image URLs
+  // Orders in Deco often have customer artwork embedded
+  try {
+    const ordersRes = await fetch(`${base}/manage/orders`, {
+      headers: { Cookie: cookies },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+    });
+    const ordersHtml = await ordersRes.text();
+
+    // Find order IDs from the page
+    const orderIds: string[] = [];
+    for (const m of ordersHtml.matchAll(/\/manage\/orders\/edit\/(\d+)/g)) {
+      if (!orderIds.includes(m[1]) && orderIds.length < 5) orderIds.push(m[1]);
+    }
+    // Also try /bh/orders format
+    for (const m of ordersHtml.matchAll(/\/bh\/orders\/(\d+)/g)) {
+      if (!orderIds.includes(m[1]) && orderIds.length < 5) orderIds.push(m[1]);
+    }
+    results.sampleOrderIds = orderIds;
+
+    // Scrape a few orders for artwork references
+    const orderDetails: Array<Record<string, unknown>> = [];
+    for (const orderId of orderIds.slice(0, 3)) {
+      try {
+        // Try both URL patterns
+        let detailHtml = "";
+        for (const path of [`/manage/orders/edit/${orderId}`, `/bh/orders/${orderId}`]) {
+          const res = await fetch(`${base}${path}`, {
+            headers: { Cookie: cookies },
+            redirect: "follow",
+            signal: AbortSignal.timeout(15_000),
+          });
+          const html = await res.text();
+          if (html.length > detailHtml.length && !html.includes("/user/login")) {
+            detailHtml = html;
+          }
+        }
+
+        const artworkUrls: string[] = [];
+        // Look for design/artwork image patterns
+        for (const m of detailHtml.matchAll(/(?:\/(?:design|artwork|logo|customer_artwork|order_line_item_artwork|decoration_image)(?:_image)?\/[^"'\s)]+\.(?:png|jpg|jpeg|gif|svg|eps|pdf|ai)[^"'\s)]*)/gi)) {
+          const url = m[0].startsWith("http") ? m[0] : `${base}${m[0]}`;
+          if (!artworkUrls.includes(url)) artworkUrls.push(url);
+        }
+
+        // Also look for any image with "artwork" or "design" in the URL or alt text
+        for (const m of detailHtml.matchAll(/src="([^"]*(?:artwork|design|logo|customer)[^"]*)"/gi)) {
+          const url = m[1].startsWith("http") ? m[1] : `${base}${m[1]}`;
+          if (!artworkUrls.includes(url)) artworkUrls.push(url);
+        }
+
+        // Check for data attributes or inline JSON with design data
+        const designData: string[] = [];
+        for (const m of detailHtml.matchAll(/(?:"design_id"|"artwork_id"|"logo_id"|"decoration_id")\s*:\s*(\d+)/g)) {
+          designData.push(m[0]);
+        }
+
+        orderDetails.push({
+          orderId,
+          artworkUrlCount: artworkUrls.length,
+          artworkUrls: artworkUrls.slice(0, 30),
+          designData: designData.length > 0 ? designData : undefined,
+        });
+      } catch (err) {
+        orderDetails.push({ orderId, error: err instanceof Error ? err.message : "unknown" });
+      }
+    }
+    results.orderDetails = orderDetails;
+  } catch (err) {
+    results.ordersError = err instanceof Error ? err.message : "unknown";
+  }
+
+  // 4. Also try exploring /manage/customers if customerId provided
+  if (customerId) {
+    try {
+      const custRes = await fetch(`${base}/manage/customers/edit/${customerId}`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const custHtml = await custRes.text();
+      if (!custHtml.includes("/user/login") && custHtml.length > 1000) {
+        const custTitle = custHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+        const custLinks: string[] = [];
+        for (const m of custHtml.matchAll(/href="([^"]*(?:design|artwork|template|logo|order|file)[^"]*)"/gi)) {
+          if (!custLinks.includes(m[1]) && custLinks.length < 30) custLinks.push(m[1]);
+        }
+        const custImages: string[] = [];
+        for (const m of custHtml.matchAll(/src="([^"]+\.(?:png|jpg|jpeg|gif|svg))/gi)) {
+          if (!custImages.includes(m[1]) && custImages.length < 30) custImages.push(m[1]);
+        }
+        results.customer = { title: custTitle, links: custLinks, images: custImages };
+      } else {
+        results.customer = { error: "Page not found or not accessible" };
+      }
+    } catch (err) {
+      results.customer = { error: err instanceof Error ? err.message : "unknown" };
+    }
+  }
+
+  return results;
+}
+
 export async function processDecoWebhook(
   topic: string,
   payload: DecoWebhookPayload,
