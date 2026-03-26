@@ -3439,7 +3439,7 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
   // 6. Try manage_orders/find with decoration include params
   {
     const includeTests: Array<Record<string, unknown>> = [];
-    const paramSets = [
+    const paramSets: Array<Record<string, string>> = [
       { include_decoration_data: "1" },
       { include_views: "1" },
       { include_all: "1" },
