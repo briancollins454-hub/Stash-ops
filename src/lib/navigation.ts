@@ -9,5 +9,6 @@ export const navigationItems = [
   { href: "/warehouse", label: "Warehouse", caption: "Receiving & scan-in", icon: "warehouse" },
   { href: "/production", label: "Production", caption: "Floor routing", icon: "zap" },
   { href: "/communications", label: "Comms", caption: "Email & messages", icon: "mail" },
+  { href: "/accounts-receivable", label: "Accounts Receivable", caption: "Outstanding payments", icon: "credit-card" },
   { href: "/admin", label: "Admin", caption: "Settings", icon: "settings" },
 ] as const;

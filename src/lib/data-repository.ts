@@ -12,6 +12,7 @@ import type {
   JobDetail,
   Metric,
   Order,
+  OutstandingAccount,
   ProductionJob,
   StockPurchaseTask,
   WarehouseReceiptTask,
@@ -263,4 +264,50 @@ export async function listCommunicationSignals(): Promise<CommunicationSignal[]>
   }
 
   return [];
+}
+
+export async function listOutstandingAccounts(): Promise<OutstandingAccount[]> {
+  if (!isBackendApiConfigured()) return [];
+
+  try {
+    type ARItem = {
+      id: string;
+      internalJobId: string;
+      source: "MANUAL" | "DECO";
+      lifecycle: string;
+      approvalStatus: string;
+      fulfillmentStatus: string;
+      customerName?: string | null;
+      customerCompany?: string | null;
+      totalMinor: number;
+      orderPlacedAt?: string | null;
+      dueAt?: string | null;
+      items?: Array<{ quantity: number }>;
+      account?: { name: string } | null;
+    };
+
+    const payload = await fetchBackendJson<{
+      total: number;
+      items: ARItem[];
+    }>("/api/v1/accounts-receivable?limit=300");
+
+    return payload.items.map((j) => ({
+      id: j.id,
+      internalJobId: j.internalJobId,
+      source: j.source,
+      customer: j.customerName ?? "Unknown",
+      company: j.customerCompany ?? "",
+      account: j.account?.name ?? j.customerCompany ?? "—",
+      lifecycle: j.lifecycle,
+      approvalStatus: j.approvalStatus,
+      fulfillmentStatus: j.fulfillmentStatus,
+      totalMinor: j.totalMinor,
+      itemCount: j.items?.reduce((sum, it) => sum + it.quantity, 0) ?? 0,
+      orderPlacedAt: j.orderPlacedAt ?? null,
+      dueAt: j.dueAt ?? null,
+    }));
+  } catch (error) {
+    console.error("Failed to load accounts receivable.", error);
+    return [];
+  }
 }

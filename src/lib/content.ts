@@ -7,6 +7,7 @@ export const shellCopy = {
   warehouse: { title: "Warehouse" },
   production: { title: "Production" },
   communications: { title: "Communications" },
+  accountsReceivable: { title: "Accounts Receivable" },
   admin: { title: "Admin" },
   // Legacy keys for redirect pages.
   home: { title: "Dashboard" },

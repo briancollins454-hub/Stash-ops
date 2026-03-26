@@ -251,6 +251,22 @@ export interface IntegrationHealth {
   notes: string;
 }
 
+export interface OutstandingAccount {
+  id: string;
+  internalJobId: string;
+  source: "MANUAL" | "DECO";
+  customer: string;
+  company: string;
+  account: string;
+  lifecycle: string;
+  approvalStatus: string;
+  fulfillmentStatus: string;
+  totalMinor: number;
+  itemCount: number;
+  orderPlacedAt: string | null;
+  dueAt: string | null;
+}
+
 export interface DispatchOrder {
   id: string;
   shopifyOrderId: string;

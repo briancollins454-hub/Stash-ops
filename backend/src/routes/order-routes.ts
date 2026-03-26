@@ -1,4 +1,4 @@
-import { ExternalProvider, FulfillmentStatus } from "@prisma/client";
+import { ExternalProvider, FulfillmentStatus, JobSource, MainLifecycle } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
@@ -206,6 +206,44 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
     return {
       ok: true,
       data: payload,
+    };
+  });
+
+  /* ── Accounts Receivable — approved but unpaid, excludes Shopify ── */
+
+  app.get("/v1/accounts-receivable", async (request) => {
+    const query = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+      })
+      .parse(request.query);
+
+    const limit = query.limit ?? 300;
+
+    const jobs = await prisma.job.findMany({
+      where: {
+        source: { not: JobSource.SHOPIFY },
+        lifecycle: {
+          notIn: [MainLifecycle.CANCELLED],
+        },
+        approvalStatus: {
+          in: ["APPROVED", "NOT_REQUIRED"],
+        },
+        fulfillmentStatus: {
+          not: FulfillmentStatus.RESTOCKED,
+        },
+      },
+      include: {
+        items: true,
+        account: { select: { id: true, name: true, type: true } },
+      },
+      orderBy: [{ orderPlacedAt: "desc" }, { createdAt: "desc" }],
+      take: limit,
+    });
+
+    return {
+      total: jobs.length,
+      items: jobs,
     };
   });
 }
