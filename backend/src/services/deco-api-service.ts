@@ -3237,12 +3237,14 @@ export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
   items: DecoArtworkItem[];
   orderCount: number;
   error?: string;
+  rawDebug?: unknown;
 }> {
   if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
   if (decoOrderIds.length === 0) return { items: [], orderCount: 0 };
 
   // Fetch each order directly by order_id from the Deco API
   const allOrders: DecoRawOrder[] = [];
+  const rawSamples: unknown[] = [];
 
   for (const orderId of decoOrderIds) {
     try {
@@ -3251,7 +3253,25 @@ export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
         { field: "7", condition: "1", string: orderId, limit: "1" },
       );
       const orders = data.orders ?? [];
-      if (orders.length > 0) allOrders.push(orders[0]);
+      if (orders.length > 0) {
+        allOrders.push(orders[0]);
+        // Capture raw data from first 2 orders for debugging
+        if (rawSamples.length < 2) {
+          const o = orders[0];
+          rawSamples.push({
+            order_id: o.order_id,
+            job_name: o.job_name,
+            line_count: o.order_lines?.length,
+            first_line: o.order_lines?.[0] ? {
+              product_name: o.order_lines[0].product_name,
+              has_views: !!o.order_lines[0].views,
+              view_count: o.order_lines[0].views?.length,
+              first_view: o.order_lines[0].views?.[0],
+              keys: Object.keys(o.order_lines[0]),
+            } : null,
+          });
+        }
+      }
     } catch {
       // skip failed lookups
     }
@@ -3308,7 +3328,7 @@ export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
     }
   }
 
-  return { items, orderCount: allOrders.length };
+  return { items, orderCount: allOrders.length, rawDebug: rawSamples };
 }
 
 export async function processDecoWebhook(
