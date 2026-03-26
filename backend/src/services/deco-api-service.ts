@@ -3384,47 +3384,69 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
   if (orderId) {
     // Try the manage/orders/edit page (admin view where designer launches from)
     try {
-      const editRes = await fetch(`${base}/manage/orders/edit/${orderId}`, {
-        headers: { Cookie: cookies },
-        redirect: "follow",
-        signal: AbortSignal.timeout(15_000),
-      });
-      const editHtml = await editRes.text();
-      
-      // Get ALL links/URLs from the page
-      const allUrls = [...editHtml.matchAll(/(?:href|src|action|data-url|data-src)\s*=\s*["']([^"']{5,})/gi)].map(m => m[1]).slice(0, 50);
-      
-      // Look for specific patterns
-      const designerRefs = [...editHtml.matchAll(/(?:designer|decorator|design_studio|online_designer|configured_product|edit_design|edit_decoration)\s*[:=(/]?\s*["']?([^"'\s);]{3,})?/gi)].map(m => m[0].slice(0, 200)).slice(0, 30);
-      
-      // Look for line item IDs and product IDs
-      const idPatterns = [...editHtml.matchAll(/(?:configured_product_id|order_line_id|line_item_id|order_line|product_id|item_id)\s*[:=]\s*["']?(\d+)/gi)].map(m => `${m[0]}`).slice(0, 20);
-      
-      // Links with "edit" in them
-      const editLinks = [...editHtml.matchAll(/href\s*=\s*["']([^"']*edit[^"']*)/gi)].map(m => m[1]).slice(0, 20);
-      
-      // Any onclick handlers
-      const onclickHandlers = [...editHtml.matchAll(/onclick\s*=\s*["']([^"']{5,})/gi)].map(m => m[1].slice(0, 200)).slice(0, 20);
-      
-      // Find ALL JavaScript variable assignments related to order/design
-      const jsAssignments = [...editHtml.matchAll(/(?:orders?|design|artwork|configured|decorator|production|upload|line_item|customer)\w*\s*[:=]\s*["'{[\d]/gi)].map(m => {
-        const idx = editHtml.indexOf(m[0]);
-        return editHtml.substring(idx, idx + 200);
-      }).slice(0, 20);
-
-      results.adminEditPage = {
-        length: editHtml.length,
-        title: editHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim(),
-        allUrls: allUrls.filter(u => !u.includes('cloudflare') && !u.includes('jquery')),
-        designerRefs,
-        idPatterns,
-        editLinks,
-        onclickHandlers,
-        jsAssignments: jsAssignments.slice(0, 10),
-      };
+      // Try different admin URL patterns
+      for (const editPath of [
+        `/manage/orders/edit_order/${orderId}`,
+        `/manage/orders/${orderId}/edit`,
+        `/manage/orders/${orderId}`,
+      ]) {
+        const res = await fetch(`${base}${editPath}`, {
+          headers: { Cookie: cookies },
+          redirect: "follow",
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (res.status === 200) {
+          const html = await res.text();
+          const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+          if (!title.includes("Not Found") && !title.includes("404")) {
+            results.adminEditPage = { path: editPath, length: html.length, title, found: true };
+            break;
+          }
+        }
+      }
+      if (!results.adminEditPage) {
+        results.adminEditPage = { found: false };
+      }
     } catch (err) {
       results.adminEditPage = { error: err instanceof Error ? err.message : "unknown" };
     }
+
+    // Try manage_orders/find with extra include params to get decoration/views data
+    const includeParams = [
+      { include_decoration_data: "1" },
+      { include_views: "1" },
+      { include_artwork: "1" },
+      { include_design_data: "1" },
+      { include_all: "1" },
+      { include_configured_products: "1" },
+      { include_decoration_data: "1", include_workflow_data: "1" },
+    ];
+
+    const includeResults: Array<Record<string, unknown>> = [];
+    for (const extra of includeParams) {
+      try {
+        const data = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+          "/api/json/manage_orders/find",
+          { field: "1", condition: "4", date1: "2026-03-25 00:00:00", limit: "1", offset: "0", ...extra },
+        );
+        const order = data.orders?.[0];
+        if (order) {
+          const lines = (order.order_lines ?? order.items ?? []) as Array<Record<string, unknown>>;
+          const firstLine = lines[0] as Record<string, unknown> | undefined;
+          includeResults.push({
+            params: extra,
+            orderId: order.order_id,
+            lineCount: lines.length,
+            firstLineKeys: firstLine ? Object.keys(firstLine) : [],
+            hasViews: firstLine ? "views" in firstLine : false,
+            hasDesign: firstLine ? Object.keys(firstLine).some(k => k.includes("design") || k.includes("artwork") || k.includes("decoration")) : false,
+          });
+        }
+      } catch (err) {
+        includeResults.push({ params: extra, error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+      }
+    }
+    results.orderApiIncludes = includeResults;
 
     // Scrape dnm.js for API patterns
     try {
@@ -3447,6 +3469,47 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
       };
     } catch (err) {
       results.dnmJs = { error: err instanceof Error ? err.message : "unknown" };
+    }
+
+    // Try loading the Business Hub SPA JavaScript bundle
+    try {
+      const bhRes = await fetch(`${base}/bh/orders`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const bhHtml = await bhRes.text();
+      
+      // Find all JS bundle URLs
+      const jsBundles = [...bhHtml.matchAll(/src\s*=\s*["']([^"']+\.js[^"']*)/gi)].map(m => m[1]);
+      results.bhJsBundles = jsBundles;
+      
+      // Load each JS bundle and search for design/upload endpoints
+      const bundleDesignRefs: Record<string, unknown> = {};
+      for (const bundle of jsBundles.filter(b => !b.includes('cloudflare') && !b.includes('jquery') && !b.includes('webfont')).slice(0, 3)) {
+        try {
+          const bundleUrl = bundle.startsWith("http") ? bundle : `${base}${bundle}`;
+          const bundleRes = await fetch(bundleUrl, { signal: AbortSignal.timeout(15_000) });
+          const js = await bundleRes.text();
+          
+          // Search for design/upload/customer-related URL patterns
+          const urls = [...js.matchAll(/["']([\/][^"'\s]{3,}(?:design|artwork|upload|customer_file|user_file|my_upload|configured|decoration|production)[^"'\s]*)/gi)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 30);
+          
+          // Search for "customer_design" or "my_uploads" references
+          const refs = [...js.matchAll(/(?:my_upload|customer_design|user_design|CustomerDesign|userDesign|customer_file|design_library|artwork_library|savedDesign|saved_design)\w*/gi)].map(m => m[0]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 20);
+          
+          if (urls.length > 0 || refs.length > 0) {
+            bundleDesignRefs[bundle] = { jsSize: js.length, urls, refs };
+          } else {
+            bundleDesignRefs[bundle] = { jsSize: js.length, noDesignRefs: true };
+          }
+        } catch {
+          bundleDesignRefs[bundle] = { error: "failed to load" };
+        }
+      }
+      results.bundleDesignRefs = bundleDesignRefs;
+    } catch (err) {
+      results.bhPage = { error: err instanceof Error ? err.message : "unknown" };
     }
   }
 
