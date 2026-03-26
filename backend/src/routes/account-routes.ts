@@ -507,4 +507,78 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
       errors: errors.length > 0 ? errors : undefined,
     };
   });
+
+  // ── Archive artwork images: download external URLs and store as base64 data URLs ──
+  app.post("/v1/accounts/archive-artwork-images", async (request, reply) => {
+    // Find all assets with external URLs (not data URLs, not empty)
+    const assets = await prisma.accountAsset.findMany({
+      where: {
+        fileUrl: { startsWith: "http" },
+      },
+      select: { id: true, fileUrl: true, label: true },
+    });
+
+    if (assets.length === 0) {
+      return { archived: 0, failed: 0, total: 0, note: "No external image URLs to archive." };
+    }
+
+    let archived = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    // Process in batches of 10
+    const batchSize = 10;
+    for (let i = 0; i < assets.length; i += batchSize) {
+      const batch = assets.slice(i, i + batchSize);
+
+      const results = await Promise.allSettled(
+        batch.map(async (asset) => {
+          try {
+            const res = await fetch(asset.fileUrl!, {
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const contentType = res.headers.get("content-type") || "image/png";
+            const buffer = await res.arrayBuffer();
+            const base64 = Buffer.from(buffer).toString("base64");
+            const dataUrl = `data:${contentType};base64,${base64}`;
+
+            await prisma.accountAsset.update({
+              where: { id: asset.id },
+              data: { fileUrl: dataUrl },
+            });
+
+            return true;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`${asset.label} (${asset.id}): ${msg}`);
+            return false;
+          }
+        }),
+      );
+
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) archived++;
+        else failed++;
+      }
+
+      // Small delay between batches
+      if (i + batchSize < assets.length) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      // Log progress
+      if ((i + batchSize) % 100 === 0 || i + batchSize >= assets.length) {
+        logger.info(`[ArchiveArtwork] Progress: ${Math.min(i + batchSize, assets.length)}/${assets.length} (${archived} archived, ${failed} failed)`);
+      }
+    }
+
+    return {
+      archived,
+      failed,
+      total: assets.length,
+      errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
+    };
+  });
 }

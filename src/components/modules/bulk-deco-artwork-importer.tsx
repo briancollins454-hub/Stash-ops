@@ -13,9 +13,20 @@ interface BulkImportResult {
   note?: string;
 }
 
+interface ArchiveResult {
+  archived: number;
+  failed: number;
+  total: number;
+  errors?: string[];
+  error?: string;
+  note?: string;
+}
+
 export function BulkDecoArtworkImporter() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BulkImportResult | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveResult, setArchiveResult] = useState<ArchiveResult | null>(null);
 
   const handleImport = async () => {
     if (!confirm("This will import Deco artwork for ALL accounts with a Deco customer ID. This may take a few minutes. Continue?")) return;
@@ -92,6 +103,78 @@ export function BulkDecoArtworkImporter() {
           ✗ {result.error}
         </div>
       )}
+
+      {/* Step 2: Archive images locally */}
+      <div
+        className="rounded-xl p-4 space-y-3"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <div>
+          <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+            Archive images permanently
+          </p>
+          <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+            Downloads every artwork image from Deco&apos;s CDN and stores it directly in the database.
+            After archiving, artwork no longer depends on Deco — images are fully self-contained.
+          </p>
+        </div>
+
+        <button
+          onClick={async () => {
+            if (!confirm("This will download all artwork images from Deco and store them in your database. This may take a few minutes. Continue?")) return;
+            setArchiving(true);
+            setArchiveResult(null);
+            try {
+              const res = await fetch("/api/v1/accounts/archive-artwork-images", { method: "POST" });
+              const data = await res.json();
+              setArchiveResult(data);
+            } catch (err) {
+              setArchiveResult({ error: err instanceof Error ? err.message : "Archive failed", archived: 0, failed: 0, total: 0 });
+            } finally {
+              setArchiving(false);
+            }
+          }}
+          disabled={archiving}
+          className="rounded-lg px-5 py-2 text-sm font-semibold transition-all hover:brightness-125 disabled:opacity-50"
+          style={{
+            background: archiving ? "rgba(245,158,11,0.15)" : "rgba(99,102,241,0.15)",
+            color: archiving ? "#fbbf24" : "#a5b4fc",
+            border: `1px solid ${archiving ? "rgba(245,158,11,0.3)" : "rgba(99,102,241,0.3)"}`,
+          }}
+        >
+          {archiving ? "⏳ Downloading images — this may take a few minutes..." : "💾 Archive All Images to Database"}
+        </button>
+
+        {archiveResult && !archiveResult.error && (
+          <div className="grid grid-cols-3 gap-3 pt-1">
+            <Stat label="Archived" value={archiveResult.archived} highlight />
+            <Stat label="Failed" value={archiveResult.failed} />
+            <Stat label="Total" value={archiveResult.total} />
+          </div>
+        )}
+
+        {archiveResult?.error && (
+          <div
+            className="rounded-lg px-4 py-3 text-sm font-medium"
+            style={{ background: "rgba(239,68,68,0.1)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.2)" }}
+          >
+            ✗ {archiveResult.error}
+          </div>
+        )}
+
+        {archiveResult?.errors && archiveResult.errors.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "#fca5a5" }}>
+              Failed downloads ({archiveResult.errors.length})
+            </p>
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {archiveResult.errors.map((e, i) => (
+                <p key={i} className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>{e}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
