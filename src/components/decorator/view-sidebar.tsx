@@ -87,7 +87,7 @@ export function ViewSidebar() {
         </p>
       </div>
       <div className="grid grid-cols-2 gap-1 px-3 pb-3">
-        {VIEWS.map((v) => {
+        {VIEWS.filter((v) => zones.some((z) => z.view === v.key)).map((v) => {
           const isActive = activeView === v.key;
           const hasObjects = zones
             .filter((z) => z.view === v.key)

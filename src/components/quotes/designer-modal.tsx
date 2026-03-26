@@ -115,6 +115,12 @@ const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
     { key: "left_leg_back",     label: "Left Leg Back",      view: "back",  x: 48, y: 30, w: 18, h: 22 },
     { key: "backside",          label: "Backside",           view: "back",  x: 24, y: 10, w: 48, h: 26 },
   ],
+  skirt: [
+    { key: "front_panel",       label: "Front",              view: "front", x: 22, y: 10, w: 52, h: 45 },
+    { key: "back_panel",        label: "Back",               view: "back",  x: 22, y: 10, w: 52, h: 45 },
+    { key: "left_hip",          label: "Left Hip",           view: "front", x: 58, y: 8,  w: 20, h: 22 },
+    { key: "right_hip",         label: "Right Hip",          view: "front", x: 18, y: 8,  w: 20, h: 22 },
+  ],
   headwear: [
     { key: "headwear_front",    label: "Front Panel",        view: "front", x: 20, y: 20, w: 56, h: 40 },
     { key: "headwear_back",     label: "Back Panel",         view: "back",  x: 20, y: 20, w: 56, h: 40 },
@@ -149,6 +155,7 @@ const GARMENT_REF_CM: Record<string, { w: number; h: number }> = {
   polo:     { w: 50, h: 70 },
   jacket:   { w: 54, h: 73 },
   trousers: { w: 40, h: 90 },
+  skirt:    { w: 38, h: 45 },
   headwear: { w: 30, h: 20 },
   bag:      { w: 40, h: 45 },
 };
@@ -274,6 +281,7 @@ function detectGarmentType(category?: string, productName?: string): string {
   if (/hoodie|hooded|sweat|fleece|pullover/.test(text)) return "hoodie";
   if (/polo/.test(text)) return "polo";
   if (/jacket|coat|softshell|gilet|bodywarmer/.test(text)) return "jacket";
+  if (/skort|skirt/.test(text)) return "skirt";
   if (/trouser|jogger|legging/.test(text)) return "trousers";
   if (/\bshorts\b/.test(text) && !/short\s*sleeve/.test(text)) return "trousers";
   if (/\bcap\b|\bhat\b|beanie|headwear|bucket/.test(text)) return "headwear";

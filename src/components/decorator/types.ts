@@ -85,6 +85,12 @@ export const ZONE_TEMPLATES: Record<string, ZoneDef[]> = {
     { key: "left_leg_back",      label: "Left Leg Back",   view: "back",  x: 48, y: 30, w: 18, h: 22, actualWidthMm: 72,  actualHeightMm: 198 },
     { key: "backside",           label: "Backside",        view: "back",  x: 24, y: 10, w: 48, h: 26, actualWidthMm: 192, actualHeightMm: 234 },
   ],
+  skirt: [
+    { key: "front_panel",        label: "Front",           view: "front", x: 22, y: 10, w: 52, h: 45, actualWidthMm: 200, actualHeightMm: 200 },
+    { key: "back_panel",         label: "Back",            view: "back",  x: 22, y: 10, w: 52, h: 45, actualWidthMm: 200, actualHeightMm: 200 },
+    { key: "left_hip",           label: "Left Hip",        view: "front", x: 58, y: 8,  w: 20, h: 22, actualWidthMm: 80,  actualHeightMm: 100 },
+    { key: "right_hip",          label: "Right Hip",       view: "front", x: 18, y: 8,  w: 20, h: 22, actualWidthMm: 80,  actualHeightMm: 100 },
+  ],
   headwear: [
     { key: "headwear_front",     label: "Front Panel",  view: "front", x: 20, y: 20, w: 56, h: 40, actualWidthMm: 168, actualHeightMm: 80  },
     { key: "headwear_back",      label: "Back Panel",   view: "back",  x: 20, y: 20, w: 56, h: 40, actualWidthMm: 168, actualHeightMm: 80  },
@@ -119,6 +125,7 @@ export const GARMENT_REF_CM: Record<string, { w: number; h: number }> = {
   polo:     { w: 50, h: 70 },
   jacket:   { w: 54, h: 73 },
   trousers: { w: 40, h: 90 },
+  skirt:    { w: 38, h: 45 },
   headwear: { w: 30, h: 20 },
   bag:      { w: 40, h: 45 },
 };
@@ -199,6 +206,7 @@ export function detectGarmentType(category?: string, productName?: string): stri
   if (/hoodie|hooded|sweat|fleece|pullover/.test(text)) return "hoodie";
   if (/polo/.test(text)) return "polo";
   if (/jacket|coat|softshell|gilet|bodywarmer/.test(text)) return "jacket";
+  if (/skort|skirt/.test(text)) return "skirt";
   if (/trouser|jogger|legging/.test(text)) return "trousers";
   if (/\bshorts\b/.test(text) && !/short\s*sleeve/.test(text)) return "trousers";
   if (/\bcap\b|\bhat\b|beanie|headwear|bucket/.test(text)) return "headwear";
