@@ -189,6 +189,17 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     return { ok: true, data: created };
   });
 
+  app.get("/v1/accounts/:accountId/assets", async (request, reply) => {
+    const params = z.object({ accountId: z.string() }).parse(request.params);
+
+    const assets = await prisma.accountAsset.findMany({
+      where: { accountId: params.accountId },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+    });
+
+    return { data: assets };
+  });
+
   app.post("/v1/accounts/:accountId/assets", async (request, reply) => {
     const params = z
       .object({
@@ -331,5 +342,74 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
     const result = await getAccountDecoArtwork([...decoCustomerIds]);
     return result;
+  });
+
+  // ── Import Deco artwork as permanent AccountAsset records ──
+  app.post("/v1/accounts/:accountId/import-deco-artwork", async (request, reply) => {
+    const params = z.object({ accountId: z.string() }).parse(request.params);
+
+    const account = await prisma.account.findUnique({
+      where: { id: params.accountId },
+      select: { id: true, decoCustomerId: true, name: true },
+    });
+    if (!account) {
+      reply.status(404);
+      return { error: "Account not found." };
+    }
+
+    // Gather Deco customer IDs (this account + related Stash Shop variants)
+    const baseName = account.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
+    const relatedAccounts = await prisma.account.findMany({
+      where: { OR: [{ name: { contains: baseName, mode: "insensitive" } }] },
+      select: { id: true, name: true, decoCustomerId: true },
+    });
+    const decoCustomerIds = new Set<string>();
+    if (account.decoCustomerId) decoCustomerIds.add(account.decoCustomerId);
+    for (const rel of relatedAccounts) {
+      const relBase = rel.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
+      if (relBase.toLowerCase() === baseName.toLowerCase() && rel.decoCustomerId) {
+        decoCustomerIds.add(rel.decoCustomerId);
+      }
+    }
+
+    if (decoCustomerIds.size === 0) {
+      return { imported: 0, skipped: 0, note: "No Deco customer IDs found." };
+    }
+
+    // Fetch designs from Deco
+    const result = await getAccountDecoArtwork([...decoCustomerIds]);
+    if (!result.items.length) {
+      return { imported: 0, skipped: 0, note: "No designs found in Deco." };
+    }
+
+    // Check which decoDesignIds already exist as AccountAssets
+    const existing = await prisma.accountAsset.findMany({
+      where: { accountId: params.accountId, decoDesignId: { in: result.items.map((i) => i.id) } },
+      select: { decoDesignId: true },
+    });
+    const existingIds = new Set(existing.map((e) => e.decoDesignId));
+
+    let imported = 0;
+    let skipped = 0;
+    for (const item of result.items) {
+      if (existingIds.has(item.id)) {
+        skipped++;
+        continue;
+      }
+      await prisma.accountAsset.create({
+        data: {
+          accountId: params.accountId,
+          assetType: "LOGO" as AssetType,
+          label: item.name,
+          decoDesignId: item.id,
+          fileUrl: item.thumbnailUrl,
+          active: true,
+          priority: 100,
+        },
+      });
+      imported++;
+    }
+
+    return { imported, skipped, total: result.items.length };
   });
 }

@@ -3,6 +3,7 @@ import { SectionCard } from "@/components/section-card";
 import { AccountingList } from "@/components/modules/accounting-list";
 import { IntegrationsGrid } from "@/components/modules/integrations-grid";
 import { SyncControlPanel } from "@/components/integrations/sync-control-panel";
+import { CatalogImportUploader } from "@/components/modules/catalog-import-uploader";
 import { formatCount, shellCopy } from "@/lib/content";
 import { listAccountingRecords, listIntegrations } from "@/lib/data-repository";
 
@@ -38,6 +39,14 @@ export default async function AdminPage() {
         detail={formatCount(accountingRecords.length, "record")}
       >
         <AccountingList records={accountingRecords} />
+      </SectionCard>
+
+      <SectionCard
+        kicker="Catalog"
+        title="Product catalog import"
+        detail="Upload supplier CSV files"
+      >
+        <CatalogImportUploader />
       </SectionCard>
     </AppShell>
   );
