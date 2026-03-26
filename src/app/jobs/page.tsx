@@ -4,6 +4,7 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { LaneSection } from "@/components/modules/orders-table";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { BulkCancelProvider } from "@/components/jobs/bulk-cancel-provider";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { formatCount, shellCopy } from "@/lib/content";
 import type { Order, JobSource } from "@/lib/types";
 import { listOrders } from "@/lib/data-repository";
@@ -170,6 +171,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   return (
     <AppShell title={title}>
+      <AutoRefresh intervalMs={60_000} />
       <BulkCancelProvider>
       {sourceLabel && (
         <div className="flex items-center gap-3 px-1">
