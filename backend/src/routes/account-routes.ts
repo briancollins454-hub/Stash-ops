@@ -302,9 +302,6 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     }
 
     // Find all related account IDs (this account + Stash Shop variants)
-    const accountIds = new Set<string>();
-    accountIds.add(account.id);
-
     const baseName = account.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
     const relatedAccounts = await prisma.account.findMany({
       where: {
@@ -312,43 +309,27 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
           { name: { contains: baseName, mode: "insensitive" } },
         ],
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, decoCustomerId: true },
     });
+
+    // Collect all unique Deco customer IDs from this account and related accounts
+    const decoCustomerIds = new Set<string>();
+    if (account.decoCustomerId) decoCustomerIds.add(account.decoCustomerId);
     for (const rel of relatedAccounts) {
       const relBase = rel.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
-      if (relBase.toLowerCase() === baseName.toLowerCase()) {
-        accountIds.add(rel.id);
+      if (relBase.toLowerCase() === baseName.toLowerCase() && rel.decoCustomerId) {
+        decoCustomerIds.add(rel.decoCustomerId);
       }
     }
 
-    // Get all Deco order IDs from jobs linked to these accounts
-    const jobs = await prisma.job.findMany({
-      where: {
-        accountId: { in: [...accountIds] },
-        decoOrderId: { not: null },
-      },
-      select: { decoOrderId: true },
-      distinct: ["decoOrderId"],
-    });
-
-    const decoOrderIds = jobs.map((j) => j.decoOrderId!).filter(Boolean);
-
-    if (decoOrderIds.length === 0) {
+    if (decoCustomerIds.size === 0) {
       return {
         items: [],
-        orderCount: 0,
-        note: "No Deco orders found for this account.",
-        debug: {
-          accountName: account.name,
-          baseName,
-          relatedAccountIds: [...accountIds],
-          relatedAccountNames: relatedAccounts.filter(r => accountIds.has(r.id)).map(r => r.name),
-          jobsFound: jobs.length,
-        }
+        note: "No Deco customer IDs found for this account.",
       };
     }
 
-    const result = await getAccountDecoArtwork(decoOrderIds);
-    return { ...result, debug: { accountName: account.name, relatedAccountIds: [...accountIds], decoOrderIds: decoOrderIds.slice(0, 20) } };
+    const result = await getAccountDecoArtwork([...decoCustomerIds]);
+    return result;
   });
 }

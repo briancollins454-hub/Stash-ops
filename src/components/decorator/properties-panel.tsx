@@ -34,17 +34,10 @@ interface SavedArtworkItem {
 
 interface DecoArtworkItem {
   id: string;
-  processType: string;
-  viewName: string;
-  areaName: string;
-  thumbnailUrl: string | null;
-  proofUrl: string | null;
-  productionFileUrl: string | null;
-  sourceFileUrl: string | null;
-  editFileUrl: string | null;
-  productName: string | null;
-  decoOrderId: number;
-  orderJobName: string | null;
+  name: string;
+  thumbnailUrl: string;
+  fullUrl: string;
+  decoCustomerId: string;
 }
 
 const QUICK_NOTES = [
@@ -786,20 +779,18 @@ function ArtworkTab({
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {decoArtwork.map((art) => {
-                    const imageUrl = art.proofUrl || art.thumbnailUrl || art.productionFileUrl;
-                    const proxiedUrl = imageUrl ? `/api/image-proxy?url=${encodeURIComponent(imageUrl)}` : null;
-                    const label = `${art.areaName} – ${art.processType}`;
+                    const proxiedThumb = art.thumbnailUrl ? `/api/image-proxy?url=${encodeURIComponent(art.thumbnailUrl)}` : null;
                     return (
                       <button key={art.id}
                         onClick={() => {
-                          const artUrl = art.sourceFileUrl || art.productionFileUrl || art.proofUrl || art.thumbnailUrl;
+                          const artUrl = art.fullUrl || art.thumbnailUrl;
                           if (!artUrl) return;
                           const proxied = `/api/image-proxy?url=${encodeURIComponent(artUrl)}`;
                           const img = new window.Image();
                           img.crossOrigin = "anonymous";
                           img.onload = () => {
                             const upload: UploadedFile = {
-                              id: generateId(), name: label, url: proxied,
+                              id: generateId(), name: art.name, url: proxied,
                               isImage: true, ext: "png",
                               naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
                             };
@@ -808,7 +799,7 @@ function ArtworkTab({
                           };
                           img.onerror = () => {
                             const upload: UploadedFile = {
-                              id: generateId(), name: label, url: proxied,
+                              id: generateId(), name: art.name, url: proxied,
                               isImage: true, ext: "png",
                             };
                             onAddUpload(upload);
@@ -818,21 +809,17 @@ function ArtworkTab({
                         }}
                         className="group rounded-xl overflow-hidden text-left transition-all hover:brightness-125 hover:ring-1 hover:ring-[#f59e0b]"
                         style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                        title={`Place "${label}" on zone\n${art.orderJobName ?? ""}`}
+                        title={`Place "${art.name}" on zone`}
                       >
                         <div className="aspect-square flex items-center justify-center" style={{ background: "rgba(255,255,255,0.02)" }}>
-                          {proxiedUrl ? (
-                            <img src={proxiedUrl} alt={label} className="h-full w-full object-contain p-2" />
+                          {proxiedThumb ? (
+                            <img src={proxiedThumb} alt={art.name} className="h-full w-full object-contain p-2" />
                           ) : (
                             <div className="text-2xl">🎨</div>
                           )}
                         </div>
                         <div className="px-2 py-1.5">
-                          <p className="truncate text-[10px] font-medium" style={{ color: "var(--text-primary, #f1f5f9)" }}>{art.areaName}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[8px] font-bold uppercase" style={{ color: "#fbbf24" }}>{art.processType}</span>
-                            <span className="text-[8px] truncate" style={{ color: "var(--text-tertiary, #64748b)" }}>{art.viewName}</span>
-                          </div>
+                          <p className="truncate text-[10px] font-medium" style={{ color: "var(--text-primary, #f1f5f9)" }}>{art.name}</p>
                         </div>
                       </button>
                     );

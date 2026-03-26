@@ -3531,142 +3531,83 @@ export async function probeDesignApi(): Promise<Record<string, unknown>> {
 }
 
 export type DecoArtworkItem = {
-  /** Unique key for deduplication: processType + sourceFileUrl or productionFileUrl */
+  /** Unique design ID from Deco */
   id: string;
-  /** Decoration method: DTF, WEMB, etc. */
-  processType: string;
-  /** View position: Front, Back, etc. */
-  viewName: string;
-  /** Area on the garment: Left Chest, Main Body, etc. */
-  areaName: string;
-  /** Mockup thumbnail URL */
-  thumbnailUrl: string | null;
-  /** Area proof image URL */
-  proofUrl: string | null;
-  /** Production-ready artwork file */
-  productionFileUrl: string | null;
-  /** Original source artwork file */
-  sourceFileUrl: string | null;
-  /** Editable artwork file */
-  editFileUrl: string | null;
-  /** Product it was used on */
-  productName: string | null;
-  /** Deco order id where this artwork was found */
-  decoOrderId: number;
-  /** Order job name */
-  orderJobName: string | null;
+  /** Design name from Deco (e.g., "BLHKC - png (15-Oct-25)") */
+  name: string;
+  /** Thumbnail URL (proxied through our image proxy) */
+  thumbnailUrl: string;
+  /** Full-size image URL */
+  fullUrl: string;
+  /** Deco customer ID that owns this design */
+  decoCustomerId: string;
 };
 
 /**
- * Fetches all unique artwork for a given Deco customer by scanning their orders.
- * Returns deduplicated artwork items from order_lines[].views[].areas[].processes[].
+ * Fetches all customer designs for a Deco customer via the /bh/crm/customer_designs endpoint.
+ * Scrapes the HTML response to extract design IDs, names, and image URLs.
  */
-export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
+export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<{
   items: DecoArtworkItem[];
-  orderCount: number;
   error?: string;
-  rawDebug?: unknown;
 }> {
-  if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
-  if (decoOrderIds.length === 0) return { items: [], orderCount: 0 };
+  if (!isDecoConfigured()) return { items: [], error: "Deco not configured" };
+  if (decoCustomerIds.length === 0) return { items: [] };
 
-  // Fetch each order directly by order_id from the Deco API
-  const allOrders: DecoRawOrder[] = [];
-  const rawSamples: unknown[] = [];
+  const cookies = await getDecoWebSession();
+  if (!cookies) return { items: [], error: "Could not get Deco web session" };
 
-  for (const orderId of decoOrderIds) {
+  const base = baseUrl();
+  const items: DecoArtworkItem[] = [];
+  const seen = new Set<string>();
+
+  for (const customerId of decoCustomerIds) {
     try {
-      // Use field=2 (order_number), condition=1 (equals) for order lookup
-      const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
-        "/api/json/manage_orders/find",
-        { field: "2", condition: "1", string: orderId, limit: "1" },
-      );
-      const orders = data.orders ?? [];
-      if (orders.length > 0) {
-        allOrders.push(orders[0]);
-        if (rawSamples.length < 2) {
-          const o = orders[0];
-          rawSamples.push({
-            method: "find_field2",
-            order_id: o.order_id,
-            job_name: o.job_name,
-            line_count: o.order_lines?.length,
-            first_line: o.order_lines?.[0] ? {
-              product_name: o.order_lines[0].product_name,
-              has_views: !!o.order_lines[0].views,
-              view_count: o.order_lines[0].views?.length,
-              first_view: o.order_lines[0].views?.[0] ? { 
-                view_name: o.order_lines[0].views[0].view_name,
-                area_count: o.order_lines[0].views[0].areas?.length,
-              } : null,
-              keys: Object.keys(o.order_lines[0]),
-            } : null,
-          });
-        }
-      } else {
-        if (rawSamples.length < 3) {
-          rawSamples.push({ orderId, method: "find_field2", status: "no_orders_returned", total: data.total });
-        }
+      const url = `${base}/bh/crm/customer_designs?user_id=${encodeURIComponent(customerId)}&list_only=1`;
+      const res = await fetch(url, {
+        headers: { Cookie: cookies, "X-Requested-With": "XMLHttpRequest" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) continue;
+
+      const html = await res.text();
+
+      // Parse each design: extract designId, name, and thumbnail from the HTML
+      // Pattern: <a id="show_customer_design_link_{id}" ... onmouseover="...showRollover(this, '{name}');">
+      //          <img src="/asset/s/image/{path}/thumb100.png?{ts}" />
+      const designBlocks = html.split("<li>");
+      for (const block of designBlocks) {
+        const idMatch = block.match(/show_customer_design_link_(\d+)/);
+        const nameMatch = block.match(/showRollover\(this,\s*'([^']+)'\)/);
+        const imgMatch = block.match(/src="(\/asset\/s\/image\/[^"]+)"/);
+
+        if (!idMatch) continue;
+
+        const designId = idMatch[1];
+        if (seen.has(designId)) continue;
+        seen.add(designId);
+
+        const name = nameMatch ? nameMatch[1] : `Design ${designId}`;
+        const thumbPath = imgMatch ? imgMatch[1] : null;
+
+        // Construct URLs — thumb100 for thumbnail, replace with full size
+        const thumbnailUrl = thumbPath ? `${base}${thumbPath}` : "";
+        const fullUrl = thumbPath ? `${base}${thumbPath.replace("thumb100", "thumb500")}` : "";
+
+        items.push({
+          id: designId,
+          name,
+          thumbnailUrl,
+          fullUrl,
+          decoCustomerId: customerId,
+        });
       }
     } catch (err) {
-      if (rawSamples.length < 3) {
-        rawSamples.push({ orderId, error: String(err) });
-      }
+      logger.warn(`[DecoArtwork] Failed to fetch designs for customer ${customerId}: ${err}`);
     }
   }
 
-  // Extract unique artwork from order lines
-  const seen = new Set<string>();
-  const items: DecoArtworkItem[] = [];
-
-  for (const order of allOrders) {
-    const orderId = order.order_id ?? 0;
-    const jobName = order.job_name ?? null;
-
-    for (const line of order.order_lines ?? []) {
-      const productName = line.product_name ?? null;
-
-      for (const view of line.views ?? []) {
-        const viewName = view.view_name ?? "Unknown";
-        const thumbnailUrl = view.thumbnail
-          ? (view.thumbnail.startsWith("http") ? view.thumbnail : `${baseUrl()}${view.thumbnail}`)
-          : null;
-
-        for (const area of view.areas ?? []) {
-          const areaName = area.area_name ?? "Unknown";
-          const proofUrl = area.proof_url ?? null;
-
-          for (const proc of area.processes ?? []) {
-            // Use source or production file URL as the dedup key
-            const fileKey = proc.source_file_url || proc.production_file_url || proc.edit_file_url;
-            if (!fileKey) continue;
-
-            // Deduplicate by file URL (same artwork reused across orders)
-            const dedupKey = fileKey;
-            if (seen.has(dedupKey)) continue;
-            seen.add(dedupKey);
-
-            items.push({
-              id: `deco-art-${items.length}`,
-              processType: proc.process ?? "Unknown",
-              viewName,
-              areaName,
-              thumbnailUrl,
-              proofUrl,
-              productionFileUrl: proc.production_file_url ?? null,
-              sourceFileUrl: proc.source_file_url ?? null,
-              editFileUrl: proc.edit_file_url ?? null,
-              productName,
-              decoOrderId: orderId,
-              orderJobName: jobName,
-            });
-          }
-        }
-      }
-    }
-  }
-
-  return { items, orderCount: allOrders.length, rawDebug: rawSamples };
+  return { items };
 }
 
 export async function processDecoWebhook(
