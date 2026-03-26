@@ -8,6 +8,7 @@ import { createManualJob } from "../services/order-service";
 const listJobsQuerySchema = z.object({
   lane: z.enum(["active", "fulfilled", "all"]).optional(),
   groupKey: z.string().optional(),
+  source: z.enum(["SHOPIFY", "DECO", "MANUAL"]).optional(),
   requiresReview: z
     .enum(["true", "false"])
     .optional()
@@ -16,7 +17,7 @@ const listJobsQuerySchema = z.object({
       if (value === "false") return false;
       return undefined;
     }),
-  limit: z.coerce.number().int().min(1).max(300).optional(),
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
 });
 
 const createManualJobSchema = z.object({
@@ -70,7 +71,7 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/orders", async (request) => {
     const query = listJobsQuerySchema.parse(request.query);
     const lane = query.lane ?? "active";
-    const limit = query.limit ?? 150;
+    const limit = query.limit ?? 500;
 
     const where =
       lane === "fulfilled"
@@ -80,22 +81,33 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
           : {};
 
     const groupFilter = query.groupKey ? { sourceGroupKey: query.groupKey } : {};
+    const sourceFilter = query.source ? { source: query.source as JobSource } : {};
     const reviewFilter =
       query.requiresReview === undefined ? {} : { requiresReview: query.requiresReview };
 
-    const jobs = await prisma.job.findMany({
-      where: {
-        ...where,
-        ...groupFilter,
-        ...reviewFilter,
-      },
-      include: {
-        items: true,
-        account: true,
-      },
-      orderBy: [{ orderPlacedAt: "desc" }, { createdAt: "desc" }],
-      take: limit,
-    });
+    const combinedWhere = {
+      ...where,
+      ...groupFilter,
+      ...sourceFilter,
+      ...reviewFilter,
+    };
+
+    // Get actual total counts by source (not limited by take)
+    const [totalCount, shopifyCount, decoCount, manualCount, jobs] = await Promise.all([
+      prisma.job.count({ where: combinedWhere }),
+      prisma.job.count({ where: { ...where, ...groupFilter, ...reviewFilter, source: JobSource.SHOPIFY } }),
+      prisma.job.count({ where: { ...where, ...groupFilter, ...reviewFilter, source: JobSource.DECO } }),
+      prisma.job.count({ where: { ...where, ...groupFilter, ...reviewFilter, source: JobSource.MANUAL } }),
+      prisma.job.findMany({
+        where: combinedWhere,
+        include: {
+          items: true,
+          account: true,
+        },
+        orderBy: [{ orderPlacedAt: "desc" }, { createdAt: "desc" }],
+        take: limit,
+      }),
+    ]);
 
     const groups = new Map<
       string,
@@ -129,7 +141,14 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       lane,
-      total: jobs.length,
+      total: totalCount,
+      fetched: jobs.length,
+      counts: {
+        all: totalCount,
+        shopify: shopifyCount,
+        deco: decoCount,
+        manual: manualCount,
+      },
       items: jobs,
       groupedBySource: Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label)),
     };

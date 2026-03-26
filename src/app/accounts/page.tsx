@@ -17,7 +17,7 @@ export default async function AccountsPage({
   const params = await searchParams;
   const tab = ((params.tab as string) || "all") as Tab;
 
-  const [accounts, orders] = await Promise.all([listCustomers(), listOrders()]);
+  const [accounts, { orders }] = await Promise.all([listCustomers(), listOrders()]);
 
   const decoAccounts = accounts.filter((a) => a.source === "deco" || a.source === "both");
   const shopifyAccounts = accounts.filter((a) => a.source === "shopify" || a.source === "both");

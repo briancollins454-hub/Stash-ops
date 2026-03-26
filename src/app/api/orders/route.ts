@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { listOrders } from "@/lib/data-repository";
 
 export async function GET() {
-  const data = await listOrders();
+  const { orders: data } = await listOrders();
 
   return NextResponse.json({
     data,

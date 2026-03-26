@@ -52,22 +52,48 @@ import {
   projectDecoratorTemplates,
 } from "@/server/queries/decorator-projections";
 
-export async function listOrders(): Promise<Order[]> {
+export type SourceCounts = {
+  all: number;
+  shopify: number;
+  deco: number;
+  manual: number;
+};
+
+export type OrdersResult = {
+  orders: Order[];
+  counts: SourceCounts;
+};
+
+export async function listOrders(): Promise<OrdersResult> {
   if (isBackendApiConfigured()) {
     try {
       const payload = await fetchBackendJson<{
         lane: "active" | "fulfilled" | "all";
         total: number;
+        fetched: number;
+        counts: SourceCounts;
         items: BackendJobRecord[];
-      }>("/api/v1/orders?lane=all&limit=1000");
+      }>("/api/v1/orders?lane=all&limit=2000");
 
-      return payload.items.map(mapBackendJobToUiOrder);
+      return {
+        orders: payload.items.map(mapBackendJobToUiOrder),
+        counts: payload.counts,
+      };
     } catch (error) {
       console.error("Failed to load jobs from backend API. Falling back to local repository.", error);
     }
   }
 
-  return projectOrders();
+  const orders = await projectOrders();
+  return {
+    orders,
+    counts: {
+      all: orders.length,
+      shopify: orders.filter((o) => o.source === "SHOPIFY").length,
+      deco: orders.filter((o) => o.source === "DECO").length,
+      manual: orders.filter((o) => o.source === "MANUAL").length,
+    },
+  };
 }
 
 export async function getJob(jobId: string): Promise<JobDetail | null> {

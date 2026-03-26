@@ -131,7 +131,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
   const sourceFilter = params.source;
   const activeTab = params.tab ?? "all";
 
-  const allOrders = await listOrders();
+  const { orders: allOrders, counts: dbCounts } = await listOrders();
 
   // Source filter (from ?source=xxx link)
   const sourceFiltered = sourceFilter
@@ -147,12 +147,18 @@ export default async function JobsPage({ searchParams }: PageProps) {
     ? sourceFiltered.filter((o) => o.source === tabDef.filter)
     : sourceFiltered;
 
-  // Counts for tab badges
-  const counts: Record<string, number> = {
-    all: sourceFiltered.length,
-    deco: sourceFiltered.filter((o) => o.source === "DECO").length,
-    shopify: sourceFiltered.filter((o) => o.source === "SHOPIFY").length,
-  };
+  // Counts for tab badges — use real database counts when not source-filtered
+  const counts: Record<string, number> = sourceFilter
+    ? {
+        all: sourceFiltered.length,
+        deco: sourceFiltered.filter((o) => o.source === "DECO").length,
+        shopify: sourceFiltered.filter((o) => o.source === "SHOPIFY").length,
+      }
+    : {
+        all: dbCounts.all,
+        deco: dbCounts.deco,
+        shopify: dbCounts.shopify,
+      };
 
   const { newReview, inProgress, readyToShip, shipped, onHold, cancelled } = sortIntoLanes(filtered);
 
