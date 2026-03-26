@@ -3380,6 +3380,76 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
   }
   results.bracketResults = bracketResults;
 
+  // 5. Scrape the admin order edit page AND the dnm.js for designer endpoints
+  if (orderId) {
+    // Try the manage/orders/edit page (admin view where designer launches from)
+    try {
+      const editRes = await fetch(`${base}/manage/orders/edit/${orderId}`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const editHtml = await editRes.text();
+      
+      // Get ALL links/URLs from the page
+      const allUrls = [...editHtml.matchAll(/(?:href|src|action|data-url|data-src)\s*=\s*["']([^"']{5,})/gi)].map(m => m[1]).slice(0, 50);
+      
+      // Look for specific patterns
+      const designerRefs = [...editHtml.matchAll(/(?:designer|decorator|design_studio|online_designer|configured_product|edit_design|edit_decoration)\s*[:=(/]?\s*["']?([^"'\s);]{3,})?/gi)].map(m => m[0].slice(0, 200)).slice(0, 30);
+      
+      // Look for line item IDs and product IDs
+      const idPatterns = [...editHtml.matchAll(/(?:configured_product_id|order_line_id|line_item_id|order_line|product_id|item_id)\s*[:=]\s*["']?(\d+)/gi)].map(m => `${m[0]}`).slice(0, 20);
+      
+      // Links with "edit" in them
+      const editLinks = [...editHtml.matchAll(/href\s*=\s*["']([^"']*edit[^"']*)/gi)].map(m => m[1]).slice(0, 20);
+      
+      // Any onclick handlers
+      const onclickHandlers = [...editHtml.matchAll(/onclick\s*=\s*["']([^"']{5,})/gi)].map(m => m[1].slice(0, 200)).slice(0, 20);
+      
+      // Find ALL JavaScript variable assignments related to order/design
+      const jsAssignments = [...editHtml.matchAll(/(?:orders?|design|artwork|configured|decorator|production|upload|line_item|customer)\w*\s*[:=]\s*["'{[\d]/gi)].map(m => {
+        const idx = editHtml.indexOf(m[0]);
+        return editHtml.substring(idx, idx + 200);
+      }).slice(0, 20);
+
+      results.adminEditPage = {
+        length: editHtml.length,
+        title: editHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim(),
+        allUrls: allUrls.filter(u => !u.includes('cloudflare') && !u.includes('jquery')),
+        designerRefs,
+        idPatterns,
+        editLinks,
+        onclickHandlers,
+        jsAssignments: jsAssignments.slice(0, 10),
+      };
+    } catch (err) {
+      results.adminEditPage = { error: err instanceof Error ? err.message : "unknown" };
+    }
+
+    // Scrape dnm.js for API patterns
+    try {
+      const dnmRes = await fetch(`${base}/javascripts/dnm.js`, {
+        headers: { Cookie: cookies },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const dnmJs = await dnmRes.text();
+
+      // Search for customer design/upload API endpoints in JS
+      const designEndpoints = [...dnmJs.matchAll(/["']([\/][^"'\s]{3,}(?:design|artwork|upload|customer_file|user_file|my_upload|production\/get|configured_product)[^"'\s]*)/gi)].map(m => m[1]).slice(0, 40);
+      
+      // Search for "my_uploads" or "customer_design" references
+      const uploadRefs = [...dnmJs.matchAll(/(?:my_upload|customer_design|user_design|user_upload|customer_file|user_file|design_library|artwork_library)\w*/gi)].map(m => m[0]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 20);
+
+      results.dnmJs = {
+        length: dnmJs.length,
+        designEndpoints,
+        uploadRefs,
+      };
+    } catch (err) {
+      results.dnmJs = { error: err instanceof Error ? err.message : "unknown" };
+    }
+  }
+
   return results;
 }
 
