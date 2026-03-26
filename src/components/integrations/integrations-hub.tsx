@@ -107,6 +107,7 @@ export function IntegrationsHub() {
   const [expanded, setExpanded] = useState<SyncProvider | null>(null);
   const [busyProvider, setBusyProvider] = useState<SyncProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<{ provider: SyncProvider; message: string; ok: boolean } | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -129,11 +130,18 @@ export function IntegrationsHub() {
   const triggerSync = async (provider: SyncProvider) => {
     setBusyProvider(provider);
     setError(null);
+    setSyncFeedback(null);
     try {
-      await fetch(`/api/sync/${provider}`, { method: "POST" });
+      const res = await fetch(`/api/sync/${provider}`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.accepted !== false) {
+        setSyncFeedback({ provider, message: data.message ?? "Sync queued successfully", ok: true });
+      } else {
+        setSyncFeedback({ provider, message: data.error ?? "Sync failed", ok: false });
+      }
       await refreshStatus();
     } catch {
-      setError(`Unable to queue ${provider} sync.`);
+      setSyncFeedback({ provider, message: `Unable to queue ${provider} sync.`, ok: false });
     } finally {
       setBusyProvider(null);
     }
@@ -311,6 +319,20 @@ export function IntegrationsHub() {
                       <p className="mt-1 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
                         Set the following environment variables on the backend: <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>{integration.envHint}</span>
                       </p>
+                    </div>
+                  )}
+
+                  {/* Sync feedback */}
+                  {syncFeedback?.provider === integration.key && (
+                    <div
+                      className="rounded-lg px-3 py-2 text-xs font-medium"
+                      style={{
+                        background: syncFeedback.ok ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                        color: syncFeedback.ok ? "#6ee7b7" : "#fca5a5",
+                        border: `1px solid ${syncFeedback.ok ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)"}`,
+                      }}
+                    >
+                      {syncFeedback.ok ? "✓" : "✗"} {syncFeedback.message}
                     </div>
                   )}
 
