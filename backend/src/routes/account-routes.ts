@@ -334,10 +334,21 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     const decoOrderIds = jobs.map((j) => j.decoOrderId!).filter(Boolean);
 
     if (decoOrderIds.length === 0) {
-      return { items: [], orderCount: 0, note: "No Deco orders found for this account." };
+      return {
+        items: [],
+        orderCount: 0,
+        note: "No Deco orders found for this account.",
+        debug: {
+          accountName: account.name,
+          baseName,
+          relatedAccountIds: [...accountIds],
+          relatedAccountNames: relatedAccounts.filter(r => accountIds.has(r.id)).map(r => r.name),
+          jobsFound: jobs.length,
+        }
+      };
     }
 
     const result = await getAccountDecoArtwork(decoOrderIds);
-    return result;
+    return { ...result, debug: { accountName: account.name, relatedAccountIds: [...accountIds], decoOrderIds: decoOrderIds.slice(0, 20) } };
   });
 }
