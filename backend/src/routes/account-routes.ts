@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { normalizeMatchToken } from "../services/shopify-order-context";
+import { getAccountDecoArtwork } from "../services/deco-api-service";
 
 const accountTypeSchema = z.enum(["SCHOOL", "CLUB", "CLIENT", "OTHER"]);
 const assetTypeSchema = z.enum(["LOGO", "TEMPLATE", "DESIGN_REFERENCE", "PROOF"]);
@@ -281,6 +282,31 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     });
 
     return { ok: true };
+  });
+
+  app.get("/v1/accounts/:accountId/deco-artwork", async (request, reply) => {
+    const params = z
+      .object({
+        accountId: z.string(),
+      })
+      .parse(request.params);
+
+    const account = await prisma.account.findUnique({
+      where: { id: params.accountId },
+      select: { id: true, decoCustomerId: true, name: true },
+    });
+
+    if (!account) {
+      reply.status(404);
+      return { error: "Account not found." };
+    }
+
+    if (!account.decoCustomerId) {
+      return { items: [], orderCount: 0, note: "Account has no linked Deco customer." };
+    }
+
+    const result = await getAccountDecoArtwork(account.decoCustomerId);
+    return result;
   });
 }
 

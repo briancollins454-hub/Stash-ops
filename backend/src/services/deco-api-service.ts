@@ -142,6 +142,26 @@ type DecoRawOrderLine = {
   production_status?: number;
   workflow_items?: DecoRawWorkflowItem[];
   fields?: Array<{ options?: Array<{ option_id?: number; code?: string; name?: string }> }>;
+  views?: DecoRawView[];
+};
+
+type DecoRawView = {
+  view_name?: string;
+  thumbnail?: string;
+  areas?: DecoRawArea[];
+};
+
+type DecoRawArea = {
+  area_name?: string;
+  proof_url?: string;
+  processes?: DecoRawProcess[];
+};
+
+type DecoRawProcess = {
+  process?: string;
+  production_file_url?: string;
+  edit_file_url?: string;
+  source_file_url?: string;
 };
 
 type DecoRawWorkflowItem = {
@@ -3175,6 +3195,131 @@ export async function scrapeDecoOrderArtwork(options?: { limit?: number; custome
   results.decorationPages = pageResults;
 
   return results;
+}
+
+// ── Account Deco Artwork aggregation ──
+
+export type DecoArtworkItem = {
+  /** Unique key for deduplication: processType + sourceFileUrl or productionFileUrl */
+  id: string;
+  /** Decoration method: DTF, WEMB, etc. */
+  processType: string;
+  /** View position: Front, Back, etc. */
+  viewName: string;
+  /** Area on the garment: Left Chest, Main Body, etc. */
+  areaName: string;
+  /** Mockup thumbnail URL */
+  thumbnailUrl: string | null;
+  /** Area proof image URL */
+  proofUrl: string | null;
+  /** Production-ready artwork file */
+  productionFileUrl: string | null;
+  /** Original source artwork file */
+  sourceFileUrl: string | null;
+  /** Editable artwork file */
+  editFileUrl: string | null;
+  /** Product it was used on */
+  productName: string | null;
+  /** Deco order id where this artwork was found */
+  decoOrderId: number;
+  /** Order job name */
+  orderJobName: string | null;
+};
+
+/**
+ * Fetches all unique artwork for a given Deco customer by scanning their orders.
+ * Returns deduplicated artwork items from order_lines[].views[].areas[].processes[].
+ */
+export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
+  items: DecoArtworkItem[];
+  orderCount: number;
+  error?: string;
+}> {
+  if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
+
+  // Fetch orders for this customer. The JSON API doesn't have a customer_id filter field,
+  // so we fetch a large batch of recent orders and filter by customer_id client-side.
+  const allOrders: DecoRawOrder[] = [];
+  const batchSize = 100;
+  let offset = 0;
+  const maxOrders = 500;
+
+  try {
+    while (offset < maxOrders) {
+      const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
+        "/api/json/manage_orders/find",
+        { field: "1", condition: "4", date1: "2024-01-01", limit: String(batchSize), offset: String(offset) },
+      );
+      const batch = data.orders ?? [];
+      if (batch.length === 0) break;
+
+      // Filter to this customer only
+      for (const order of batch) {
+        const custId = order.customer_id ?? order.billing_details?.user_id;
+        if (String(custId) === decoCustomerId) {
+          allOrders.push(order);
+        }
+      }
+      offset += batch.length;
+      // If we have fewer results than batch size, we've reached the end
+      if (batch.length < batchSize) break;
+    }
+  } catch (err) {
+    return { items: [], orderCount: 0, error: `Failed to fetch orders: ${err instanceof Error ? err.message : "unknown"}` };
+  }
+
+  // Extract unique artwork from order lines
+  const seen = new Set<string>();
+  const items: DecoArtworkItem[] = [];
+
+  for (const order of allOrders) {
+    const orderId = order.order_id ?? 0;
+    const jobName = order.job_name ?? null;
+
+    for (const line of order.order_lines ?? []) {
+      const productName = line.product_name ?? null;
+
+      for (const view of line.views ?? []) {
+        const viewName = view.view_name ?? "Unknown";
+        const thumbnailUrl = view.thumbnail
+          ? (view.thumbnail.startsWith("http") ? view.thumbnail : `${baseUrl()}${view.thumbnail}`)
+          : null;
+
+        for (const area of view.areas ?? []) {
+          const areaName = area.area_name ?? "Unknown";
+          const proofUrl = area.proof_url ?? null;
+
+          for (const proc of area.processes ?? []) {
+            // Use source or production file URL as the dedup key
+            const fileKey = proc.source_file_url || proc.production_file_url || proc.edit_file_url;
+            if (!fileKey) continue;
+
+            // Deduplicate by file URL (same artwork reused across orders)
+            const dedupKey = fileKey;
+            if (seen.has(dedupKey)) continue;
+            seen.add(dedupKey);
+
+            items.push({
+              id: `deco-art-${items.length}`,
+              processType: proc.process ?? "Unknown",
+              viewName,
+              areaName,
+              thumbnailUrl,
+              proofUrl,
+              productionFileUrl: proc.production_file_url ?? null,
+              sourceFileUrl: proc.source_file_url ?? null,
+              editFileUrl: proc.edit_file_url ?? null,
+              productName,
+              decoOrderId: orderId,
+              orderJobName: jobName,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return { items, orderCount: allOrders.length };
 }
 
 export async function processDecoWebhook(
