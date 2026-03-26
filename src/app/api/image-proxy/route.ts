@@ -24,6 +24,7 @@ const ALLOWED_HOSTS = new Set([
   "cdn.shopify.com",
   "cottonridge.co.uk",
   "www.cottonridge.co.uk",
+  "marxcorporate.secure-decoration.com",
 ]);
 
 export async function GET(request: Request) {
