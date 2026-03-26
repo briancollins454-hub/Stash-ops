@@ -2680,6 +2680,111 @@ export async function fetchDecoProductDetail(decoProductId: string, orderSku?: s
   };
 }
 
+/**
+ * Probe the Deco admin for design / artwork pages.
+ * DecoNetwork stores customer designs, templates, and artwork — this function
+ * explores the admin UI to discover what pages exist and scrapes design data.
+ */
+export async function probeDecoDesigns(customerId?: string): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+
+  const cookies = await getDecoWebSession();
+  if (!cookies) return { error: "Failed to establish Deco web session" };
+
+  const base = baseUrl();
+  const results: Record<string, unknown> = {};
+
+  // Probe known DecoNetwork admin pages for designs / artwork
+  const pagesToProbe = [
+    "/manage/designs",
+    "/manage/design_library",
+    "/manage/design_templates",
+    "/manage/templates",
+    "/manage/artworks",
+    "/manage/artwork_library",
+    "/manage/logos",
+    "/manage/logo_library",
+    "/manage/customer_designs",
+    "/manage/customer_artworks",
+    "/manage/file_library",
+    "/manage/media_library",
+    "/manage/assets",
+    "/manage/supplier_designs",
+    "/bh/designs",
+    "/bh/design_library",
+    "/bh/templates",
+    "/bh/artworks",
+    "/bh/logos",
+    "/bh/file_library",
+    "/bh/media_library",
+    "/bh/assets",
+    ...(customerId ? [
+      `/manage/customers/edit/${customerId}`,
+      `/manage/customers/${customerId}`,
+      `/bh/customers/${customerId}`,
+      `/manage/customer_designs/${customerId}`,
+    ] : []),
+  ];
+
+  for (const path of pagesToProbe) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers: { Cookie: cookies },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      const status = res.status;
+      const location = res.headers.get("location");
+
+      if (status === 200) {
+        const html = await res.text();
+        const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+        const hasContent = !html.includes("Login Private") && !html.includes("/user/login");
+        const bodyLen = html.length;
+
+        // Look for image/design URLs
+        const imageUrls: string[] = [];
+        for (const m of html.matchAll(/(?:src|href|url)\s*[=:(]\s*["']?([^"'\s)]+(?:\.(?:png|jpg|jpeg|gif|svg|eps|pdf|ai))[^"'\s)]*)/gi)) {
+          if (!imageUrls.includes(m[1]) && imageUrls.length < 50) imageUrls.push(m[1]);
+        }
+
+        // Look for any JSON data containing design/artwork references
+        const jsonBlocks: string[] = [];
+        for (const m of html.matchAll(/(?:designs?|artworks?|templates?|logos?)\s*[=:]\s*(\[[^\]]{0,2000}\]|\{[^}]{0,2000}\})/gi)) {
+          if (jsonBlocks.length < 10) jsonBlocks.push(m[0].slice(0, 500));
+        }
+
+        // Look for links to design detail pages
+        const designLinks: string[] = [];
+        for (const m of html.matchAll(/href="([^"]*(?:design|artwork|template|logo)[^"]*)"/gi)) {
+          if (!designLinks.includes(m[1]) && designLinks.length < 50) designLinks.push(m[1]);
+        }
+
+        results[path] = {
+          status,
+          title,
+          hasContent,
+          bodyLength: bodyLen,
+          imageUrlCount: imageUrls.length,
+          imageUrls: imageUrls.slice(0, 20),
+          jsonBlocks: jsonBlocks.slice(0, 5),
+          designLinks: designLinks.slice(0, 20),
+        };
+      } else if (status === 301 || status === 302) {
+        results[path] = { status, redirectTo: location };
+      } else {
+        results[path] = { status };
+        try { await res.text(); } catch { /* consume */ }
+      }
+    } catch (err) {
+      results[path] = { error: err instanceof Error ? err.message : "unknown" };
+    }
+  }
+
+  return results;
+}
+
 export async function processDecoWebhook(
   topic: string,
   payload: DecoWebhookPayload,

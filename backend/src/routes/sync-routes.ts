@@ -7,7 +7,7 @@ import { prisma } from "../lib/prisma";
 import { eventInboxQueue, decoSyncQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
-import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus, inspectDecoOrder, probeDecoOrderApi } from "../services/deco-api-service";
+import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus, inspectDecoOrder, probeDecoOrderApi, probeDecoDesigns } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs, seedAccountsFromDecoCustomers, backfillDecoJobSourceGroups } from "../services/account-seed-service";
 import { processDecoOrderEvent } from "../services/deco-event-processor";
 
@@ -168,6 +168,12 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/sync/deco/probe-api", async () => {
     const result = await probeDecoOrderApi();
+    return result;
+  });
+
+  app.get("/sync/deco/probe-designs", async (request) => {
+    const { customerId } = request.query as { customerId?: string };
+    const result = await probeDecoDesigns(customerId);
     return result;
   });
 
