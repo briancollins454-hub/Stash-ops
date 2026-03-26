@@ -33,6 +33,7 @@ type SyncStatusPayload = {
     jobs: SyncJob[];
     generatedAt: string;
   };
+  configured?: Record<string, boolean>;
 };
 
 interface IntegrationConfig {
@@ -102,6 +103,7 @@ function formatDate(value?: string) {
 
 export function IntegrationsHub() {
   const [status, setStatus] = useState<SyncStatusPayload["data"] | null>(null);
+  const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<SyncProvider | null>(null);
   const [busyProvider, setBusyProvider] = useState<SyncProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,7 @@ export function IntegrationsHub() {
       const res = await fetch("/api/sync/status", { cache: "no-store" });
       const payload = (await res.json()) as SyncStatusPayload;
       setStatus(payload.data);
+      if (payload.configured) setConfigured(payload.configured);
       setError(null);
     } catch {
       setError("Unable to load sync status.");
@@ -158,7 +161,7 @@ export function IntegrationsHub() {
         {INTEGRATIONS.map((integration) => {
           const ps = providerStates.find((s) => s.provider === integration.key);
           const isExpanded = expanded === integration.key;
-          const connected = ps ? (ps.totalRuns > 0 || ps.running) : false;
+          const connected = configured[integration.key] ?? false;
           const healthy = ps?.lastError ? false : true;
           const jobs = recentJobs.filter((j) => j.provider === integration.key);
 

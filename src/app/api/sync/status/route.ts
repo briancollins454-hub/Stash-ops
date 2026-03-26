@@ -1,5 +1,22 @@
 import { NextResponse } from "next/server";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
+import { isDecoConnectorConfigured } from "@/server/integrations/deco-connector";
+import { isShopifyConnectorConfigured } from "@/server/integrations/shopify-connector";
+import { isQboConnectorConfigured } from "@/server/integrations/qbo-connector";
+import { isGmailConnectorConfigured } from "@/server/integrations/gmail-connector";
+import { isSlackConnectorConfigured } from "@/server/integrations/slack-connector";
+import { isShipstationConnectorConfigured } from "@/server/integrations/shipstation-connector";
+
+function getConfiguredProviders(): Record<string, boolean> {
+  return {
+    deco: isDecoConnectorConfigured() || isBackendApiConfigured(),
+    shopify: isShopifyConnectorConfigured() || isBackendApiConfigured(),
+    qbo: isQboConnectorConfigured(),
+    gmail: isGmailConnectorConfigured(),
+    slack: isSlackConnectorConfigured(),
+    shipstation: isShipstationConnectorConfigured(),
+  };
+}
 
 const providerOrder = [
   "shopify",
@@ -98,6 +115,7 @@ export async function GET() {
 
       return NextResponse.json({
         data: legacyShape,
+        configured: getConfiguredProviders(),
         generatedAt: legacyShape.generatedAt,
       });
     } catch (error) {
@@ -129,6 +147,7 @@ export async function GET() {
 
   return NextResponse.json({
     data: emptyStatus,
+    configured: getConfiguredProviders(),
     generatedAt,
   });
 }
