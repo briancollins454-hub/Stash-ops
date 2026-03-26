@@ -196,6 +196,15 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
+  // Quick focused test: try include params on manage_orders/find and scrape JS bundles
+  app.get("/sync/deco/probe-design-api", async () => {
+    const { syncDecoProducts: _, ...rest } = {} as Record<string, unknown>;
+    void rest;
+    // Import decoFetch and getDecoWebSession from the service module
+    const { probeDesignApi } = await import("../services/deco-api-service");
+    return probeDesignApi();
+  });
+
   // ── Deco reprocess existing events into Jobs ──
 
   app.post("/sync/deco/reprocess", async (request) => {

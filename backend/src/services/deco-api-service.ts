@@ -3474,6 +3474,101 @@ export async function probeCustomerDesigns(customerId: string, orderId?: string)
 
 // ── Account Deco Artwork aggregation ──
 
+/**
+ * Minimal probe: test manage_orders/find include params + scrape JS bundles for design APIs.
+ */
+export async function probeDesignApi(): Promise<Record<string, unknown>> {
+  if (!isDecoConfigured()) return { error: "Deco not configured" };
+  const results: Record<string, unknown> = {};
+
+  // 1. Test include params on manage_orders/find to see what enriches order_lines
+  const paramSets: Array<Record<string, string>> = [
+    {},
+    { include_workflow_data: "1" },
+    { include_decoration_data: "1" },
+    { include_views: "1" },
+    { include_all: "1" },
+    { include_configured_products: "1" },
+    { include_design_data: "1" },
+    { include_artwork: "1" },
+    { include_order_lines: "1" },
+    { include_line_items: "1" },
+  ];
+
+  const includeTests: Array<Record<string, unknown>> = [];
+  for (const extra of paramSets) {
+    try {
+      const data = await decoFetch<{ total?: number; orders?: Array<Record<string, unknown>> }>(
+        "/api/json/manage_orders/find",
+        { field: "1", condition: "4", date1: "2026-03-25 00:00:00", limit: "1", ...extra },
+      );
+      const order = data.orders?.[0];
+      if (order) {
+        const lines = (order.order_lines ?? []) as Array<Record<string, unknown>>;
+        const firstLine = lines[0];
+        includeTests.push({
+          params: extra,
+          orderKeys: Object.keys(order).slice(0, 30),
+          lineCount: lines.length,
+          firstLineKeys: firstLine ? Object.keys(firstLine) : [],
+          hasViews: firstLine ? "views" in firstLine : false,
+        });
+      }
+    } catch (err) {
+      includeTests.push({ params: extra, error: err instanceof Error ? err.message.slice(0, 100) : "unknown" });
+    }
+  }
+  results.includeTests = includeTests;
+
+  // 2. Download the BH JS bundle and search for design API endpoints
+  const cookies = await getDecoWebSession();
+  if (cookies) {
+    const base = baseUrl();
+    try {
+      const bhRes = await fetch(`${base}/bh/orders`, {
+        headers: { Cookie: cookies },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const bhHtml = await bhRes.text();
+      const jsBundles = [...bhHtml.matchAll(/src\s*=\s*["']([^"']+\.js[^"']*)/gi)].map(m => m[1]);
+      results.jsBundles = jsBundles;
+
+      for (const bundle of jsBundles.filter(b => !b.includes('cloudflare') && !b.includes('jquery') && !b.includes('webfont'))) {
+        try {
+          const bundleUrl = bundle.startsWith("http") ? bundle : `${base}${bundle}`;
+          const bundleRes = await fetch(bundleUrl, { signal: AbortSignal.timeout(20_000) });
+          const js = await bundleRes.text();
+          
+          // Find ALL URL-like paths in the JS
+          const apiPaths = [...js.matchAll(/["'](\/[a-z_]+\/[a-z_]+[^"'\s]{0,80})/gi)]
+            .map(m => m[1])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .slice(0, 100);
+          
+          // Filter to potentially relevant ones
+          const relevantPaths = apiPaths.filter(p => 
+            /design|artwork|upload|file|customer|production|decoration|configured|template/i.test(p)
+          );
+
+          results[`bundle_${bundle.split('/').pop()}`] = {
+            size: js.length,
+            totalPaths: apiPaths.length,
+            relevantPaths,
+            allPaths: apiPaths,
+          };
+        } catch (err) {
+          results[`bundle_${bundle.split('/').pop()}`] = { error: String(err).slice(0, 100) };
+        }
+      }
+    } catch (err) {
+      results.bhError = String(err).slice(0, 200);
+    }
+  }
+
+  return results;
+}
+
 export type DecoArtworkItem = {
   /** Unique key for deduplication: processType + sourceFileUrl or productionFileUrl */
   id: string;
