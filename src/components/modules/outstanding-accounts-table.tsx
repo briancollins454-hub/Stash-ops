@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { OutstandingAccount } from "@/lib/types";
 import { formatCurrency } from "@/lib/format";
 
@@ -29,27 +29,31 @@ function lifecycleLabel(lc: string): string {
 }
 
 function fulfillmentBadge(status: string) {
-  const colors: Record<string, string> = {
-    UNFULFILLED: "bg-amber-100 text-amber-800",
-    PARTIALLY_FULFILLED: "bg-blue-100 text-blue-800",
-    FULFILLED: "bg-green-100 text-green-800",
+  const colors: Record<string, { bg: string; text: string }> = {
+    UNFULFILLED: { bg: "rgba(245,158,11,0.15)", text: "#fbbf24" },
+    PARTIALLY_FULFILLED: { bg: "rgba(96,165,250,0.15)", text: "#60a5fa" },
+    FULFILLED: { bg: "rgba(34,197,94,0.15)", text: "#4ade80" },
   };
   const labels: Record<string, string> = {
     UNFULFILLED: "Unfulfilled",
     PARTIALLY_FULFILLED: "Partial",
     FULFILLED: "Fulfilled",
   };
+  const c = colors[status] ?? { bg: "rgba(255,255,255,0.06)", text: "var(--text-secondary)" };
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${colors[status] ?? "bg-gray-100 text-gray-600"}`}>
+    <span style={{ background: c.bg, color: c.text }} className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium">
       {labels[status] ?? status}
     </span>
   );
 }
 
 export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAccount[] }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<"date" | "value" | "customer">("date");
-  const [sortAsc, setSortAsc] = useState(false);
+  const [sortKey, setSortKey] = useState("value-desc");
+
+  const [sortField, sortDir] = sortKey.split("-") as ["date" | "value" | "customer", string];
+  const sortAsc = sortDir === "asc";
 
   const filtered = accounts.filter((a) => {
     if (!search) return true;
@@ -76,20 +80,11 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
     return sortAsc ? cmp : -cmp;
   });
 
-  const toggleSort = (field: typeof sortField) => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(false);
-    }
-  };
-
   const totalValue = filtered.reduce((sum, a) => sum + a.totalMinor, 0);
 
   if (accounts.length === 0) {
     return (
-      <div className="py-12 text-center text-sm text-gray-500">
+      <div className="py-12 text-center text-sm" style={{ color: "var(--text-tertiary)" }}>
         No outstanding accounts found. All caught up!
       </div>
     );
@@ -104,16 +99,14 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
           placeholder="Search by customer, company, or job ID…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-[200px] max-w-md rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+          className="flex-1 min-w-[200px] max-w-md rounded-lg px-3 py-2 text-sm outline-none"
+          style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
         />
         <select
-          value={`${sortField}-${sortAsc ? "asc" : "desc"}`}
-          onChange={(e) => {
-            const [f, d] = e.target.value.split("-") as [typeof sortField, string];
-            setSortField(f);
-            setSortAsc(d === "asc");
-          }}
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-white"
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value)}
+          className="rounded-lg px-3 py-2 text-sm outline-none"
+          style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
         >
           <option value="value-desc">Balance: High → Low</option>
           <option value="value-asc">Balance: Low → High</option>
@@ -122,58 +115,63 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
           <option value="customer-asc">Customer: A → Z</option>
           <option value="customer-desc">Customer: Z → A</option>
         </select>
-        <div className="ml-auto shrink-0 text-sm font-medium text-gray-700">
-          Total: <span className="text-indigo-600">{formatCurrency(totalValue / 100)}</span>
+        <div className="ml-auto shrink-0 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+          Total: <span style={{ color: "#a5b4fc" }}>{formatCurrency(totalValue / 100)}</span>
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border)" }}>
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+            <tr style={{ borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.03)", color: "var(--text-tertiary)" }}
+                className="text-left text-[11px] font-medium uppercase tracking-wider">
               <th className="px-4 py-3">Job ID</th>
-              <th className="px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("customer")}>
-                Customer {sortField === "customer" ? (sortAsc ? "↑" : "↓") : ""}
-              </th>
+              <th className="px-4 py-3">Customer</th>
               <th className="px-4 py-3">Account</th>
               <th className="px-4 py-3">Source</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Fulfillment</th>
-              <th className="px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("date")}>
-                Order Date {sortField === "date" ? (sortAsc ? "↑" : "↓") : ""}
-              </th>
+              <th className="px-4 py-3">Order Date</th>
               <th className="px-4 py-3">Due</th>
               <th className="px-4 py-3">Items</th>
-              <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("value")}>
-                Value {sortField === "value" ? (sortAsc ? "↑" : "↓") : ""}
-              </th>
+              <th className="px-4 py-3 text-right">Value</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody>
             {sorted.map((a) => (
-              <tr key={a.id}>
-                <td className="px-4 py-3 font-mono text-xs">
-                  <Link href={`/jobs/${a.id}`} className="text-indigo-600 hover:underline">
-                    {a.internalJobId}
-                  </Link>
+              <tr
+                key={a.id}
+                onClick={() => router.push(`/jobs/${a.id}`)}
+                className="cursor-pointer transition-colors"
+                style={{ borderBottom: "1px solid var(--border)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-surface-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <td className="px-4 py-3 font-mono text-xs" style={{ color: "#a5b4fc" }}>
+                  {a.internalJobId}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{a.customer}</div>
-                  {a.company && <div className="text-xs text-gray-500">{a.company}</div>}
+                  <div className="font-medium" style={{ color: "var(--text-primary)" }}>{a.customer}</div>
+                  {a.company && <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{a.company}</div>}
                 </td>
-                <td className="px-4 py-3 text-gray-600">{a.account}</td>
+                <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{a.account}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${a.source === "DECO" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                  <span
+                    className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={a.source === "DECO"
+                      ? { background: "rgba(168,85,247,0.15)", color: "#c084fc" }
+                      : { background: "rgba(96,165,250,0.15)", color: "#60a5fa" }}
+                  >
                     {a.source === "DECO" ? "Deco" : "Manual"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-gray-600 text-xs">{lifecycleLabel(a.lifecycle)}</td>
+                <td className="px-4 py-3 text-xs" style={{ color: "var(--text-secondary)" }}>{lifecycleLabel(a.lifecycle)}</td>
                 <td className="px-4 py-3">{fulfillmentBadge(a.fulfillmentStatus)}</td>
-                <td className="px-4 py-3 text-gray-600">{formatDate(a.orderPlacedAt)}</td>
-                <td className="px-4 py-3 text-gray-600">{formatDate(a.dueAt)}</td>
-                <td className="px-4 py-3 text-center text-gray-600">{a.itemCount}</td>
-                <td className="px-4 py-3 text-right font-medium text-gray-900">
+                <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(a.orderPlacedAt)}</td>
+                <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(a.dueAt)}</td>
+                <td className="px-4 py-3 text-center" style={{ color: "var(--text-secondary)" }}>{a.itemCount}</td>
+                <td className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-primary)" }}>
                   {formatCurrency(a.totalMinor / 100)}
                 </td>
               </tr>
@@ -181,11 +179,11 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
           </tbody>
           {sorted.length > 0 && (
             <tfoot>
-              <tr className="border-t border-gray-200 bg-gray-50 font-medium">
-                <td colSpan={9} className="px-4 py-3 text-right text-xs uppercase tracking-wider text-gray-500">
+              <tr style={{ borderTop: "1px solid var(--border)", background: "rgba(255,255,255,0.03)" }} className="font-medium">
+                <td colSpan={9} className="px-4 py-3 text-right text-[11px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                   Total Outstanding
                 </td>
-                <td className="px-4 py-3 text-right text-indigo-600">
+                <td className="px-4 py-3 text-right" style={{ color: "#a5b4fc" }}>
                   {formatCurrency(totalValue / 100)}
                 </td>
               </tr>
@@ -194,8 +192,8 @@ export function OutstandingAccountsTable({ accounts }: { accounts: OutstandingAc
         </table>
       </div>
 
-      {sorted.length === 0 && filtered.length === 0 && accounts.length > 0 && (
-        <div className="py-8 text-center text-sm text-gray-500">
+      {sorted.length === 0 && accounts.length > 0 && (
+        <div className="py-8 text-center text-sm" style={{ color: "var(--text-tertiary)" }}>
           No results match your search.
         </div>
       )}
