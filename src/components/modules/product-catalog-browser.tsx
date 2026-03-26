@@ -410,10 +410,10 @@ function ProductDetailPanel({ product }: { product: Record<string, unknown> }) {
     >
       {/* Product info */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
-        {product.gender && <InfoCell label="Gender" value={product.gender as string} />}
-        {product.fabric && <InfoCell label="Fabric" value={product.fabric as string} />}
-        {product.weight && <InfoCell label="Weight" value={product.weight as string} />}
-        {product.sizeRange && <InfoCell label="Sizes" value={product.sizeRange as string} />}
+        {product.gender ? <InfoCell label="Gender" value={product.gender as string} /> : null}
+        {product.fabric ? <InfoCell label="Fabric" value={product.fabric as string} /> : null}
+        {product.weight ? <InfoCell label="Weight" value={product.weight as string} /> : null}
+        {product.sizeRange ? <InfoCell label="Sizes" value={product.sizeRange as string} /> : null}
       </div>
 
       {/* Colours */}
