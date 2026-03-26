@@ -337,8 +337,17 @@ function AssetCard({
   onDelete: () => void;
   deleting: boolean;
 }) {
-  const isImage = asset.fileUrl && /\.(png|jpe?g|svg|webp|gif)$/i.test(asset.fileUrl);
   const isDataUrl = asset.fileUrl?.startsWith("data:image/");
+  const isExternalImage = asset.fileUrl && /^https?:\/\//.test(asset.fileUrl);
+  const isLocalImage = asset.fileUrl && /\.(png|jpe?g|svg|webp|gif)(\?.*)?$/i.test(asset.fileUrl);
+  const hasImage = isDataUrl || isExternalImage || isLocalImage;
+
+  // External URLs (Deco CDN etc.) go through the image proxy; data URLs and local paths render directly
+  const imgSrc = asset.fileUrl
+    ? isDataUrl || !isExternalImage
+      ? asset.fileUrl
+      : `/api/image-proxy?url=${encodeURIComponent(asset.fileUrl)}`
+    : "";
 
   return (
     <div
@@ -347,8 +356,8 @@ function AssetCard({
     >
       {/* Thumbnail */}
       <div className="aspect-square flex items-center justify-center" style={{ background: "rgba(255,255,255,0.02)" }}>
-        {(isImage || isDataUrl) && asset.fileUrl ? (
-          <img src={asset.fileUrl} alt={asset.label} className="h-full w-full object-contain p-3" />
+        {hasImage && asset.fileUrl ? (
+          <img src={imgSrc} alt={asset.label} className="h-full w-full object-contain p-3" />
         ) : (
           <div className="text-3xl">🎨</div>
         )}
