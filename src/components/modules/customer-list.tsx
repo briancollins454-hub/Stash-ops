@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import type { Customer } from "@/lib/types";
 
@@ -12,6 +13,7 @@ const sourceBadgeStyle: Record<string, { bg: string; fg: string; label: string }
 
 export function CustomerList({ customers }: { customers: Customer[] }) {
   const [query, setQuery] = useState("");
+  const router = useRouter();
 
   const q = query.toLowerCase().trim();
   const filtered = q
@@ -65,7 +67,11 @@ export function CustomerList({ customers }: { customers: Customer[] }) {
             const badge = customer.source ? sourceBadgeStyle[customer.source] : undefined;
 
             return (
-              <article key={customer.id} className="card px-4 py-3.5 sm:px-5">
+              <article
+                key={customer.id}
+                className="card cursor-pointer px-4 py-3.5 sm:px-5 transition-all hover:brightness-110"
+                onClick={() => router.push(`/accounts/${customer.id}`)}
+              >
                 <div className="flex items-center gap-4">
                   {/* Avatar */}
                   <div

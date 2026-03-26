@@ -20,6 +20,7 @@ interface DecoratorProps {
   productDetail: DesignerProductDetail;
   selectedColorId?: number;
   initialDesigns?: DesignConfig[];
+  accountId?: string;
 }
 
 export function Decorator({
@@ -29,6 +30,7 @@ export function Decorator({
   productDetail,
   selectedColorId: initColorId,
   initialDesigns,
+  accountId,
 }: DecoratorProps) {
   const { init, exportDesigns, activeView, garmentColorHex, garmentType, selectedColorId, isDirty, product } = useDecoratorStore(
     useShallow((s) => ({
@@ -198,7 +200,7 @@ export function Decorator({
         />
 
         {/* Right panel */}
-        <PropertiesPanel />
+        <PropertiesPanel accountId={accountId} />
       </div>
 
       {/* Footer */}

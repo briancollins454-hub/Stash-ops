@@ -1826,6 +1826,7 @@ export default function QuoteBuilderPage({ editJobId }: { editJobId?: string }) 
             productDetail={designItem.productDetail}
             selectedColorId={designItem.selectedColorId}
             initialDesigns={designItem.designs}
+            accountId={selectedAccount?.id}
           />
         );
       })()}

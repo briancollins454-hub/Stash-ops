@@ -24,6 +24,7 @@ const PLACEMENTS = [
 interface Props {
   jobId: string;
   items: JobLineItem[];
+  accountId?: string;
 }
 
 /* ── Helpers ── */
@@ -393,7 +394,7 @@ async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail |
 
 /* ── Component ── */
 
-export function JobLineItemConfig({ jobId, items }: Props) {
+export function JobLineItemConfig({ jobId, items, accountId }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -855,6 +856,7 @@ export function JobLineItemConfig({ jobId, items }: Props) {
           onApply={handleDesignerApply}
           productDetail={productDetails[designerItem.id] ?? buildProductDetail(designerItem)}
           initialDesigns={editDesigns[designerItem.id] ?? existingDesigns(designerItem)}
+          accountId={accountId}
         />
       )}
     </>

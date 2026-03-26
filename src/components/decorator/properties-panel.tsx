@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useDecoratorStore } from "./store";
 import {
@@ -21,6 +21,17 @@ import {
    Properties Panel — right sidebar with tabs
    ═══════════════════════════════════════════════════════════ */
 
+interface SavedArtworkItem {
+  id: string;
+  assetType: string;
+  label: string;
+  fileUrl: string | null;
+  decorationMethod: string | null;
+  isDefault: boolean;
+  priority: number;
+  active: boolean;
+}
+
 const QUICK_NOTES = [
   "Customer supplied artwork",
   "Artwork needs vectorising",
@@ -38,7 +49,7 @@ const FONTS = [
   "Roboto", "Open Sans", "Lato", "Montserrat", "Oswald",
 ];
 
-export function PropertiesPanel() {
+export function PropertiesPanel({ accountId }: { accountId?: string }) {
   const {
     rightPanel,
     activeZoneKey,
@@ -152,6 +163,7 @@ export function PropertiesPanel() {
             onAddImage={addImage}
             onAddUpload={addUpload}
             onRemoveUpload={removeUpload}
+            accountId={accountId}
           />
         )}
         {rightPanel === "text" && (
@@ -456,15 +468,42 @@ function ArtworkTab({
   onAddImage,
   onAddUpload,
   onRemoveUpload,
+  accountId,
 }: {
   zoneKey: string;
   uploads: UploadedFile[];
   onAddImage: (zoneKey: string, upload: UploadedFile) => string;
   onAddUpload: (file: UploadedFile) => void;
   onRemoveUpload: (id: string) => void;
+  accountId?: string;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+
+  // Saved artwork from account
+  const [savedArtwork, setSavedArtwork] = useState<SavedArtworkItem[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [savedExpanded, setSavedExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingSaved(true);
+    fetch(`/api/v1/accounts/${accountId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.data?.assets) {
+          setSavedArtwork(
+            data.data.assets
+              .filter((a: SavedArtworkItem) => a.active && a.fileUrl)
+              .sort((a: SavedArtworkItem, b: SavedArtworkItem) =>
+                a.isDefault ? -1 : b.isDefault ? 1 : b.priority - a.priority,
+              ),
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingSaved(false));
+  }, [accountId]);
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -561,6 +600,128 @@ function ArtworkTab({
 
   return (
     <div className="space-y-4">
+      {/* Saved Artwork from Account */}
+      {accountId && (
+        <div>
+          <button
+            onClick={() => setSavedExpanded(!savedExpanded)}
+            className="flex w-full items-center justify-between"
+          >
+            <SectionHeader>
+              Saved Artwork
+              {savedArtwork.length > 0 && (
+                <span
+                  className="ml-1.5 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-bold"
+                  style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", minWidth: "1.2rem" }}
+                >
+                  {savedArtwork.length}
+                </span>
+              )}
+            </SectionHeader>
+            <svg
+              className="h-3.5 w-3.5 transition-transform"
+              style={{
+                color: "var(--text-tertiary, #64748b)",
+                transform: savedExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+              }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {savedExpanded && (
+            <div className="mt-2">
+              {loadingSaved ? (
+                <p className="text-[11px] py-3 text-center" style={{ color: "var(--text-tertiary, #64748b)" }}>
+                  Loading saved artwork...
+                </p>
+              ) : savedArtwork.length === 0 ? (
+                <p className="text-[11px] py-3 text-center" style={{ color: "var(--text-tertiary, #64748b)" }}>
+                  No saved artwork for this account
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {savedArtwork.map((art) => {
+                    const isImg = art.fileUrl && (/\.(png|jpe?g|svg|webp|gif)$/i.test(art.fileUrl) || art.fileUrl.startsWith("data:image/"));
+                    return (
+                      <button
+                        key={art.id}
+                        onClick={() => {
+                          if (!art.fileUrl) return;
+                          // Load the image and add to canvas
+                          const img = new Image();
+                          img.crossOrigin = "anonymous";
+                          img.onload = () => {
+                            const upload: UploadedFile = {
+                              id: generateId(),
+                              name: art.label,
+                              url: art.fileUrl!,
+                              isImage: true,
+                              ext: "png",
+                              naturalWidth: img.naturalWidth,
+                              naturalHeight: img.naturalHeight,
+                            };
+                            onAddUpload(upload);
+                            onAddImage(zoneKey, upload);
+                          };
+                          img.onerror = () => {
+                            // Still try to add even without dimensions
+                            const upload: UploadedFile = {
+                              id: generateId(),
+                              name: art.label,
+                              url: art.fileUrl!,
+                              isImage: true,
+                              ext: "png",
+                            };
+                            onAddUpload(upload);
+                            onAddImage(zoneKey, upload);
+                          };
+                          img.src = art.fileUrl;
+                        }}
+                        className="group rounded-xl overflow-hidden text-left transition-all hover:brightness-125 hover:ring-1 hover:ring-[#6366f1]"
+                        style={{
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                        title={`Place "${art.label}" on zone`}
+                      >
+                        <div
+                          className="aspect-square flex items-center justify-center"
+                          style={{ background: "rgba(255,255,255,0.02)" }}
+                        >
+                          {isImg && art.fileUrl ? (
+                            <img src={art.fileUrl} alt={art.label} className="h-full w-full object-contain p-2" />
+                          ) : (
+                            <div className="text-2xl">🎨</div>
+                          )}
+                        </div>
+                        <div className="px-2 py-1.5">
+                          <p className="truncate text-[10px] font-medium" style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                            {art.label}
+                          </p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {art.isDefault && (
+                              <span className="text-[8px] font-bold uppercase" style={{ color: "#6ee7b7" }}>Default</span>
+                            )}
+                            {art.decorationMethod && (
+                              <span className="text-[8px]" style={{ color: "var(--text-tertiary, #64748b)" }}>{art.decorationMethod}</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <SectionHeader>Upload Artwork</SectionHeader>
 
       {/* Drop zone */}

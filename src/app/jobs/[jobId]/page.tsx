@@ -408,7 +408,7 @@ export default async function JobDetailPage({
         {job.items.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No line items on this job.</p>
         ) : (
-          <JobLineItemConfig jobId={job.id} items={job.items} />
+          <JobLineItemConfig jobId={job.id} items={job.items} accountId={job.account?.id} />
         )}
       </CollapsibleSection>
 

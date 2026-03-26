@@ -267,5 +267,20 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     reply.status(201);
     return { ok: true, data: created };
   });
+
+  app.delete("/v1/accounts/:accountId/assets/:assetId", async (request, reply) => {
+    const params = z
+      .object({
+        accountId: z.string(),
+        assetId: z.string(),
+      })
+      .parse(request.params);
+
+    await prisma.accountAsset.deleteMany({
+      where: { id: params.assetId, accountId: params.accountId },
+    });
+
+    return { ok: true };
+  });
 }
 
