@@ -214,8 +214,10 @@ export function canTransitionLifecycle(
     };
   }
 
-  const blockers = evaluateWorkflowBlockers(snapshot).filter((blocker) => blocker.hardBlock);
-  const gateReasons = lifecycleGateReasons(snapshot, target);
+  // Cancellation and on-hold are escape transitions — skip blocker checks
+  const skipBlockers = target === "cancelled" || target === "on_hold";
+  const blockers = skipBlockers ? [] : evaluateWorkflowBlockers(snapshot).filter((blocker) => blocker.hardBlock);
+  const gateReasons = skipBlockers ? [] : lifecycleGateReasons(snapshot, target);
   const blockerReasons = blockers.map((blocker) => blocker.message);
   const reasons = [...gateReasons, ...blockerReasons];
 
