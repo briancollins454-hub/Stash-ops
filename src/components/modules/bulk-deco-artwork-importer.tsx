@@ -1,6 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+interface ArtworkStats {
+  totalAssets: number;
+  archived: number;
+  external: number;
+  noImage: number;
+  accountsWithArtwork: number;
+}
 
 interface BulkImportResult {
   accountsProcessed: number;
@@ -23,10 +31,20 @@ interface ArchiveResult {
 }
 
 export function BulkDecoArtworkImporter() {
+  const [stats, setStats] = useState<ArtworkStats | null>(null);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BulkImportResult | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [archiveResult, setArchiveResult] = useState<ArchiveResult | null>(null);
+
+  const loadStats = async () => {
+    try {
+      const res = await fetch("/api/v1/accounts/artwork-stats");
+      if (res.ok) setStats(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { loadStats(); }, []);
 
   const handleImport = async () => {
     if (!confirm("This will import Deco artwork for ALL accounts with a Deco customer ID. This may take a few minutes. Continue?")) return;
@@ -36,6 +54,7 @@ export function BulkDecoArtworkImporter() {
       const res = await fetch("/api/v1/accounts/bulk-import-deco-artwork", { method: "POST" });
       const data = await res.json();
       setResult(data);
+      loadStats();
     } catch (err) {
       setResult({ error: err instanceof Error ? err.message : "Import failed", accountsProcessed: 0, accountsWithArtwork: 0, totalImported: 0, totalSkipped: 0, uniqueDecoCustomers: 0 });
     } finally {
@@ -45,6 +64,24 @@ export function BulkDecoArtworkImporter() {
 
   return (
     <div className="space-y-4">
+      {/* Persistent stats from DB */}
+      {stats && (
+        <div
+          className="rounded-xl p-4"
+          style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)" }}
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "#a5b4fc" }}>
+            Current artwork inventory
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Stat label="Total designs" value={stats.totalAssets} />
+            <Stat label="Archived (self-contained)" value={stats.archived} highlight />
+            <Stat label="Still on Deco CDN" value={stats.external} warn={stats.external > 0} />
+            <Stat label="Accounts with artwork" value={stats.accountsWithArtwork} />
+          </div>
+        </div>
+      )}
+
       <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
         Scans all accounts with a Deco customer ID, fetches their artwork from DecoNetwork, and saves
         it as permanent account assets. Accounts without artwork are skipped. Already-imported designs
@@ -128,6 +165,7 @@ export function BulkDecoArtworkImporter() {
               const res = await fetch("/api/v1/accounts/archive-artwork-images", { method: "POST" });
               const data = await res.json();
               setArchiveResult(data);
+              loadStats();
             } catch (err) {
               setArchiveResult({ error: err instanceof Error ? err.message : "Archive failed", archived: 0, failed: 0, total: 0 });
             } finally {
@@ -179,12 +217,12 @@ export function BulkDecoArtworkImporter() {
   );
 }
 
-function Stat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+function Stat({ label, value, highlight, warn }: { label: string; value: number; highlight?: boolean; warn?: boolean }) {
   return (
     <div className="text-center">
       <p
         className="text-xl font-bold"
-        style={{ color: highlight && value > 0 ? "#6ee7b7" : "var(--text-primary)" }}
+        style={{ color: warn ? "#fbbf24" : highlight && value > 0 ? "#6ee7b7" : "var(--text-primary)" }}
       >
         {value.toLocaleString()}
       </p>

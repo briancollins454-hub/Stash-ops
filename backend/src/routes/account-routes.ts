@@ -581,4 +581,22 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
       errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
     };
   });
+
+  // ── Artwork stats ──
+  app.get("/v1/accounts/artwork-stats", async () => {
+    const [total, archived, external, accountsWithArtwork] = await Promise.all([
+      prisma.accountAsset.count(),
+      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "data:" } } }),
+      prisma.accountAsset.count({ where: { fileUrl: { startsWith: "http" } } }),
+      prisma.accountAsset.groupBy({ by: ["accountId"], _count: true }).then((g) => g.length),
+    ]);
+
+    return {
+      totalAssets: total,
+      archived,
+      external,
+      noImage: total - archived - external,
+      accountsWithArtwork,
+    };
+  });
 }
