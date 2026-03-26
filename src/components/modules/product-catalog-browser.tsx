@@ -306,7 +306,7 @@ export function ProductCatalogBrowser() {
                     className="h-12 w-12 shrink-0 rounded-lg overflow-hidden flex items-center justify-center"
                     style={{ background: "rgba(255,255,255,0.04)" }}
                   >
-                    {p.primaryImageUrl ? (
+                    {p.primaryImageUrl?.startsWith("http") ? (
                       <img
                         src={`/api/image-proxy?url=${encodeURIComponent(p.primaryImageUrl)}`}
                         alt={p.name}
