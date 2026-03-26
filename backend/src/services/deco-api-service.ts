@@ -3233,22 +3233,21 @@ export type DecoArtworkItem = {
  * Fetches all unique artwork for a given Deco customer by scanning their orders.
  * Returns deduplicated artwork items from order_lines[].views[].areas[].processes[].
  */
-export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
+export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<{
   items: DecoArtworkItem[];
   orderCount: number;
   error?: string;
-  debug?: Record<string, unknown>;
 }> {
   if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
+  if (decoCustomerIds.length === 0) return { items: [], orderCount: 0 };
 
-  // Fetch orders for this customer. The JSON API doesn't have a customer_id filter field,
-  // so we fetch a large batch of recent orders and filter by customer_id client-side.
+  const customerIdSet = new Set(decoCustomerIds.map(String));
+
+  // Fetch orders and filter by customer_id client-side
   const allOrders: DecoRawOrder[] = [];
   const batchSize = 100;
   let offset = 0;
   const maxOrders = 500;
-  let totalFetched = 0;
-  const sampleCustomerIds: string[] = [];
 
   try {
     while (offset < maxOrders) {
@@ -3258,20 +3257,14 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
       );
       const batch = data.orders ?? [];
       if (batch.length === 0) break;
-      totalFetched += batch.length;
 
-      // Filter to this customer only
       for (const order of batch) {
         const custId = order.customer_id ?? order.billing_details?.user_id;
-        if (sampleCustomerIds.length < 10 && custId) {
-          sampleCustomerIds.push(`${custId}(${order.job_name?.slice(0, 30)})`);
-        }
-        if (String(custId) === decoCustomerId) {
+        if (custId && customerIdSet.has(String(custId))) {
           allOrders.push(order);
         }
       }
       offset += batch.length;
-      // If we have fewer results than batch size, we've reached the end
       if (batch.length < batchSize) break;
     }
   } catch (err) {
@@ -3329,11 +3322,7 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
     }
   }
 
-  return {
-    items,
-    orderCount: allOrders.length,
-    debug: { searchedCustomerId: decoCustomerId, totalFetched, sampleCustomerIds },
-  };
+  return { items, orderCount: allOrders.length };
 }
 
 export async function processDecoWebhook(

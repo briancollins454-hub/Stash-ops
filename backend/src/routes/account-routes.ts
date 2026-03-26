@@ -301,11 +301,35 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
       return { error: "Account not found." };
     }
 
-    if (!account.decoCustomerId) {
+    // Collect all decoCustomerIds: this account + any related Stash Shop / direct Deco accounts
+    const customerIds = new Set<string>();
+    if (account.decoCustomerId) customerIds.add(account.decoCustomerId);
+
+    // Find related accounts by name (e.g. "Stash Shop - X" ↔ "X")
+    const baseName = account.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
+    const relatedAccounts = await prisma.account.findMany({
+      where: {
+        decoCustomerId: { not: null },
+        OR: [
+          { name: { contains: baseName, mode: "insensitive" } },
+          { name: { startsWith: "Stash Shop", mode: "insensitive" } },
+        ],
+      },
+      select: { decoCustomerId: true, name: true },
+    });
+    for (const rel of relatedAccounts) {
+      // Only include if the name meaningfully matches
+      const relBase = rel.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
+      if (relBase.toLowerCase() === baseName.toLowerCase() && rel.decoCustomerId) {
+        customerIds.add(rel.decoCustomerId);
+      }
+    }
+
+    if (customerIds.size === 0) {
       return { items: [], orderCount: 0, note: "Account has no linked Deco customer." };
     }
 
-    const result = await getAccountDecoArtwork(account.decoCustomerId);
+    const result = await getAccountDecoArtwork([...customerIds]);
     return result;
   });
 }
