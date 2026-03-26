@@ -3271,9 +3271,15 @@ export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
             } : null,
           });
         }
+      } else {
+        if (rawSamples.length < 3) {
+          rawSamples.push({ orderId, status: "no_orders_returned", rawKeys: Object.keys(data), total: (data as Record<string, unknown>).total });
+        }
       }
-    } catch {
-      // skip failed lookups
+    } catch (err) {
+      if (rawSamples.length < 3) {
+        rawSamples.push({ orderId, error: String(err) });
+      }
     }
   }
 
