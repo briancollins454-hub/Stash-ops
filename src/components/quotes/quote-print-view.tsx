@@ -341,11 +341,27 @@ function ProductDetailPage({
   // Resolve color name: prefer matched color from product detail, fall back to variantTitle
   const colorName = selectedColor?.name ?? item.variantTitle ?? null;
 
-  // Pick the best product image
-  const mainImage =
-    pd?.images.find((img) => img.color?.toLowerCase() === selectedColor?.name.toLowerCase()) ??
-    pd?.images.find((img) => img.type === "front") ??
-    pd?.images[0];
+  // Group designs by view for rendering garment mockups
+  const designsByView: Record<string, DesignConfig[]> = {};
+  for (const d of designs) {
+    const view = d.placement ? placementView(d.placement) : "Front";
+    if (!designsByView[view]) designsByView[view] = [];
+    designsByView[view].push(d);
+  }
+
+  // Find garment images for each view
+  function findViewImage(view: string) {
+    const viewType = view.toLowerCase() as "front" | "back" | "side";
+    const colorMatch = selectedColor?.name.toLowerCase();
+    return (
+      pd?.images.find((img) => img.type === viewType && colorMatch && img.color?.toLowerCase() === colorMatch) ??
+      pd?.images.find((img) => img.type === viewType) ??
+      null
+    );
+  }
+
+  // Fallback main image for the product info section
+  const mainImage = findViewImage("Front") ?? pd?.images[0] ?? null;
 
   return (
     <div className="quote-page product-page">
@@ -443,15 +459,65 @@ function ProductDetailPage({
         </div>
       </div>
 
-      {/* Graphics Used Section */}
+      {/* Decoration Placement Section — one garment mockup per view */}
       {designs.length > 0 && (
         <div className="graphics-section">
-          <h3>Graphics Used for {item.productTitle}</h3>
+          <h3>Decoration for {item.productTitle}</h3>
+
+          {/* Garment mockups: one per view (Front, Back, etc.) */}
+          <div className="mockup-grid">
+            {Object.entries(designsByView).map(([view, viewDesigns]) => {
+              const viewImage = findViewImage(view);
+              const hasPositions = viewDesigns.some((d) => d.x != null && d.y != null && d.w != null && d.h != null);
+              return (
+                <div key={view} className="mockup-card">
+                  <div className="mockup-label">{view}</div>
+                  <div className="mockup-container">
+                    {viewImage ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={viewImage.url}
+                          alt={`${item.productTitle} ${view}`}
+                          className="mockup-garment"
+                        />
+                        {hasPositions && viewDesigns.map((d, di) => {
+                          if (d.x == null || d.y == null || d.w == null || d.h == null) return null;
+                          const src = d.previewUrl || d.artworkUrl;
+                          if (!src) return null;
+                          return (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={di}
+                              src={src}
+                              alt={d.artworkName || "Design"}
+                              className="mockup-artwork"
+                              style={{
+                                left: `${d.x}%`,
+                                top: `${d.y}%`,
+                                width: `${d.w}%`,
+                                height: `${d.h}%`,
+                                transform: d.rotation ? `rotate(${d.rotation}deg)` : undefined,
+                              }}
+                            />
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <div className="mockup-no-image">{view} View</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Detail table for each design */}
           {designs.map((design, di) => {
             const colors = parseThreadColors(design.threadColors);
             return (
-              <div key={di} className="graphic-row">
-                <div className="graphic-image">
+              <div key={di} className="graphic-detail-row">
+                <div className="graphic-detail-thumb">
                   {(design.previewUrl || design.artworkUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -921,46 +987,73 @@ const printStyles = `
   .graphics-section h3 {
     font-size: 12px;
     font-weight: 700;
-    margin: 0 0 12px;
+    margin: 0 0 16px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
-  .graphic-row {
-    display: grid;
-    grid-template-columns: 220px 1fr;
+  /* Garment mockup grid — side by side front/back */
+  .mockup-grid {
+    display: flex;
     gap: 20px;
-    margin-bottom: 16px;
-    padding: 16px;
-    background: #f9f9f9;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+  .mockup-card {
+    text-align: center;
+  }
+  .mockup-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #999;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .mockup-container {
+    position: relative;
+    width: 260px;
+    height: 320px;
     border: 1px solid #eee;
     border-radius: 4px;
-  }
-
-  /* Garment overlay */
-  .garment-overlay-container {
-    position: relative;
-    width: 200px;
-    height: 240px;
-    border: 1px solid #ddd;
-    border-radius: 3px;
     background: #fff;
     overflow: hidden;
   }
-  .garment-overlay-bg {
+  .mockup-garment {
     width: 100%;
     height: 100%;
     object-fit: contain;
   }
-  .garment-overlay-graphic {
+  .mockup-artwork {
     position: absolute;
     object-fit: contain;
     pointer-events: none;
   }
+  .mockup-no-image {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    font-size: 13px;
+    background: #f5f5f5;
+  }
 
-  .graphic-image img:not(.garment-overlay-bg):not(.garment-overlay-graphic) {
-    max-width: 200px;
-    max-height: 200px;
+  /* Detail rows for each graphic */
+  .graphic-detail-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 4px;
+  }
+  .graphic-detail-thumb img {
+    max-width: 80px;
+    max-height: 80px;
     object-fit: contain;
     border: 1px solid #ddd;
     border-radius: 3px;
