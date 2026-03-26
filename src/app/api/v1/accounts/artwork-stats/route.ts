@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-const BACKEND = process.env.BACKEND_URL || "http://localhost:4000";
+const BACKEND_URL = process.env.BACKEND_API_URL ?? "http://localhost:4000";
 
 export async function GET() {
-  const res = await fetch(`${BACKEND}/v1/accounts/artwork-stats`, {
+  const res = await fetch(`${BACKEND_URL}/api/v1/accounts/artwork-stats`, {
     cache: "no-store",
   });
   const data = await res.json();
