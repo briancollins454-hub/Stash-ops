@@ -1212,6 +1212,8 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
       results.targetOrder = {
         order_id: targetOrder.order_id,
         job_name: targetOrder.job_name,
+        customer_id: targetOrder.customer_id,
+        billing_details: targetOrder.billing_details,
         item_amount: targetOrder.item_amount,
         order_status: targetOrder.order_status,
         source_type: targetOrder.source_type,
@@ -1227,6 +1229,7 @@ export async function inspectDecoOrder(decoOrderId: string): Promise<Record<stri
       orders: (recent.orders ?? []).map((o) => ({
         order_id: o.order_id,
         job_name: o.job_name,
+        customer_id: o.customer_id,
         item_amount: o.item_amount,
         order_lines_count: Array.isArray(o.order_lines) ? o.order_lines.length : 0,
       })),
@@ -3234,6 +3237,7 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
   items: DecoArtworkItem[];
   orderCount: number;
   error?: string;
+  debug?: Record<string, unknown>;
 }> {
   if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
 
@@ -3243,6 +3247,8 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
   const batchSize = 100;
   let offset = 0;
   const maxOrders = 500;
+  let totalFetched = 0;
+  const sampleCustomerIds: string[] = [];
 
   try {
     while (offset < maxOrders) {
@@ -3252,10 +3258,14 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
       );
       const batch = data.orders ?? [];
       if (batch.length === 0) break;
+      totalFetched += batch.length;
 
       // Filter to this customer only
       for (const order of batch) {
         const custId = order.customer_id ?? order.billing_details?.user_id;
+        if (sampleCustomerIds.length < 10 && custId) {
+          sampleCustomerIds.push(`${custId}(${order.job_name?.slice(0, 30)})`);
+        }
         if (String(custId) === decoCustomerId) {
           allOrders.push(order);
         }
@@ -3319,7 +3329,11 @@ export async function getAccountDecoArtwork(decoCustomerId: string): Promise<{
     }
   }
 
-  return { items, orderCount: allOrders.length };
+  return {
+    items,
+    orderCount: allOrders.length,
+    debug: { searchedCustomerId: decoCustomerId, totalFetched, sampleCustomerIds },
+  };
 }
 
 export async function processDecoWebhook(
