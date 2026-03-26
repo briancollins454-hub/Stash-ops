@@ -3233,42 +3233,28 @@ export type DecoArtworkItem = {
  * Fetches all unique artwork for a given Deco customer by scanning their orders.
  * Returns deduplicated artwork items from order_lines[].views[].areas[].processes[].
  */
-export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<{
+export async function getAccountDecoArtwork(decoOrderIds: string[]): Promise<{
   items: DecoArtworkItem[];
   orderCount: number;
   error?: string;
 }> {
   if (!isDecoConfigured()) return { items: [], orderCount: 0, error: "Deco not configured" };
-  if (decoCustomerIds.length === 0) return { items: [], orderCount: 0 };
+  if (decoOrderIds.length === 0) return { items: [], orderCount: 0 };
 
-  const customerIdSet = new Set(decoCustomerIds.map(String));
-
-  // Fetch ALL orders and filter by customer_id client-side
+  // Fetch each order directly by order_id from the Deco API
   const allOrders: DecoRawOrder[] = [];
-  const batchSize = 100;
-  let offset = 0;
 
-  try {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+  for (const orderId of decoOrderIds) {
+    try {
       const data = await decoFetch<{ total?: number; orders?: DecoRawOrder[] }>(
         "/api/json/manage_orders/find",
-        { field: "1", condition: "4", date1: "2018-01-01", limit: String(batchSize), offset: String(offset) },
+        { field: "7", condition: "1", string: orderId, limit: "1" },
       );
-      const batch = data.orders ?? [];
-      if (batch.length === 0) break;
-
-      for (const order of batch) {
-        const custId = order.customer_id ?? order.billing_details?.user_id;
-        if (custId && customerIdSet.has(String(custId))) {
-          allOrders.push(order);
-        }
-      }
-      offset += batch.length;
-      if (batch.length < batchSize) break;
+      const orders = data.orders ?? [];
+      if (orders.length > 0) allOrders.push(orders[0]);
+    } catch {
+      // skip failed lookups
     }
-  } catch (err) {
-    return { items: [], orderCount: 0, error: `Failed to fetch orders: ${err instanceof Error ? err.message : "unknown"}` };
   }
 
   // Extract unique artwork from order lines

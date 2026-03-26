@@ -301,36 +301,43 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
       return { error: "Account not found." };
     }
 
-    // Collect all decoCustomerIds: this account + any related Stash Shop / direct Deco accounts
-    const customerIds = new Set<string>();
-    if (account.decoCustomerId) customerIds.add(account.decoCustomerId);
+    // Find all related account IDs (this account + Stash Shop variants)
+    const accountIds = new Set<string>();
+    accountIds.add(account.id);
 
-    // Find related accounts by name (e.g. "Stash Shop - X" ↔ "X")
     const baseName = account.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
     const relatedAccounts = await prisma.account.findMany({
       where: {
-        decoCustomerId: { not: null },
         OR: [
           { name: { contains: baseName, mode: "insensitive" } },
-          { name: { startsWith: "Stash Shop", mode: "insensitive" } },
         ],
       },
-      select: { decoCustomerId: true, name: true },
+      select: { id: true, name: true },
     });
     for (const rel of relatedAccounts) {
-      // Only include if the name meaningfully matches
       const relBase = rel.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
-      if (relBase.toLowerCase() === baseName.toLowerCase() && rel.decoCustomerId) {
-        customerIds.add(rel.decoCustomerId);
+      if (relBase.toLowerCase() === baseName.toLowerCase()) {
+        accountIds.add(rel.id);
       }
     }
 
-    if (customerIds.size === 0) {
-      return { items: [], orderCount: 0, note: "Account has no linked Deco customer." };
+    // Get all Deco order IDs from jobs linked to these accounts
+    const jobs = await prisma.job.findMany({
+      where: {
+        accountId: { in: [...accountIds] },
+        decoOrderId: { not: null },
+      },
+      select: { decoOrderId: true },
+      distinct: ["decoOrderId"],
+    });
+
+    const decoOrderIds = jobs.map((j) => j.decoOrderId!).filter(Boolean);
+
+    if (decoOrderIds.length === 0) {
+      return { items: [], orderCount: 0, note: "No Deco orders found for this account." };
     }
 
-    const result = await getAccountDecoArtwork([...customerIds]);
+    const result = await getAccountDecoArtwork(decoOrderIds);
     return result;
   });
 }
-
