@@ -22,7 +22,7 @@ import { recordWarehouseReceipt } from "../services/warehouse-receiving-service"
 import { routeJobToProduction } from "../services/production-routing-service";
 import { appendCommunicationEvent } from "../services/communications-service";
 import { markReviewDecision } from "../services/job-configuration-service";
-import { pushJobToDeco } from "../services/deco-api-service";
+import { pushJobToDeco, updateDecoOrderStatus } from "../services/deco-api-service";
 
 // ── Shared helpers ──
 
@@ -686,5 +686,78 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { ok: true, item: updated };
+  });
+
+  // ─────────────── POST /v1/jobs/bulk-cancel ───────────────
+
+  const bulkCancelSchema = z.object({
+    jobIds: z.array(z.string().min(1)).min(1).max(200),
+    actor: z.string().min(1),
+  });
+
+  app.post("/v1/jobs/bulk-cancel", async (request, reply) => {
+    const body = bulkCancelSchema.parse(request.body);
+
+    const results: {
+      id: string;
+      ok: boolean;
+      decoStatus?: string;
+      error?: string;
+    }[] = [];
+
+    for (const rawId of body.jobIds) {
+      const id = await resolveJobId(rawId);
+      if (!id) {
+        results.push({ id: rawId, ok: false, error: "Job not found." });
+        continue;
+      }
+
+      try {
+        // Transition to cancelled (force to bypass any remaining blockers)
+        const transResult = await prisma.$transaction((tx) =>
+          transitionJobLifecycle(tx, id, "cancelled" as typeof mainLifecycleStates[number], body.actor, {
+            force: true,
+          }),
+        );
+
+        if (!transResult.ok) {
+          results.push({ id, ok: false, error: transResult.reasons.join(", ") });
+          continue;
+        }
+
+        // If job was pushed to Deco, cancel it there too
+        let decoStatus: string | undefined;
+        const job = await prisma.job.findUnique({
+          where: { id },
+          select: { decoOrderId: true },
+        });
+
+        if (job?.decoOrderId) {
+          const decoResult = await updateDecoOrderStatus(job.decoOrderId, "cancelled");
+          decoStatus = decoResult.updated ? "cancelled" : `failed: ${decoResult.error}`;
+
+          await prisma.activityLog.create({
+            data: {
+              jobId: id,
+              eventType: "deco.order.cancelled",
+              message: decoResult.updated
+                ? `Deco order ${job.decoOrderId} cancelled`
+                : `Failed to cancel Deco order: ${decoResult.error}`,
+              payload: { decoOrderId: job.decoOrderId, decoResult },
+            },
+          });
+        }
+
+        results.push({ id, ok: true, decoStatus });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        results.push({ id, ok: false, error: message });
+      }
+    }
+
+    const succeeded = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok).length;
+
+    return { ok: failed === 0, succeeded, failed, results };
   });
 }

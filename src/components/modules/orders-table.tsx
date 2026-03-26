@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import { orderTone } from "@/lib/presentation";
 import type { Order } from "@/lib/types";
+import { useBulkCancel } from "@/components/jobs/bulk-cancel-provider";
 
 type OrdersTableProps = {
   orders: Order[];
@@ -12,6 +15,10 @@ export function OrdersTable({
   orders,
   emptyMessage = "No jobs in this section yet.",
 }: OrdersTableProps) {
+  const { enabled, selected, toggle, selectAll } = useBulkCancel();
+  const allIds = orders.map((o) => o.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+
   if (orders.length === 0) {
     return (
       <div className="surface p-6 text-center text-sm" style={{ color: "var(--text-tertiary)" }}>
@@ -22,12 +29,51 @@ export function OrdersTable({
 
   return (
     <div className="space-y-2">
-      {orders.map((order) => (
-        <Link
-          key={order.id}
-          href={`/jobs/${order.id}`}
-          className="card card--accent-left group block px-4 py-3.5 sm:px-5"
+      {enabled && orders.length > 1 && (
+        <button
+          onClick={() => selectAll(allIds)}
+          className="ml-1 text-[11px] font-medium transition-colors hover:brightness-125"
+          style={{ color: "var(--text-tertiary)" }}
         >
+          {allSelected ? "Deselect all" : `Select all ${orders.length}`}
+        </button>
+      )}
+      {orders.map((order) => {
+        const isSelected = selected.has(order.id);
+        const isCancelled = order.status === "Cancelled";
+
+        return (
+          <div key={order.id} className="relative">
+            {enabled && !isCancelled && (
+              <button
+                onClick={() => toggle(order.id)}
+                className="absolute left-0 top-0 z-10 flex h-full w-10 items-center justify-center"
+                aria-label={isSelected ? "Deselect" : "Select"}
+              >
+                <div
+                  className="flex h-4 w-4 items-center justify-center rounded border transition-colors"
+                  style={{
+                    borderColor: isSelected ? "#ef4444" : "var(--border)",
+                    background: isSelected ? "rgba(239,68,68,0.25)" : "transparent",
+                  }}
+                >
+                  {isSelected && (
+                    <svg className="h-3 w-3 text-[#fca5a5]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+              </button>
+            )}
+            <Link
+              href={`/jobs/${order.id}`}
+              className="card card--accent-left group block px-4 py-3.5 sm:px-5"
+              style={{
+                ...(enabled && !isCancelled ? { paddingLeft: "2.5rem" } : {}),
+                ...(isSelected ? { borderColor: "rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.04)" } : {}),
+              }}
+              onClick={enabled && !isCancelled ? (e) => { e.preventDefault(); toggle(order.id); } : undefined}
+            >
           <div className="flex items-center gap-4">
             {/* Job ID + Company */}
             <div className="min-w-0 flex-1">
@@ -90,7 +136,9 @@ export function OrdersTable({
             </svg>
           </div>
         </Link>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

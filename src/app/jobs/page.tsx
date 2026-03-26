@@ -3,6 +3,7 @@ import { SectionCard } from "@/components/section-card";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { OrdersTable } from "@/components/modules/orders-table";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
+import { BulkCancelProvider } from "@/components/jobs/bulk-cancel-provider";
 import { formatCount, shellCopy } from "@/lib/content";
 import type { Order, JobSource } from "@/lib/types";
 import { listOrders } from "@/lib/data-repository";
@@ -197,6 +198,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   return (
     <AppShell title={title}>
+      <BulkCancelProvider>
       {sourceLabel && (
         <div className="flex items-center gap-3 px-1">
           <Link href="/jobs" className="text-sm transition-colors hover:text-white" style={{ color: "var(--text-tertiary)" }}>
@@ -302,6 +304,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
           />
         </CollapsibleSection>
       )}
+      </BulkCancelProvider>
     </AppShell>
   );
 }
