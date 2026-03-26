@@ -7,7 +7,7 @@ import { prisma } from "../lib/prisma";
 import { eventInboxQueue, decoSyncQueue } from "../queue/queues";
 import { backfillShopifyUnfulfilledOrders } from "../services/shopify-service";
 import { registerShopifyWebhooks, fulfillShopifyOrder } from "../services/shopify-admin-service";
-import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus, inspectDecoOrder, probeDecoOrderApi, probeDecoDesigns, scrapeDecoArtwork, scrapeDecoOrderArtwork, probeCustomerDesigns } from "../services/deco-api-service";
+import { syncDecoProducts, syncDecoInventory, syncDecoCustomers, pushJobToDeco, updateDecoOrderStatus, inspectDecoOrder, probeDecoOrderApi, probeDecoDesigns, scrapeDecoArtwork, scrapeDecoOrderArtwork, probeCustomerDesigns, probeDesignApi } from "../services/deco-api-service";
 import { seedAccountsFromJobs, rematchUnmatchedJobs, seedAccountsFromDecoCustomers, backfillDecoJobSourceGroups } from "../services/account-seed-service";
 import { processDecoOrderEvent } from "../services/deco-event-processor";
 
@@ -196,12 +196,7 @@ export async function registerSyncRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
-  // Quick focused test: try include params on manage_orders/find and scrape JS bundles
   app.get("/sync/deco/probe-design-api", async () => {
-    const { syncDecoProducts: _, ...rest } = {} as Record<string, unknown>;
-    void rest;
-    // Import decoFetch and getDecoWebSession from the service module
-    const { probeDesignApi } = await import("../services/deco-api-service");
     return probeDesignApi();
   });
 
