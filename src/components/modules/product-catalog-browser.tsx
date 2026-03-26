@@ -394,63 +394,149 @@ export function ProductCatalogBrowser() {
 }
 
 function ProductDetailPanel({ product }: { product: Record<string, unknown> }) {
+  const [selectedColourIdx, setSelectedColourIdx] = useState(0);
+  const [activeView, setActiveView] = useState<"front" | "back" | "side" | "model" | "detail">("front");
+
   const colours = (product.colours ?? []) as Array<{
     colourCode: string;
     colourName: string;
     imageUrl: string | null;
+    backImageUrl: string | null;
+    sideImageUrl: string | null;
+    modelImageUrl: string | null;
+    detailImageUrl: string | null;
     rgb: string | null;
     singlePrice: string | null;
     skuStatus: string | null;
   }>;
 
+  const liveColours = colours.filter((c) => c.skuStatus !== "Discontinued");
+  const selectedColour = liveColours[selectedColourIdx] ?? colours[0];
+
+  const validUrl = (url: string | null | undefined) => url && url.startsWith("http") ? url : null;
+
+  const views = selectedColour
+    ? [
+        { key: "front" as const, label: "Front", url: validUrl(selectedColour.imageUrl) },
+        { key: "back" as const, label: "Back", url: validUrl(selectedColour.backImageUrl) },
+        { key: "side" as const, label: "Side", url: validUrl(selectedColour.sideImageUrl) },
+        { key: "model" as const, label: "Model", url: validUrl(selectedColour.modelImageUrl) },
+        { key: "detail" as const, label: "Detail", url: validUrl(selectedColour.detailImageUrl) },
+      ].filter((v) => v.url)
+    : [];
+
+  // If current view isn't available for this colour, default to first available
+  const currentView = views.find((v) => v.key === activeView) ?? views[0];
+
   return (
     <div
-      className="rounded-b-xl -mt-1 p-4 space-y-3"
+      className="rounded-b-xl -mt-1 p-4 space-y-4"
       style={{ background: "rgba(255,255,255,0.02)", borderLeft: "1px solid rgba(255,255,255,0.06)", borderRight: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
     >
-      {/* Product info */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
-        {product.gender ? <InfoCell label="Gender" value={product.gender as string} /> : null}
-        {product.fabric ? <InfoCell label="Fabric" value={product.fabric as string} /> : null}
-        {product.weight ? <InfoCell label="Weight" value={product.weight as string} /> : null}
-        {product.sizeRange ? <InfoCell label="Sizes" value={product.sizeRange as string} /> : null}
+      <div className="flex gap-4 flex-col sm:flex-row">
+        {/* Image viewer */}
+        <div className="shrink-0 space-y-2">
+          {/* Main image */}
+          <div
+            className="w-full sm:w-64 aspect-square rounded-xl overflow-hidden flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            {currentView?.url ? (
+              <img
+                src={`/api/image-proxy?url=${encodeURIComponent(currentView.url)}`}
+                alt={`${product.name} - ${selectedColour?.colourName} - ${currentView.label}`}
+                className="h-full w-full object-contain p-2"
+              />
+            ) : (
+              <span className="text-4xl">👕</span>
+            )}
+          </div>
+
+          {/* View angle tabs */}
+          {views.length > 1 && (
+            <div className="flex gap-1 justify-center">
+              {views.map((v) => (
+                <button
+                  key={v.key}
+                  onClick={() => setActiveView(v.key)}
+                  className="rounded-md px-2 py-1 text-[10px] font-medium transition-all"
+                  style={{
+                    background: currentView?.key === v.key ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
+                    color: currentView?.key === v.key ? "#a5b4fc" : "var(--text-tertiary)",
+                    border: `1px solid ${currentView?.key === v.key ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.06)"}`,
+                  }}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Product info */}
+        <div className="flex-1 space-y-3 min-w-0">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              {product.name as string}
+            </p>
+            <p className="text-[11px] font-mono mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+              {product.styleCode as string} · {product.brand as string}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            {product.productType ? <InfoCell label="Type" value={product.productType as string} /> : null}
+            {product.gender ? <InfoCell label="Gender" value={product.gender as string} /> : null}
+            {product.fabric ? <InfoCell label="Fabric" value={product.fabric as string} /> : null}
+            {product.weight ? <InfoCell label="Weight" value={`${product.weight as string} GSM`} /> : null}
+            {product.sizeRange ? <InfoCell label="Sizes" value={product.sizeRange as string} /> : null}
+            {product.ageGroup ? <InfoCell label="Age Group" value={product.ageGroup as string} /> : null}
+          </div>
+
+          {selectedColour?.singlePrice && (
+            <p className="text-sm font-semibold" style={{ color: "#6ee7b7" }}>
+              £{selectedColour.singlePrice}
+              <span className="text-[10px] font-normal ml-1" style={{ color: "var(--text-tertiary)" }}>single</span>
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Colours */}
-      {colours.length > 0 && (
+      {/* Colour swatches */}
+      {liveColours.length > 0 && (
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
-            Colours ({colours.length})
+            {selectedColour?.colourName ?? "Colours"} — {liveColours.length} colour{liveColours.length !== 1 ? "s" : ""} available
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {colours.map((c) => {
+            {liveColours.map((c, idx) => {
               const rgbParts = c.rgb?.split(" ").map(Number);
               const bgColor = rgbParts?.length === 3 ? `rgb(${rgbParts[0]},${rgbParts[1]},${rgbParts[2]})` : "rgba(255,255,255,0.1)";
               const isLight = rgbParts?.length === 3 && (rgbParts[0] * 299 + rgbParts[1] * 587 + rgbParts[2] * 114) / 1000 > 150;
-              const discontinued = c.skuStatus === "Discontinued";
+              const isSelected = idx === selectedColourIdx;
 
               return (
-                <div
+                <button
                   key={c.colourCode}
-                  className="flex items-center gap-1.5 rounded-full px-2 py-1"
+                  onClick={() => { setSelectedColourIdx(idx); setActiveView("front"); }}
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 transition-all"
                   style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    opacity: discontinued ? 0.4 : 1,
+                    background: isSelected ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${isSelected ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)"}`,
                   }}
-                  title={`${c.colourName} (${c.colourCode})${c.singlePrice ? ` — £${c.singlePrice}` : ""}${discontinued ? " — Discontinued" : ""}`}
+                  title={`${c.colourName} (${c.colourCode})${c.singlePrice ? ` — £${c.singlePrice}` : ""}`}
                 >
                   <span
-                    className="h-3 w-3 rounded-full shrink-0"
+                    className="h-3.5 w-3.5 rounded-full shrink-0"
                     style={{
                       background: bgColor,
                       border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid rgba(255,255,255,0.15)",
                     }}
                   />
-                  <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                  <span className="text-[10px]" style={{ color: isSelected ? "#a5b4fc" : "var(--text-secondary)" }}>
                     {c.colourName}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>
