@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { CollapsibleSection } from "@/components/collapsible-section";
-import { OrdersTable } from "@/components/modules/orders-table";
+import { LaneSection } from "@/components/modules/orders-table";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { BulkCancelProvider } from "@/components/jobs/bulk-cancel-provider";
 import { formatCount, shellCopy } from "@/lib/content";
@@ -85,40 +85,6 @@ function sortIntoLanes(orders: Order[]) {
   }
 
   return { newReview, inProgress, readyToShip, shipped, onHold, cancelled };
-}
-
-function LaneSection({
-  laneKey,
-  groups,
-  emptyMessage,
-}: {
-  laneKey: string;
-  groups: ReturnType<typeof groupOrdersBySource>;
-  emptyMessage: string;
-}) {
-  if (groups.length === 0) {
-    return <OrdersTable orders={[]} emptyMessage={emptyMessage} />;
-  }
-
-  return (
-    <div className="space-y-4">
-      {groups.map((group) => (
-        <div key={`${laneKey}-${group.key}`} className="space-y-2">
-          <div className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-            <div className="min-w-0">
-              <p className="eyebrow">Account/source group</p>
-              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{group.label}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="pill pill--ghost">{group.type}</span>
-              <span className="pill pill--ghost">{formatCount(group.orders.length, "job")}</span>
-            </div>
-          </div>
-          <OrdersTable orders={group.orders} />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function SourceTabs({
