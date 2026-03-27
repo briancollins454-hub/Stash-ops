@@ -119,6 +119,81 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // ── Static POST routes BEFORE parameterized :batchId routes ──
+
+  // ─────────────── POST /v1/batches/batch-job ───────────────
+
+  app.post("/v1/batches/batch-job", async (request) => {
+    const { jobId } = batchJobBodySchema.parse(request.body);
+    const result = await batchJobItems(jobId);
+
+    logger.info(
+      { jobId, created: result.batchesCreated, updated: result.batchesUpdated, items: result.itemsBatched },
+      "Job batched"
+    );
+
+    return result;
+  });
+
+  // ─────────────── POST /v1/batches/rebatch-account ───────────────
+
+  app.post("/v1/batches/rebatch-account", async (request) => {
+    const { accountId } = rebatchBodySchema.parse(request.body);
+    const result = await rebatchAccount(accountId);
+
+    logger.info(
+      { accountId, jobsProcessed: result.jobsProcessed },
+      "Account rebatched"
+    );
+
+    return result;
+  });
+
+  // ─────────────── POST /v1/batches/batch-all ───────────────
+
+  app.post("/v1/batches/batch-all", async () => {
+    const jobs = await prisma.job.findMany({
+      where: {
+        accountId: { not: null },
+        items: {
+          some: {
+            batchSourceLines: { none: {} },
+          },
+        },
+      },
+      select: { id: true },
+      take: 500,
+    });
+
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalItems = 0;
+    const errors: string[] = [];
+
+    for (const job of jobs) {
+      const r = await batchJobItems(job.id);
+      totalCreated += r.batchesCreated;
+      totalUpdated += r.batchesUpdated;
+      totalItems += r.itemsBatched;
+      errors.push(...r.errors);
+    }
+
+    logger.info(
+      { jobsProcessed: jobs.length, totalCreated, totalUpdated, totalItems },
+      "Batch-all completed"
+    );
+
+    return {
+      jobsProcessed: jobs.length,
+      batchesCreated: totalCreated,
+      batchesUpdated: totalUpdated,
+      itemsBatched: totalItems,
+      errors: errors.slice(0, 20),
+    };
+  });
+
+  // ── Parameterized :batchId routes ──
+
   // ─────────────── GET /v1/batches/:batchId ───────────────
 
   app.get("/v1/batches/:batchId", async (request, reply) => {
@@ -134,7 +209,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ─────────────── PATCH /v1/batches/:batchId ───────────────
-  // Update batch properties (decoration profile, method, notes)
 
   app.patch("/v1/batches/:batchId", async (request, reply) => {
     const { batchId } = batchIdParamsSchema.parse(request.params);
@@ -203,7 +277,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ─────────────── POST /v1/batches/:batchId/snapshot ───────────────
-  // Save current batch config as a ConfigSnapshot for historical learning
 
   app.post("/v1/batches/:batchId/snapshot", async (request, reply) => {
     const { batchId } = batchIdParamsSchema.parse(request.params);
@@ -234,7 +307,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Batch not found" };
     }
 
-    // Create personalisation items
     const created = await prisma.personalisationItem.createMany({
       data: items.map((item) => ({
         batchId,
@@ -247,7 +319,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
       })),
     });
 
-    // Update batch personalisation flag
     await prisma.productionBatch.update({
       where: { id: batchId },
       data: { hasPersonalisation: true },
@@ -257,7 +328,6 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ─────────────── DELETE /v1/batches/:batchId/personalisation ───────────────
-  // Clear all personalisation items for a batch
 
   app.delete("/v1/batches/:batchId/personalisation", async (request, reply) => {
     const { batchId } = batchIdParamsSchema.parse(request.params);
@@ -279,79 +349,5 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { success: true };
-  });
-
-  // ─────────────── POST /v1/batches/batch-job ───────────────
-  // Batch a single job's items into production batches
-
-  app.post("/v1/batches/batch-job", async (request) => {
-    const { jobId } = batchJobBodySchema.parse(request.body);
-    const result = await batchJobItems(jobId);
-
-    logger.info(
-      { jobId, created: result.batchesCreated, updated: result.batchesUpdated, items: result.itemsBatched },
-      "Job batched"
-    );
-
-    return result;
-  });
-
-  // ─────────────── POST /v1/batches/rebatch-account ───────────────
-  // Rebatch all pending jobs for an account
-
-  app.post("/v1/batches/rebatch-account", async (request) => {
-    const { accountId } = rebatchBodySchema.parse(request.body);
-    const result = await rebatchAccount(accountId);
-
-    logger.info(
-      { accountId, jobsProcessed: result.jobsProcessed },
-      "Account rebatched"
-    );
-
-    return result;
-  });
-
-  // ─────────────── POST /v1/batches/batch-all ───────────────
-  // Batch all account-matched jobs that have unbatched items
-
-  app.post("/v1/batches/batch-all", async () => {
-    const jobs = await prisma.job.findMany({
-      where: {
-        accountId: { not: null },
-        items: {
-          some: {
-            batchSourceLines: { none: {} },
-          },
-        },
-      },
-      select: { id: true },
-      take: 500,
-    });
-
-    let totalCreated = 0;
-    let totalUpdated = 0;
-    let totalItems = 0;
-    const errors: string[] = [];
-
-    for (const job of jobs) {
-      const r = await batchJobItems(job.id);
-      totalCreated += r.batchesCreated;
-      totalUpdated += r.batchesUpdated;
-      totalItems += r.itemsBatched;
-      errors.push(...r.errors);
-    }
-
-    logger.info(
-      { jobsProcessed: jobs.length, totalCreated, totalUpdated, totalItems },
-      "Batch-all completed"
-    );
-
-    return {
-      jobsProcessed: jobs.length,
-      batchesCreated: totalCreated,
-      batchesUpdated: totalUpdated,
-      itemsBatched: totalItems,
-      errors: errors.slice(0, 20),
-    };
   });
 }
