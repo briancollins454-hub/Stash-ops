@@ -3612,6 +3612,11 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
   return { items };
 }
 
+/** Public accessor for the cached Deco web session cookies. */
+export async function getDecoSessionCookies(): Promise<string | null> {
+  return getDecoWebSession();
+}
+
 /**
  * Fetch a full-resolution design image from Deco by design ID.
  * Tries the original.png path first, falls back to large thumbnail.

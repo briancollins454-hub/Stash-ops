@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { normalizeMatchToken } from "../services/shopify-order-context";
-import { getAccountDecoArtwork, fetchDecoDesignImage } from "../services/deco-api-service";
+import { getAccountDecoArtwork, fetchDecoDesignImage, getDecoSessionCookies } from "../services/deco-api-service";
 
 const accountTypeSchema = z.enum(["SCHOOL", "CLUB", "CLIENT", "OTHER"]);
 const assetTypeSchema = z.enum(["LOGO", "TEMPLATE", "DESIGN_REFERENCE", "PROOF"]);
@@ -602,60 +602,140 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
   // ── Upgrade artwork quality: re-fetch full-res images from Deco for assets that have decoDesignId ──
   app.post("/v1/accounts/upgrade-artwork-quality", async (request, reply) => {
-    // Find all assets that were imported from Deco (have decoDesignId)
-    const assets = await prisma.accountAsset.findMany({
+    // Step 1: Find all accounts that have Deco-imported assets
+    const assetsWithAccounts = await prisma.accountAsset.findMany({
       where: {
         decoDesignId: { not: null },
         active: true,
       },
-      select: { id: true, decoDesignId: true, label: true, fileUrl: true },
+      select: {
+        id: true,
+        decoDesignId: true,
+        label: true,
+        fileUrl: true,
+        accountId: true,
+        account: { select: { decoCustomerId: true, name: true } },
+      },
     });
 
-    if (assets.length === 0) {
+    if (assetsWithAccounts.length === 0) {
       return { upgraded: 0, failed: 0, skipped: 0, total: 0, note: "No Deco-imported artwork found." };
     }
 
-    let upgraded = 0;
-    let failed = 0;
-    let skipped = 0;
-    const errors: string[] = [];
+    // Step 2: Group by account and collect decoCustomerIds
+    const accountMap = new Map<string, { decoCustomerIds: Set<string>; name: string }>();
+    for (const a of assetsWithAccounts) {
+      if (!accountMap.has(a.accountId)) {
+        const ids = new Set<string>();
+        if (a.account.decoCustomerId) ids.add(a.account.decoCustomerId);
+        accountMap.set(a.accountId, { decoCustomerIds: ids, name: a.account.name });
+      }
+    }
+
+    // Also collect related accounts (Stash Shop variants)
+    for (const [accountId, info] of accountMap) {
+      const baseName = info.name.replace(/^Stash Shop\s*-\s*/i, "").trim();
+      const related = await prisma.account.findMany({
+        where: { OR: [{ name: { contains: baseName, mode: "insensitive" } }] },
+        select: { decoCustomerId: true },
+      });
+      for (const rel of related) {
+        if (rel.decoCustomerId) info.decoCustomerIds.add(rel.decoCustomerId);
+      }
+    }
+
+    // Step 3: Fetch design lists from Deco for each unique set of customer IDs
+    // Build a decoDesignId → fullUrl lookup map
+    const allCustomerIds = new Set<string>();
+    for (const info of accountMap.values()) {
+      for (const id of info.decoCustomerIds) allCustomerIds.add(id);
+    }
+
+    logger.info(`[UpgradeArtwork] Fetching design lists from Deco for ${allCustomerIds.size} customer IDs...`);
+    const result = await getAccountDecoArtwork([...allCustomerIds]);
+    logger.info(`[UpgradeArtwork] Found ${result.items.length} designs from Deco`);
+
+    // Build lookup: decoDesignId → fullUrl
+    const designUrlMap = new Map<string, string>();
+    for (const item of result.items) {
+      if (item.fullUrl) {
+        designUrlMap.set(item.id, item.fullUrl);
+      }
+    }
 
     reply.raw.writeHead(200, {
       "Content-Type": "application/x-ndjson",
       "Transfer-Encoding": "chunked",
     });
 
-    // Process in batches of 5 (slower to avoid overloading Deco)
+    let upgraded = 0;
+    let failed = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    // Step 4: For each asset, download the full-res image and store it
     const batchSize = 5;
-    for (let i = 0; i < assets.length; i += batchSize) {
-      const batch = assets.slice(i, i + batchSize);
+    for (let i = 0; i < assetsWithAccounts.length; i += batchSize) {
+      const batch = assetsWithAccounts.slice(i, i + batchSize);
 
       const results = await Promise.allSettled(
         batch.map(async (asset) => {
+          const fullUrl = designUrlMap.get(asset.decoDesignId!);
+          if (!fullUrl) {
+            skipped++;
+            return false;
+          }
+
           try {
-            const fullResData = await fetchDecoDesignImage(asset.decoDesignId!);
-            if (!fullResData) {
-              // Couldn't fetch — skip but don't count as failure
-              skipped++;
-              return false;
+            // Fetch the full-res image using web session cookies
+            const cookies = await getDecoSessionCookies();
+
+            const res = await fetch(fullUrl, {
+              headers: cookies ? { Cookie: cookies } : {},
+              signal: AbortSignal.timeout(20_000),
+            });
+            if (!res.ok) {
+              // Try without cookies (some assets are public)
+              const res2 = await fetch(fullUrl, { signal: AbortSignal.timeout(20_000) });
+              if (!res2.ok) {
+                skipped++;
+                return false;
+              }
+              const contentType = res2.headers.get("content-type") || "image/png";
+              const buffer = await res2.arrayBuffer();
+              const dataUrl = `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+
+              if (dataUrl.length <= (asset.fileUrl?.length ?? 0)) {
+                skipped++;
+                return false;
+              }
+
+              await prisma.accountAsset.update({
+                where: { id: asset.id },
+                data: { fileUrl: dataUrl },
+              });
+              return true;
             }
 
-            // Check if we actually got a bigger image than what's stored
-            const existingSize = asset.fileUrl?.length ?? 0;
-            if (fullResData.length <= existingSize) {
+            const contentType = res.headers.get("content-type") || "image/png";
+            const buffer = await res.arrayBuffer();
+            const dataUrl = `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+
+            // Only upgrade if the new image is actually larger
+            if (dataUrl.length <= (asset.fileUrl?.length ?? 0)) {
               skipped++;
               return false;
             }
 
             await prisma.accountAsset.update({
               where: { id: asset.id },
-              data: { fileUrl: fullResData },
+              data: { fileUrl: dataUrl },
             });
-
             return true;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             errors.push(`${asset.label} (${asset.id}): ${msg}`);
+            failed++;
             return false;
           }
         }),
@@ -666,24 +746,21 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
         else if (r.status === "rejected") failed++;
       }
 
-      // Stream progress
-      const progress = { processed: Math.min(i + batchSize, assets.length), total: assets.length, upgraded, failed, skipped };
+      const progress = { processed: Math.min(i + batchSize, assetsWithAccounts.length), total: assetsWithAccounts.length, upgraded, failed, skipped };
       reply.raw.write(JSON.stringify(progress) + "\n");
 
-      // Small delay between batches
-      if (i + batchSize < assets.length) {
-        await new Promise((r) => setTimeout(r, 500));
+      if (i + batchSize < assetsWithAccounts.length) {
+        await new Promise((r) => setTimeout(r, 300));
       }
 
-      logger.info(`[UpgradeArtwork] Progress: ${Math.min(i + batchSize, assets.length)}/${assets.length} (${upgraded} upgraded, ${skipped} skipped, ${failed} failed)`);
+      if ((i + batchSize) % 50 === 0 || i + batchSize >= assetsWithAccounts.length) {
+        logger.info(`[UpgradeArtwork] Progress: ${Math.min(i + batchSize, assetsWithAccounts.length)}/${assetsWithAccounts.length} (${upgraded} upgraded, ${skipped} skipped, ${failed} failed)`);
+      }
     }
 
     const finalResult = {
-      upgraded,
-      failed,
-      skipped,
-      total: assets.length,
-      done: true,
+      upgraded, failed, skipped, total: assetsWithAccounts.length, done: true,
+      designsFoundInDeco: designUrlMap.size,
       errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
     };
     reply.raw.write(JSON.stringify(finalResult) + "\n");
