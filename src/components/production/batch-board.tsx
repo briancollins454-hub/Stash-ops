@@ -56,6 +56,13 @@ export function BatchBoard({ batches, stats }: Props) {
   const [batchResult, setBatchResult] = useState<string | null>(null);
 
   async function handleBatchAll() {
+    // Guard: confirm before re-batching if batches already exist
+    if (batches.length > 0) {
+      const ok = window.confirm(
+        `There are already ${batches.length} batches. Are you sure you want to run batching again? This will only add new unbatched items — it won't create duplicates.`
+      );
+      if (!ok) return;
+    }
     setBatching(true);
     setBatchResult(null);
     try {

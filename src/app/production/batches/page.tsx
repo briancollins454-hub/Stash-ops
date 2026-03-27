@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { SectionCard } from "@/components/section-card";
 import { formatCount } from "@/lib/content";
 import {
@@ -17,6 +18,7 @@ export default async function ProductionBatchesPage() {
 
   return (
     <AppShell title="Production Batches">
+      <AutoRefresh intervalMs={60_000} />
       <SectionCard
         kicker="Batching"
         title="Production Batches"
