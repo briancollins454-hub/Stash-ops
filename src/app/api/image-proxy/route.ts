@@ -19,6 +19,7 @@ const ALLOWED_HOSTS = new Set([
   "images.unsplash.com",
   "api.uneekclothing.com",
   "www.uneekclothing.com",
+  "images.uneekclothing.com",
   "canterbury.com",
   "www.canterbury.com",
   "cdn.shopify.com",
