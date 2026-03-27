@@ -4,6 +4,7 @@ import { registerBatchRoutes } from "./batch-routes";
 import { registerCatalogRoutes } from "./catalog-routes";
 import { registerConversionRoutes } from "./conversion-routes";
 import { registerDecorationProfileRoutes } from "./decoration-profile-routes";
+import { registerEmbroideryRoutes } from "./embroidery-routes";
 import { registerDecoWebhookRoutes } from "./deco-webhook-routes";
 import { registerHealthRoutes } from "./health-routes";
 import { registerJobRoutes } from "./job-routes";
@@ -21,6 +22,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await registerCatalogRoutes(app);
   await registerConversionRoutes(app);
   await registerDecorationProfileRoutes(app);
+  await registerEmbroideryRoutes(app);
   await registerStorefrontRoutes(app);
   await registerProductAssignmentRoutes(app);
   await registerOrderRoutes(app);

@@ -600,6 +600,62 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     };
   });
 
+  // ── Debug: test artwork URL resolution for a single design ──
+  app.get("/v1/accounts/debug-artwork-url", async (request) => {
+    const { designId } = request.query as { designId?: string };
+    if (!designId) return { error: "Pass ?designId=123" };
+
+    // Find the asset
+    const asset = await prisma.accountAsset.findFirst({
+      where: { decoDesignId: designId },
+      select: { id: true, label: true, fileUrl: true, account: { select: { decoCustomerId: true } } },
+    });
+
+    if (!asset) return { error: "No asset found with that decoDesignId" };
+
+    const currentSize = asset.fileUrl?.length ?? 0;
+
+    // Fetch design list to get URLs
+    const customerIds = asset.account.decoCustomerId ? [asset.account.decoCustomerId] : [];
+    const result = await getAccountDecoArtwork(customerIds);
+    const match = result.items.find((i) => i.id === designId);
+
+    if (!match) return { error: "Design not found in Deco", label: asset.label, currentSize };
+
+    // Try to fetch both thumb and full URLs
+    const cookies = await getDecoSessionCookies();
+    const headers = cookies ? { Cookie: cookies } : {};
+
+    const thumbSize = await fetch(match.thumbnailUrl, { headers, signal: AbortSignal.timeout(10_000) })
+      .then((r) => r.ok ? r.arrayBuffer().then((b) => b.byteLength) : -1)
+      .catch(() => -1);
+
+    const fullSize = await fetch(match.fullUrl, { headers, signal: AbortSignal.timeout(10_000) })
+      .then((r) => r.ok ? r.arrayBuffer().then((b) => b.byteLength) : -1)
+      .catch(() => -1);
+
+    // Try different URL variations
+    const basePath = match.thumbnailUrl.replace(/\/thumb\d+\.\w+(\?.*)?$/, "");
+    const variations: Record<string, number> = {};
+    for (const suffix of ["/original.png", "/thumb500.png", "/thumb300.png", "/thumb200.png", "/full.png", "/large.png"]) {
+      const url = basePath + suffix;
+      const size = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })
+        .then((r) => r.ok ? r.arrayBuffer().then((b) => b.byteLength) : -1)
+        .catch(() => -1);
+      variations[suffix] = size;
+    }
+
+    return {
+      label: asset.label,
+      currentStoredSize: currentSize,
+      thumbnailUrl: match.thumbnailUrl,
+      fullUrl: match.fullUrl,
+      thumbDownloadBytes: thumbSize,
+      fullDownloadBytes: fullSize,
+      urlVariations: variations,
+    };
+  });
+
   // ── Upgrade artwork quality: re-fetch full-res images from Deco for assets that have decoDesignId ──
   app.post("/v1/accounts/upgrade-artwork-quality", async (request, reply) => {
     // Step 1: Find all accounts that have Deco-imported assets

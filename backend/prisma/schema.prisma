@@ -990,3 +990,34 @@ model CatalogColour {
   @@index([styleCode])
   @@index([colourName])
 }
+
+// ── Embroidery Design models ──
+
+model EmbroideryDesign {
+  id             String   @id @default(cuid())
+  accountId      String?
+  name           String
+  description    String?
+  artworkUrl     String?  // source artwork (PNG/SVG/PDF)
+  stitchFileUrl  String?  // generated DST/PES file URL
+  stitchFormat   String?  // "dst", "pes", etc.
+  widthMm        Float
+  heightMm       Float
+  stitchCount    Int      @default(0)
+  colourCount    Int      @default(1)
+  stitchType     String   @default("tatami") // satin, tatami, fill, run
+  density        Float    @default(4.5)
+  underlay       String   @default("auto")
+  fillPercentage Int      @default(70)
+  threadColours  Json?    // array of {code, name, hex, brand}
+  estimatedCostPence Int? // per garment cost in pence
+  estimatedTimeMs    Int? // per garment production time
+  metadata       Json?    // additional settings
+  status         String   @default("draft") // draft, approved, archived
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([status])
+  @@index([name])
+}

@@ -51,7 +51,7 @@ export interface DecoratorState {
 
   // UI state
   activeTool: "select" | "text" | "pan";
-  rightPanel: "properties" | "method" | "artwork" | "text" | "notes";
+  rightPanel: "properties" | "method" | "artwork" | "text" | "notes" | "embroidery";
   zoom: number;
   showZones: boolean;
   showGrid: boolean;
@@ -65,7 +65,7 @@ export interface DecoratorState {
   setActiveZone: (key: string) => void;
   setSelectedColor: (id: number) => void;
   setActiveTool: (tool: "select" | "text" | "pan") => void;
-  setRightPanel: (panel: "properties" | "method" | "artwork" | "text" | "notes") => void;
+  setRightPanel: (panel: "properties" | "method" | "artwork" | "text" | "notes" | "embroidery") => void;
   setZoom: (z: number) => void;
   toggleZones: () => void;
   toggleGrid: () => void;

@@ -16,6 +16,7 @@ import {
   type DesignObject,
   type UploadedFile,
 } from "./types";
+import { EmbroideryPanel } from "./embroidery-panel";
 
 /* ═══════════════════════════════════════════════════════════
    Properties Panel — right sidebar with tabs
@@ -114,6 +115,7 @@ export function PropertiesPanel({ accountId }: { accountId?: string }) {
   const tabs: Array<{ key: typeof rightPanel; label: string }> = [
     { key: "properties", label: "Properties" },
     { key: "method", label: "Method" },
+    { key: "embroidery", label: "🧵 Embroidery" },
     { key: "artwork", label: "Artwork" },
     { key: "text", label: "Text" },
     { key: "notes", label: "Notes" },
@@ -162,6 +164,17 @@ export function PropertiesPanel({ accountId }: { accountId?: string }) {
             zoneKey={activeZoneKey}
             config={config}
             onSetConfig={setZoneConfig}
+          />
+        )}
+        {rightPanel === "embroidery" && activeZone && (
+          <EmbroideryPanel
+            zoneKey={activeZoneKey}
+            widthMm={activeZone.actualWidthMm ?? 100}
+            heightMm={activeZone.actualHeightMm ?? 100}
+            artworkUrl={objects.find((o) => o.zoneKey === activeZoneKey && o.type === "image")?.imageUrl}
+            colourCount={config?.colorCount ?? 1}
+            quantity={1}
+            onStitchCountChange={(count) => setZoneConfig(activeZoneKey, { stitchCount: count })}
           />
         )}
         {rightPanel === "artwork" && (
