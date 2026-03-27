@@ -154,6 +154,7 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
   app.post("/v1/batches/batch-all", async () => {
     const jobs = await prisma.job.findMany({
       where: {
+        source: "SHOPIFY",
         accountId: { not: null },
         items: {
           some: {
@@ -189,6 +190,32 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
       batchesUpdated: totalUpdated,
       itemsBatched: totalItems,
       errors: errors.slice(0, 20),
+    };
+  });
+
+  // ─────────────── POST /v1/batches/reset-all ───────────────
+
+  app.post("/v1/batches/reset-all", async () => {
+    // Delete in correct order to respect FK constraints
+    const sourceLines = await prisma.batchSourceLine.deleteMany({});
+    const personalisations = await prisma.personalisationItem.deleteMany({});
+    const snapshots = await prisma.configSnapshot.deleteMany({});
+    const items = await prisma.batchItem.deleteMany({});
+    const batches = await prisma.productionBatch.deleteMany({});
+
+    logger.info(
+      { batches: batches.count, items: items.count, sourceLines: sourceLines.count },
+      "All batches purged"
+    );
+
+    return {
+      deleted: {
+        batches: batches.count,
+        items: items.count,
+        sourceLines: sourceLines.count,
+        personalisations: personalisations.count,
+        snapshots: snapshots.count,
+      },
     };
   });
 

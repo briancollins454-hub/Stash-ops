@@ -395,3 +395,43 @@ export interface ProductionBatchStats {
   byStatus: Record<string, number>;
   byConfidence: Record<string, number>;
 }
+
+// ── Production Batch detail ──
+
+export interface BatchSourceLineDetail {
+  id: string;
+  quantity: number;
+  personalisationText: string | null;
+  jobItem: {
+    id: string;
+    sku: string | null;
+    productTitle: string | null;
+    variantTitle: string | null;
+    quantity: number;
+  } | null;
+  job: {
+    id: string;
+    internalJobId: string | null;
+    shopifyOrderName: string | null;
+    customerName: string | null;
+  } | null;
+}
+
+export interface BatchItemDetail {
+  id: string;
+  size: string;
+  quantity: number;
+  sourceLines: BatchSourceLineDetail[];
+}
+
+export interface ProductionBatchDetail extends ProductionBatch {
+  items: BatchItemDetail[];
+  notes: string | null;
+  decorationProfileId: string | null;
+  decorationProfile: {
+    id: string;
+    name: string;
+    decorationMethod: string | null;
+    artworkAsset: { id: string; assetUrl: string; name: string | null } | null;
+  } | null;
+}

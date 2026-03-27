@@ -229,11 +229,13 @@ function BatchCard({ batch }: { batch: ProductionBatch }) {
   const methodStyle = METHOD_STYLES[method] ?? { bg: "var(--bg-base, #0f172a)", fg: "var(--text-secondary, #94a3b8)" };
 
   return (
-    <div
-      className="rounded-lg border p-4 transition-colors hover:border-blue-500"
+    <a
+      href={`/production/batches/${batch.id}`}
+      className="block rounded-lg border p-4 transition-colors hover:border-blue-500 cursor-pointer"
       style={{
         background: "var(--bg-raised, #1e293b)",
         borderColor: "var(--border, #334155)",
+        textDecoration: "none",
       }}
     >
       {/* Header */}
@@ -314,7 +316,7 @@ function BatchCard({ batch }: { batch: ProductionBatch }) {
           {batch.status}
         </span>
       </div>
-    </div>
+    </a>
   );
 }
 

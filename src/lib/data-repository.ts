@@ -14,6 +14,7 @@ import type {
   Order,
   OutstandingAccount,
   ProductionBatch,
+  ProductionBatchDetail,
   ProductionBatchStats,
   ProductionJob,
   StockPurchaseTask,
@@ -444,5 +445,73 @@ export async function getProductionBatchStats(): Promise<ProductionBatchStats> {
   } catch (error) {
     console.error("Failed to load batch stats.", error);
     return { total: 0, byStatus: {}, byConfidence: {} };
+  }
+}
+
+export async function getProductionBatchDetail(
+  batchId: string
+): Promise<ProductionBatchDetail | null> {
+  if (!isBackendApiConfigured()) return null;
+
+  try {
+    const b = await fetchBackendJson<Omit<BackendBatchItem, "items"> & {
+      notes: string | null;
+      decorationProfileId: string | null;
+      decorationProfile: {
+        id: string;
+        name: string;
+        decorationMethod: string | null;
+        artworkAsset: { id: string; assetUrl: string; name: string | null } | null;
+        placementConfig: unknown;
+      } | null;
+      items: {
+        id: string;
+        size: string;
+        quantity: number;
+        sourceLines: {
+          id: string;
+          quantity: number;
+          personalisationText: string | null;
+          jobItem: {
+            id: string;
+            sku: string | null;
+            productTitle: string | null;
+            variantTitle: string | null;
+            quantity: number;
+          } | null;
+          job: {
+            id: string;
+            internalJobId: string | null;
+            shopifyOrderName: string | null;
+            customerName: string | null;
+          } | null;
+        }[];
+      }[];
+    }>(`/api/v1/batches/${batchId}`);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const base = mapBackendBatchToUi(b as any);
+    return {
+      ...base,
+      notes: b.notes,
+      decorationProfileId: b.decorationProfileId,
+      decorationProfile: b.decorationProfile
+        ? {
+            id: b.decorationProfile.id,
+            name: b.decorationProfile.name,
+            decorationMethod: b.decorationProfile.decorationMethod,
+            artworkAsset: b.decorationProfile.artworkAsset,
+          }
+        : null,
+      items: b.items.map((item) => ({
+        id: item.id,
+        size: item.size,
+        quantity: item.quantity,
+        sourceLines: item.sourceLines,
+      })),
+    };
+  } catch (error) {
+    console.error("Failed to load batch detail.", error);
+    return null;
   }
 }

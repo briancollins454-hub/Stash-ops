@@ -142,6 +142,11 @@ export async function batchJobItems(jobId: string): Promise<BatchResult> {
     return result;
   }
 
+  if (job.source !== "SHOPIFY") {
+    result.errors.push(`Job ${jobId} is not a Shopify order — only Shopify orders are batched`);
+    return result;
+  }
+
   if (!job.accountId || !job.account) {
     result.errors.push(`Job ${jobId} has no matched account — cannot batch`);
     return result;
