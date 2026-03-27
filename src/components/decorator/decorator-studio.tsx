@@ -335,7 +335,7 @@ export function DecoratorStudio({
             <div className="mt-4 space-y-2.5">
               {products.map((item) => {
                 const active = item.id === productId;
-                const itemTheme = studioThemes[item.id as keyof typeof studioThemes];
+                const itemTheme = studioThemes[item.id as keyof typeof studioThemes] ?? studioThemes["PD-01"];
 
                 return (
                   <button
@@ -388,7 +388,7 @@ export function DecoratorStudio({
               {templates.map((template) => {
                 const active = template.id === templateId;
                 const signal =
-                  templateSignals[template.id as keyof typeof templateSignals];
+                  templateSignals[template.id as keyof typeof templateSignals] ?? templateSignals["TMP-1"];
 
                 return (
                   <button
