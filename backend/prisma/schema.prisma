@@ -184,101 +184,122 @@ enum CommunicationDirection {
   INTERNAL
 }
 
+// ── Storefront & job type enums ──
+
+enum StorefrontType {
+  PERMANENT // Always-on 24hr shop
+  CAMPAIGN // Time-limited campaign (leavers, charity run)
+  EVENT // One-off event
+  CUSTOM // Fully bespoke / ad-hoc
+}
+
+enum JobType {
+  STANDARD_REPEAT // Known product + known decoration, repeat order
+  STANDARD_CAMPAIGN // Known product + known decoration, campaign/event context
+  SEMI_CUSTOM // Known product, needs artwork review or new placement
+  FULLY_CUSTOM // Unknown product or bespoke setup
+}
+
 // ── Core models ──
 
 model Job {
-  id                    String               @id @default(cuid())
-  internalJobId         String               @unique
-  source                JobSource
+  id            String    @id @default(cuid())
+  internalJobId String    @unique
+  source        JobSource
 
   // Main lifecycle + sub-statuses
-  lifecycle             MainLifecycle        @default(INGESTED)
-  classificationStatus  ClassificationStatus @default(UNCLASSIFIED)
-  configurationStatus   ConfigurationStatus  @default(NOT_STARTED)
-  stockStatus           StockStatus          @default(NOT_REQUIRED)
-  productionStatus      ProductionStatus     @default(NOT_READY)
-  approvalStatus        ApprovalStatus       @default(NOT_REQUIRED)
-  fulfillmentStatus     FulfillmentStatus    @default(UNFULFILLED)
-  assignedDepartment    ProductionDepartment?
+  lifecycle            MainLifecycle         @default(INGESTED)
+  classificationStatus ClassificationStatus  @default(UNCLASSIFIED)
+  configurationStatus  ConfigurationStatus   @default(NOT_STARTED)
+  stockStatus          StockStatus           @default(NOT_REQUIRED)
+  productionStatus     ProductionStatus      @default(NOT_READY)
+  approvalStatus       ApprovalStatus        @default(NOT_REQUIRED)
+  fulfillmentStatus    FulfillmentStatus     @default(UNFULFILLED)
+  assignedDepartment   ProductionDepartment?
 
   // External references
-  shopifyOrderId        String?
-  shopifyOrderName      String?
-  decoOrderId           String?
-  shopifyCustomerId     String?
-  decoCustomerId        String?
+  shopifyOrderId    String?
+  shopifyOrderName  String?
+  decoOrderId       String?
+  shopifyCustomerId String?
+  decoCustomerId    String?
 
   // Account context
-  accountId             String?
-  accountMatchStatus    MatchStatus          @default(UNMATCHED)
-  accountMatchScore     Int?
-  accountMatchReason    String?
+  accountId          String?
+  accountMatchStatus MatchStatus @default(UNMATCHED)
+  accountMatchScore  Int?
+  accountMatchReason String?
+
+  // Storefront & job classification
+  storefrontId String?
+  jobType      JobType?
 
   // Review / blocking
-  requiresReview        Boolean              @default(false)
-  reviewReason          String?
-  blockedReason         String?
+  requiresReview Boolean @default(false)
+  reviewReason   String?
+  blockedReason  String?
 
   // Customer context
-  customerName          String?
-  customerEmail         String?
-  customerCompany       String?
-  customerPhone         String?
-  schoolName            String?
-  clubName              String?
-  leaversYear           String?
+  customerName    String?
+  customerEmail   String?
+  customerCompany String?
+  customerPhone   String?
+  schoolName      String?
+  clubName        String?
+  leaversYear     String?
 
   // Commercial
-  currencyCode          String               @default("GBP")
-  subtotalMinor         Int?
-  totalMinor            Int                  @default(0)
-  urgency               Urgency              @default(NORMAL)
-  orderPlacedAt         DateTime?
-  dueAt                 DateTime?
-  owner                 String?
-  tags                  String[]             @default([])
-  orderNotes            String?
+  currencyCode  String    @default("GBP")
+  subtotalMinor Int?
+  totalMinor    Int       @default(0)
+  urgency       Urgency   @default(NORMAL)
+  orderPlacedAt DateTime?
+  dueAt         DateTime?
+  owner         String?
+  tags          String[]  @default([])
+  orderNotes    String?
 
   // Source group (school/club/company grouping)
-  sourceGroupKey        String?
-  sourceGroupLabel      String?
-  sourceGroupType       String?
+  sourceGroupKey   String?
+  sourceGroupLabel String?
+  sourceGroupType  String?
 
   // Metadata snapshots
-  shopifyMetadata       Json?
-  preconfiguration      Json?
-  preconfiguredAt       DateTime?
+  shopifyMetadata  Json?
+  preconfiguration Json?
+  preconfiguredAt  DateTime?
 
   // Deco push context
-  pushToDecoStatus      String?
-  lastDecoPushAt        DateTime?
-  decoPushErrors        String?
+  pushToDecoStatus String?
+  lastDecoPushAt   DateTime?
+  decoPushErrors   String?
 
   // Artwork / proof
-  proofVersion          String?
-  proofSentAt           DateTime?
-  approvedAt            DateTime?
-  rejectedAt            DateTime?
-  approvalNotes         String?
+  proofVersion  String?
+  proofSentAt   DateTime?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  approvalNotes String?
 
   // Production
   productionStartedAt   DateTime?
   productionCompletedAt DateTime?
   productionNotes       String?
 
-  metadata              Json?
+  metadata Json?
 
   // Relations
-  items                 JobItem[]
-  externalLinks         ExternalLink[]
-  stockRequirements     JobStockRequirement[]
-  warehouseReceipts     WarehouseReceipt[]
-  communications        Communication[]
-  activityLogs          ActivityLog[]
-  account               Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  items             JobItem[]
+  externalLinks     ExternalLink[]
+  stockRequirements JobStockRequirement[]
+  warehouseReceipts WarehouseReceipt[]
+  communications    Communication[]
+  activityLogs      ActivityLog[]
+  account           Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  storefront        Storefront?           @relation(fields: [storefrontId], references: [id], onDelete: SetNull)
 
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([lifecycle])
   @@index([classificationStatus])
@@ -292,6 +313,8 @@ model Job {
   @@index([decoOrderId])
   @@index([accountId])
   @@index([accountMatchStatus])
+  @@index([storefrontId])
+  @@index([jobType])
   @@index([requiresReview])
   @@index([sourceGroupKey])
   @@index([dueAt])
@@ -299,7 +322,7 @@ model Job {
 }
 
 model JobItem {
-  id                  String    @id @default(cuid())
+  id                  String  @id @default(cuid())
   jobId               String
   externalLineId      String?
   sku                 String?
@@ -312,105 +335,113 @@ model JobItem {
   decorationMethod    String?
   decorationPlacement String?
 
+  // Resolved references
+  decorationProfileId String?
+  productAssignmentId String?
+
   // Preconfiguration recommendation
   matchedRuleId       String?
   matchedAssetId      String?
   matchedPlacementId  String?
   recommendedMethod   String?
   recommendationScore Int?
-  lineReviewRequired  Boolean   @default(false)
-  lineReviewReasons   String[]  @default([])
+  lineReviewRequired  Boolean  @default(false)
+  lineReviewReasons   String[] @default([])
 
-  customOptions       Json?
-  metadata            Json?
+  customOptions Json?
+  metadata      Json?
 
-  job                 Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  stockRequirement    JobStockRequirement?
+  job               Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  decorationProfile DecorationProfile?   @relation(fields: [decorationProfileId], references: [id], onDelete: SetNull)
+  productAssignment ProductAssignment?   @relation(fields: [productAssignmentId], references: [id], onDelete: SetNull)
+  stockRequirement  JobStockRequirement?
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([jobId])
   @@index([sku])
+  @@index([decorationProfileId])
+  @@index([productAssignmentId])
 }
 
 model JobStockRequirement {
-  id                String      @id @default(cuid())
-  jobId             String
-  jobItemId         String      @unique
-  requiredQuantity  Int
-  receivedQuantity  Int         @default(0)
-  status            StockStatus @default(AWAITING_ORDER)
+  id               String      @id @default(cuid())
+  jobId            String
+  jobItemId        String      @unique
+  requiredQuantity Int
+  receivedQuantity Int         @default(0)
+  status           StockStatus @default(AWAITING_ORDER)
 
   supplierName      String?
   supplierReference String?
   supplierNotes     String?
   eta               DateTime?
 
-  isBlocking        Boolean     @default(true)
-  shortageFlag      Boolean     @default(false)
+  isBlocking   Boolean @default(true)
+  shortageFlag Boolean @default(false)
 
-  job               Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  jobItem           JobItem     @relation(fields: [jobItemId], references: [id], onDelete: Cascade)
+  job     Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobItem JobItem @relation(fields: [jobItemId], references: [id], onDelete: Cascade)
 
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([jobId])
   @@index([status])
 }
 
 model WarehouseReceipt {
-  id              String               @id @default(cuid())
-  jobId           String
-  receivedBy      String
-  branch          String               @default("HQ")
-  isPartial       Boolean              @default(true)
-  totalReceived   Int                  @default(0)
-  notes           String?
-  receivedAt      DateTime             @default(now())
+  id            String   @id @default(cuid())
+  jobId         String
+  receivedBy    String
+  branch        String   @default("HQ")
+  isPartial     Boolean  @default(true)
+  totalReceived Int      @default(0)
+  notes         String?
+  receivedAt    DateTime @default(now())
 
-  scanEvents      WarehouseScanEvent[]
-  job             Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  scanEvents WarehouseScanEvent[]
+  job        Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-  createdAt       DateTime             @default(now())
+  createdAt DateTime @default(now())
 
   @@index([jobId])
   @@index([receivedAt])
 }
 
 model WarehouseScanEvent {
-  id              String           @id @default(cuid())
-  receiptId       String
-  sku             String
-  barcode         String?
-  quantity        Int
-  scannedBy       String
-  location        String?
-  scannedAt       DateTime         @default(now())
+  id        String   @id @default(cuid())
+  receiptId String
+  sku       String
+  barcode   String?
+  quantity  Int
+  scannedBy String
+  location  String?
+  scannedAt DateTime @default(now())
 
-  receipt         WarehouseReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt WarehouseReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
 
   @@index([receiptId])
   @@index([sku])
 }
 
 model Communication {
-  id                  String                 @id @default(cuid())
-  jobId               String
-  channel             CommunicationChannel
-  direction           CommunicationDirection
-  subject             String
-  bodyPreview         String?
-  bodyHtml            String?
-  providerMessageId   String?
-  providerThreadId    String?
-  attachments         Json                   @default("[]")
-  sentBy              String?
-  sentAt              DateTime?
-  createdAt           DateTime               @default(now())
+  id                String                 @id @default(cuid())
+  jobId             String
+  channel           CommunicationChannel
+  direction         CommunicationDirection
+  subject           String
+  bodyPreview       String?
+  bodyHtml          String?
+  providerMessageId String?
+  providerThreadId  String?
+  attachments       Json                   @default("[]")
+  sentBy            String?
+  sentAt            DateTime?
+  createdAt         DateTime               @default(now())
 
-  job                 Job                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
   @@index([channel])
@@ -489,6 +520,9 @@ model Account {
   placementConfigs        AccountPlacementConfig[]
   productRules            AccountProductRule[]
   jobs                    Job[]
+  storefronts             Storefront[]
+  decorationProfiles      DecorationProfile[]
+  productAssignments      ProductAssignment[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 
@@ -514,47 +548,49 @@ model AccountAlias {
 }
 
 model AccountAsset {
-  id               String              @id @default(cuid())
-  accountId        String
-  assetType        AssetType
-  assetStatus      AssetStatus         @default(ACTIVE)
-  label            String
-  decoDesignId     String?
-  decoTemplateId   String?
-  fileUrl          String?
-  colorway         String?
-  decorationMethod String?
-  isDefault        Boolean             @default(false)
-  priority         Int                 @default(100)
-  active           Boolean             @default(true)
-  metadata         Json?
-  account          Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  productRules     AccountProductRule[] @relation("RuleAsset")
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id                 String               @id @default(cuid())
+  accountId          String
+  assetType          AssetType
+  assetStatus        AssetStatus          @default(ACTIVE)
+  label              String
+  decoDesignId       String?
+  decoTemplateId     String?
+  fileUrl            String?
+  colorway           String?
+  decorationMethod   String?
+  isDefault          Boolean              @default(false)
+  priority           Int                  @default(100)
+  active             Boolean              @default(true)
+  metadata           Json?
+  account            Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productRules       AccountProductRule[] @relation("RuleAsset")
+  decorationProfiles DecorationProfile[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@index([accountId, assetType, active])
   @@index([assetStatus])
 }
 
 model AccountPlacementConfig {
-  id               String               @id @default(cuid())
-  accountId        String
-  label            String
-  placementKey     String
-  decorationMethod String?
-  widthMm          Float?
-  heightMm         Float?
-  offsetXMm        Float?
-  offsetYMm        Float?
-  rotationDegrees  Float?
-  priority         Int                  @default(100)
-  active           Boolean              @default(true)
-  metadata         Json?
-  account          Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  productRules     AccountProductRule[] @relation("RulePlacement")
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  accountId          String
+  label              String
+  placementKey       String
+  decorationMethod   String?
+  widthMm            Float?
+  heightMm           Float?
+  offsetXMm          Float?
+  offsetYMm          Float?
+  rotationDegrees    Float?
+  priority           Int                  @default(100)
+  active             Boolean              @default(true)
+  metadata           Json?
+  account            Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productRules       AccountProductRule[] @relation("RulePlacement")
+  decorationProfiles DecorationProfile[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@index([accountId, placementKey, active])
 }
@@ -581,26 +617,105 @@ model AccountProductRule {
   @@index([accountId, priority, active])
 }
 
+// ── Storefront, Decoration Profile & Product Assignment ──
+
+model Storefront {
+  id                 String              @id @default(cuid())
+  accountId          String
+  name               String // e.g. "Main Shop", "Year 11 Leavers 2025"
+  type               StorefrontType      @default(PERMANENT)
+  shopifyTagPattern  String? // Tag pattern to auto-match (e.g. "leavers-2025")
+  shopifyShopUrl     String? // Optional Shopify shop URL for multi-shop setups
+  active             Boolean             @default(true)
+  startsAt           DateTime? // Campaign/event start
+  endsAt             DateTime? // Campaign/event end
+  notes              String?
+  metadata           Json?
+  account            Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  jobs               Job[]
+  productAssignments ProductAssignment[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([accountId, name])
+  @@index([accountId, active])
+  @@index([type])
+}
+
+model DecorationProfile {
+  id                 String                  @id @default(cuid())
+  accountId          String
+  name               String // e.g. "Standard Embroidery", "Leavers DTF Back Print"
+  decorationMethod   String // embroidery, dtf, dtg, screen_print, etc.
+  artworkAssetId     String? // Link to the AccountAsset (logo/design)
+  placementConfigId  String? // Link to the AccountPlacementConfig
+  colourway          String? // Specific colourway for artwork
+  notes              String?
+  isDefault          Boolean                 @default(false)
+  priority           Int                     @default(100)
+  active             Boolean                 @default(true)
+  metadata           Json?
+  account            Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  artworkAsset       AccountAsset?           @relation(fields: [artworkAssetId], references: [id], onDelete: SetNull)
+  placementConfig    AccountPlacementConfig? @relation(fields: [placementConfigId], references: [id], onDelete: SetNull)
+  productAssignments ProductAssignment[]
+  jobItems           JobItem[]
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@unique([accountId, name])
+  @@index([accountId, active])
+  @@index([decorationMethod])
+}
+
+model ProductAssignment {
+  id                  String             @id @default(cuid())
+  accountId           String
+  storefrontId        String? // Optional: if null, applies account-wide
+  catalogProductId    String // FK to CatalogProduct.id
+  styleCode           String // Denormalized for quick lookups
+  decorationProfileId String? // Which decoration to apply
+  priceOverrideMinor  Int? // Optional per-assignment price override
+  requireReview       Boolean            @default(false)
+  active              Boolean            @default(true)
+  notes               String?
+  metadata            Json?
+  account             Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  storefront          Storefront?        @relation(fields: [storefrontId], references: [id], onDelete: SetNull)
+  catalogProduct      CatalogProduct     @relation(fields: [catalogProductId], references: [id], onDelete: Cascade)
+  decorationProfile   DecorationProfile? @relation(fields: [decorationProfileId], references: [id], onDelete: SetNull)
+  jobItems            JobItem[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([accountId, storefrontId, catalogProductId])
+  @@index([accountId, active])
+  @@index([storefrontId])
+  @@index([catalogProductId])
+  @@index([styleCode])
+  @@index([decorationProfileId])
+}
+
 // ── Deco catalog models ──
 
 model DecoCustomer {
-  id              String   @id @default(cuid())
-  decoCustomerId  String   @unique
-  name            String
-  email           String?
-  phone           String?
-  company         String?
-  address1        String?
-  address2        String?
-  city            String?
-  state           String?
-  postcode        String?
-  country         String?
-  active          Boolean  @default(true)
-  metadata        Json?
-  lastSyncedAt    DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  decoCustomerId String   @unique
+  name           String
+  email          String?
+  phone          String?
+  company        String?
+  address1       String?
+  address2       String?
+  city           String?
+  state          String?
+  postcode       String?
+  country        String?
+  active         Boolean  @default(true)
+  metadata       Json?
+  lastSyncedAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([name])
   @@index([email])
@@ -608,20 +723,20 @@ model DecoCustomer {
 }
 
 model DecoProduct {
-  id             String          @id @default(cuid())
-  decoProductId  String          @unique
-  name           String
-  sku            String?
-  category       String?
-  price          Float?
-  sizes          String?
-  colors         String?
-  active         Boolean         @default(true)
-  metadata       Json?
-  lastSyncedAt   DateTime        @default(now())
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  inventory      DecoInventory[]
+  id            String          @id @default(cuid())
+  decoProductId String          @unique
+  name          String
+  sku           String?
+  category      String?
+  price         Float?
+  sizes         String?
+  colors        String?
+  active        Boolean         @default(true)
+  metadata      Json?
+  lastSyncedAt  DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  inventory     DecoInventory[]
 
   @@index([sku])
   @@index([name])
@@ -629,17 +744,17 @@ model DecoProduct {
 }
 
 model DecoInventory {
-  id               String      @id @default(cuid())
-  decoProductId    String
-  sku              String?
-  productName      String?
-  quantityOnHand   Int         @default(0)
-  quantityAvailable Int        @default(0)
-  quantityOnOrder  Int         @default(0)
-  lastSyncedAt     DateTime    @default(now())
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  product          DecoProduct? @relation(fields: [decoProductId], references: [decoProductId], onDelete: Cascade)
+  id                String       @id @default(cuid())
+  decoProductId     String
+  sku               String?
+  productName       String?
+  quantityOnHand    Int          @default(0)
+  quantityAvailable Int          @default(0)
+  quantityOnOrder   Int          @default(0)
+  lastSyncedAt      DateTime     @default(now())
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  product           DecoProduct? @relation(fields: [decoProductId], references: [decoProductId], onDelete: Cascade)
 
   @@unique([decoProductId])
   @@index([sku])
@@ -648,60 +763,61 @@ model DecoInventory {
 // ── Ralawise Product Catalog (imported from CSV feed) ──
 
 model CatalogProduct {
-  id                String          @id @default(cuid())
-  styleCode         String          @unique       // e.g. "JH030"
-  manufacturerCode  String?                       // Manufacturer Style Code
-  brand             String                        // e.g. "AWDis Just Hoods"
-  name              String                        // e.g. "AWDis sweatshirt"
-  productType       String?                       // e.g. "Sweatshirts"
-  gender            String?                       // Male / Female / Unisex
-  ageGroup          String?                       // Adult / Junior
-  fabric            String?                       // e.g. "80% Ringspun Cotton..."
-  weight            String?                       // GSM value(s)
-  sizeRange         String?                       // e.g. "S to 3XL"
-  specification     String?                       // Full spec text
-  retailDescription String?                       // Marketing description
-  primaryImageUrl   String?                       // Lifestyle image URL
-  categorisation    String?                       // Pipe-separated categories
-  accreditations    String?                       // e.g. "WRAP|Oeko-Tex"
-  tag               String?                       // e.g. "Tagless"
-  sustainable       String?                       // Yes/No
-  printArea         String?
-  embroideryInfo    String?
-  sizeGuideUrl      String?
-  specSheetUrl      String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  colours           CatalogColour[]
+  id                 String              @id @default(cuid())
+  styleCode          String              @unique // e.g. "JH030"
+  manufacturerCode   String? // Manufacturer Style Code
+  brand              String // e.g. "AWDis Just Hoods"
+  name               String // e.g. "AWDis sweatshirt"
+  productType        String? // e.g. "Sweatshirts"
+  gender             String? // Male / Female / Unisex
+  ageGroup           String? // Adult / Junior
+  fabric             String? // e.g. "80% Ringspun Cotton..."
+  weight             String? // GSM value(s)
+  sizeRange          String? // e.g. "S to 3XL"
+  specification      String? // Full spec text
+  retailDescription  String? // Marketing description
+  primaryImageUrl    String? // Lifestyle image URL
+  categorisation     String? // Pipe-separated categories
+  accreditations     String? // e.g. "WRAP|Oeko-Tex"
+  tag                String? // e.g. "Tagless"
+  sustainable        String? // Yes/No
+  printArea          String?
+  embroideryInfo     String?
+  sizeGuideUrl       String?
+  specSheetUrl       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  colours            CatalogColour[]
+  productAssignments ProductAssignment[]
 
   @@index([brand])
   @@index([productType])
 }
 
 model CatalogColour {
-  id              String          @id @default(cuid())
-  styleCode       String                          // FK to CatalogProduct
-  colourCode      String                          // e.g. "BLAC"
-  colourName      String                          // e.g. "Black"
-  imageUrl        String?                         // Colour-specific front image
-  backImageUrl    String?                         // Back view image URL
-  sideImageUrl    String?                         // Side view image URL
-  modelImageUrl   String?                         // Model/lifestyle image URL
-  detailImageUrl  String?                         // Detail/closeup image URL
-  rgb             String?                         // e.g. "51 51 51"
-  pantone         String?                         // e.g. "Black (Black)"
-  cmyk            String?                         // e.g. "0 0 0 100 (Black)"
-  primaryColour   String?                         // e.g. "Black"
-  colourShade     String?                         // e.g. "Black - Black"
-  cartonPrice     String?
-  packPrice       String?
-  singlePrice     String?
-  cartonQty       String?
-  packQty         String?
-  skuStatus       String?                         // "Live" / "Discontinued"
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  product         CatalogProduct  @relation(fields: [styleCode], references: [styleCode], onDelete: Cascade)
+  id             String         @id @default(cuid())
+  styleCode      String // FK to CatalogProduct
+  colourCode     String // e.g. "BLAC"
+  colourName     String // e.g. "Black"
+  imageUrl       String? // Colour-specific front image
+  backImageUrl   String? // Back view image URL
+  sideImageUrl   String? // Side view image URL
+  modelImageUrl  String? // Model/lifestyle image URL
+  detailImageUrl String? // Detail/closeup image URL
+  rgb            String? // e.g. "51 51 51"
+  pantone        String? // e.g. "Black (Black)"
+  cmyk           String? // e.g. "0 0 0 100 (Black)"
+  primaryColour  String? // e.g. "Black"
+  colourShade    String? // e.g. "Black - Black"
+  cartonPrice    String?
+  packPrice      String?
+  singlePrice    String?
+  cartonQty      String?
+  packQty        String?
+  skuStatus      String? // "Live" / "Discontinued"
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  product        CatalogProduct @relation(fields: [styleCode], references: [styleCode], onDelete: Cascade)
 
   @@unique([styleCode, colourCode])
   @@index([styleCode])

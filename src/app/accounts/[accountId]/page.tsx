@@ -2,6 +2,7 @@ import { AppShell } from "@/components/app-shell";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 import { notFound } from "next/navigation";
 import { AccountAssetsManager } from "./account-assets-manager";
+import { AccountOperationsManager } from "./account-operations-manager";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -161,6 +162,24 @@ export default async function AccountDetailPage({
         accountName={account.name}
         initialAssets={account.assets}
       />
+
+      {/* Operations Configuration — Storefronts, Decoration Profiles, Product Assignments */}
+      <div className="mt-6">
+        <AccountOperationsManager
+          accountId={account.id}
+          assets={account.assets.map((a) => ({
+            id: a.id,
+            label: a.label,
+            assetType: a.assetType,
+            fileUrl: a.fileUrl,
+          }))}
+          placementConfigs={account.placementConfigs.map((pc) => ({
+            id: pc.id,
+            label: pc.label,
+            placementKey: pc.placementKey,
+          }))}
+        />
+      </div>
     </AppShell>
   );
 }
