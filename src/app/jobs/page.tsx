@@ -5,6 +5,7 @@ import { LaneSection } from "@/components/modules/orders-table";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { BulkCancelProvider } from "@/components/jobs/bulk-cancel-provider";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { JobsToolbar } from "@/components/jobs/jobs-toolbar";
 import { formatCount, shellCopy } from "@/lib/content";
 import type { Order, JobSource } from "@/lib/types";
 import { listOrders } from "@/lib/data-repository";
@@ -14,7 +15,7 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ source?: string; tab?: string }>;
+  searchParams: Promise<{ source?: string; tab?: string; q?: string; status?: string }>;
 };
 
 const TABS: { key: string; label: string; filter: JobSource | null }[] = [
@@ -88,72 +89,50 @@ function sortIntoLanes(orders: Order[]) {
   return { newReview, inProgress, readyToShip, shipped, onHold, cancelled };
 }
 
-function SourceTabs({
-  activeTab,
-  counts,
-}: {
-  activeTab: string;
-  counts: Record<string, number>;
-}) {
-  return (
-    <div className="flex gap-1 rounded-xl p-1" style={{ background: "var(--bg-surface)" }}>
-      {TABS.map((tab) => {
-        const isActive = activeTab === tab.key;
-        const count = counts[tab.key] ?? 0;
-        return (
-          <Link
-            key={tab.key}
-            href={tab.key === "all" ? "/jobs" : `/jobs?tab=${tab.key}`}
-            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-            style={{
-              background: isActive ? "var(--bg-raised)" : "transparent",
-              color: isActive ? "var(--text-primary)" : "var(--text-tertiary)",
-            }}
-          >
-            {tab.label}
-            <span
-              className="rounded-md px-1.5 py-0.5 text-xs tabular-nums"
-              style={{
-                background: isActive ? "var(--accent)" : "var(--bg-raised)",
-                color: isActive ? "var(--bg-base)" : "var(--text-tertiary)",
-              }}
-            >
-              {count}
-            </span>
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
 export default async function JobsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const sourceFilter = params.source;
   const activeTab = params.tab ?? "all";
+  const searchQuery = params.q?.toLowerCase().trim() ?? "";
+  const statusFilter = params.status ?? "";
 
   const { orders: allOrders, counts: dbCounts } = await listOrders();
 
   // Source filter (from ?source=xxx link)
-  const sourceFiltered = sourceFilter
+  let filtered = sourceFilter
     ? allOrders.filter((o) => o.sourceGroupKey === sourceFilter)
     : allOrders;
   const sourceLabel = sourceFilter
-    ? (sourceFiltered[0]?.sourceGroupLabel ?? sourceFilter)
+    ? (filtered[0]?.sourceGroupLabel ?? sourceFilter)
     : null;
 
   // Tab filter
   const tabDef = TABS.find((t) => t.key === activeTab) ?? TABS[0];
-  const filtered = tabDef.filter
-    ? sourceFiltered.filter((o) => o.source === tabDef.filter)
-    : sourceFiltered;
+  if (tabDef.filter) {
+    filtered = filtered.filter((o) => o.source === tabDef.filter);
+  }
 
-  // Counts for tab badges — use real database counts when not source-filtered
+  // Search filter
+  if (searchQuery) {
+    filtered = filtered.filter((o) =>
+      o.id.toLowerCase().includes(searchQuery) ||
+      o.company.toLowerCase().includes(searchQuery) ||
+      o.customer.toLowerCase().includes(searchQuery) ||
+      (o.sourceGroupLabel?.toLowerCase().includes(searchQuery) ?? false)
+    );
+  }
+
+  // Status filter
+  if (statusFilter) {
+    filtered = filtered.filter((o) => o.status === statusFilter);
+  }
+
+  // Counts for tab badges
   const counts: Record<string, number> = sourceFilter
     ? {
-        all: sourceFiltered.length,
-        deco: sourceFiltered.filter((o) => o.source === "DECO").length,
-        shopify: sourceFiltered.filter((o) => o.source === "SHOPIFY").length,
+        all: allOrders.filter((o) => o.sourceGroupKey === sourceFilter).length,
+        deco: allOrders.filter((o) => o.sourceGroupKey === sourceFilter && o.source === "DECO").length,
+        shopify: allOrders.filter((o) => o.sourceGroupKey === sourceFilter && o.source === "SHOPIFY").length,
       }
     : {
         all: dbCounts.all,
@@ -162,6 +141,16 @@ export default async function JobsPage({ searchParams }: PageProps) {
       };
 
   const { newReview, inProgress, readyToShip, shipped, onHold, cancelled } = sortIntoLanes(filtered);
+
+  // Summary stats for the toolbar
+  const laneCounts = {
+    new: newReview.length,
+    inProgress: inProgress.length,
+    readyToShip: readyToShip.length,
+    shipped: shipped.length,
+    onHold: onHold.length,
+    cancelled: cancelled.length,
+  };
 
   const title = sourceLabel
     ? `Jobs — ${sourceLabel}`
@@ -173,6 +162,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
     <AppShell title={title}>
       <AutoRefresh intervalMs={60_000} />
       <BulkCancelProvider>
+
       {sourceLabel && (
         <div className="flex items-center gap-3 px-1">
           <Link href="/jobs" className="text-sm transition-colors hover:text-white" style={{ color: "var(--text-tertiary)" }}>
@@ -184,100 +174,126 @@ export default async function JobsPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      <SourceTabs activeTab={activeTab} counts={counts} />
+      {/* Toolbar: tabs + search + status filter + summary strip */}
+      <JobsToolbar
+        activeTab={activeTab}
+        counts={counts}
+        laneCounts={laneCounts}
+        totalFiltered={filtered.length}
+        searchQuery={searchQuery}
+        statusFilter={statusFilter}
+        sourceFilter={sourceFilter}
+      />
 
-      {!sourceFilter && activeTab === "all" && (
-        <SectionCard
-          kicker="Manual intake"
-          title="Create job"
+      {!sourceFilter && activeTab === "all" && !searchQuery && !statusFilter && (
+        <CollapsibleSection
+          kicker="Quick action"
+          title="Create new job"
+          defaultOpen={false}
         >
           <CreateOrderForm />
-        </SectionCard>
+        </CollapsibleSection>
       )}
 
-      {/* ── Lane 1 — New / Needs Review ── */}
-      <CollapsibleSection
-        kicker="Lane 1"
-        title="New / Needs Review"
-        detail={formatCount(newReview.length, "job")}
-        defaultOpen
-      >
-        <LaneSection
-          laneKey="new"
-          groups={groupOrdersBySource(newReview)}
-          emptyMessage="No new orders awaiting review."
-        />
-      </CollapsibleSection>
+      {/* Pipeline lanes */}
+      {newReview.length > 0 && (
+        <CollapsibleSection
+          kicker={`${newReview.length} job${newReview.length === 1 ? "" : "s"}`}
+          title="New / Needs Review"
+          detail={formatCount(newReview.length, "job")}
+          defaultOpen
+        >
+          <LaneSection
+            laneKey="new"
+            groups={groupOrdersBySource(newReview)}
+            emptyMessage="No new orders awaiting review."
+          />
+        </CollapsibleSection>
+      )}
 
-      {/* ── Lane 2 — In Progress ── */}
-      <CollapsibleSection
-        kicker="Lane 2"
-        title="In Progress"
-        detail={formatCount(inProgress.length, "job")}
-        defaultOpen
-      >
-        <LaneSection
-          laneKey="progress"
-          groups={groupOrdersBySource(inProgress)}
-          emptyMessage="No jobs currently in progress."
-        />
-      </CollapsibleSection>
+      {inProgress.length > 0 && (
+        <CollapsibleSection
+          kicker={`${inProgress.length} job${inProgress.length === 1 ? "" : "s"}`}
+          title="In Progress"
+          detail={formatCount(inProgress.length, "job")}
+          defaultOpen
+        >
+          <LaneSection
+            laneKey="progress"
+            groups={groupOrdersBySource(inProgress)}
+            emptyMessage="No jobs currently in progress."
+          />
+        </CollapsibleSection>
+      )}
 
-      {/* ── Lane 3 — Ready to Ship ── */}
-      <CollapsibleSection
-        kicker="Lane 3"
-        title="Ready to Ship"
-        detail={formatCount(readyToShip.length, "job")}
-      >
-        <LaneSection
-          laneKey="ship"
-          groups={groupOrdersBySource(readyToShip)}
-          emptyMessage="No jobs waiting for shipment."
-        />
-      </CollapsibleSection>
+      {readyToShip.length > 0 && (
+        <CollapsibleSection
+          kicker={`${readyToShip.length} job${readyToShip.length === 1 ? "" : "s"}`}
+          title="Ready to Ship"
+          detail={formatCount(readyToShip.length, "job")}
+        >
+          <LaneSection
+            laneKey="ready"
+            groups={groupOrdersBySource(readyToShip)}
+            emptyMessage="Nothing ready to ship."
+          />
+        </CollapsibleSection>
+      )}
 
-      {/* ── Lane 4 — Shipped / Fulfilled ── */}
-      <CollapsibleSection
-        kicker="Lane 4"
-        title="Shipped / Fulfilled"
-        detail={formatCount(shipped.length, "job")}
-      >
-        <LaneSection
-          laneKey="shipped"
-          groups={groupOrdersBySource(shipped)}
-          emptyMessage="No shipped jobs yet."
-        />
-      </CollapsibleSection>
+      {shipped.length > 0 && (
+        <CollapsibleSection
+          kicker={`${shipped.length} job${shipped.length === 1 ? "" : "s"}`}
+          title="Shipped"
+          detail={formatCount(shipped.length, "job")}
+        >
+          <LaneSection
+            laneKey="shipped"
+            groups={groupOrdersBySource(shipped)}
+            emptyMessage="No shipped jobs."
+          />
+        </CollapsibleSection>
+      )}
 
-      {/* ── On Hold ── */}
       {onHold.length > 0 && (
         <CollapsibleSection
-          kicker="Parked"
+          kicker={`${onHold.length} job${onHold.length === 1 ? "" : "s"}`}
           title="On Hold"
           detail={formatCount(onHold.length, "job")}
         >
           <LaneSection
             laneKey="hold"
             groups={groupOrdersBySource(onHold)}
-            emptyMessage=""
+            emptyMessage="Nothing on hold."
           />
         </CollapsibleSection>
       )}
 
-      {/* ── Cancelled ── */}
       {cancelled.length > 0 && (
         <CollapsibleSection
-          kicker="Closed"
+          kicker={`${cancelled.length} job${cancelled.length === 1 ? "" : "s"}`}
           title="Cancelled"
           detail={formatCount(cancelled.length, "job")}
         >
           <LaneSection
             laneKey="cancelled"
             groups={groupOrdersBySource(cancelled)}
-            emptyMessage=""
+            emptyMessage="No cancelled jobs."
           />
         </CollapsibleSection>
       )}
+
+      {filtered.length === 0 && (
+        <div className="surface flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-3xl mb-3">🔍</p>
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+            No jobs found
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+            {searchQuery ? `No results for "${searchQuery}"` : "Try adjusting your filters"}
+          </p>
+        </div>
+      )}
+
       </BulkCancelProvider>
     </AppShell>
   );

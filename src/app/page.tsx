@@ -32,14 +32,26 @@ export default async function DashboardPage() {
     <AppShell title={shellCopy.dashboard.title}>
       <MetricGrid metrics={metrics} />
 
-      <div className="grid gap-4 2xl:grid-cols-[1.1fr_0.9fr]">
+      {/* Priority row — jobs + production side by side */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard
           kicker="Intake"
           title="Needs attention"
           detail={formatCount(orders.length, "active job")}
         >
-          <OrdersTable orders={orders.slice(0, 6)} />
+          <OrdersTable orders={orders.slice(0, 8)} />
         </SectionCard>
+        <SectionCard
+          kicker="Production"
+          title="Floor lanes"
+          detail={formatCount(productionJobs.length, "job")}
+        >
+          <ProductionBoard jobs={productionJobs.slice(0, 8)} />
+        </SectionCard>
+      </div>
+
+      {/* Secondary row — stock + warehouse */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard
           kicker="Stock"
           title="Ordering risks"
@@ -47,22 +59,12 @@ export default async function DashboardPage() {
         >
           <StockPurchasingBoard tasks={blockedStock.slice(0, 6)} />
         </SectionCard>
-      </div>
-
-      <div className="grid gap-4 2xl:grid-cols-[0.96fr_1.04fr]">
         <SectionCard
           kicker="Warehouse"
           title="Pending scan-in"
           detail={formatCount(partialWarehouse.length, "receipt")}
         >
           <WarehouseReceiptsBoard tasks={partialWarehouse.slice(0, 6)} />
-        </SectionCard>
-        <SectionCard
-          kicker="Production"
-          title="Floor lanes"
-          detail={formatCount(productionJobs.length, "job")}
-        >
-          <ProductionBoard jobs={productionJobs.slice(0, 6)} />
         </SectionCard>
       </div>
 

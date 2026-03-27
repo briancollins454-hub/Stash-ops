@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
-import { navigationItems } from "@/lib/navigation";
+import { useState, type ReactNode } from "react";
+import { navigationGroups, navigationItems } from "@/lib/navigation";
 
 type AppShellProps = {
   title: string;
@@ -78,98 +78,157 @@ const icons: Record<string, ReactNode> = {
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
     </svg>
   ),
+  menu: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  ),
+  close: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+    </svg>
+  ),
 };
 
 export function AppShell({ title, children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const isRoot = pathname === "/";
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  return (
-    <div className="shell-stage min-h-screen">
-      <div className="mx-auto grid min-h-screen max-w-[1780px] gap-4 px-4 py-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:px-5 xl:py-5">
-        {/* ── Sidebar ── */}
-        <aside className="nav-rail relative flex flex-col overflow-hidden p-4 xl:min-h-[calc(100vh-2.5rem)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)]">
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Brand */}
-            <div className="mb-6 flex items-center gap-3 px-1">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-sm font-bold text-white shadow-[0_4px_16px_rgba(99,102,241,0.3)]">
-                S
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
-                  Stash
-                </h1>
-                <span className="text-[10px] font-medium uppercase tracking-[0.1em]" style={{ color: "var(--text-tertiary)" }}>
-                  Operations
-                </span>
-              </div>
-            </div>
+  const isActive = (href: string) => {
+    const exactOrChild = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+    const claimedByChild = exactOrChild && navigationItems.some(
+      (other) => other.href !== href && other.href.startsWith(`${href}/`) && (pathname === other.href || pathname.startsWith(`${other.href}/`))
+    );
+    return exactOrChild && !claimedByChild;
+  };
 
-            {/* Divider */}
-            <div className="mx-2 mb-3 h-px" style={{ background: "var(--border)" }} />
+  const navContent = (
+    <>
+      {/* Brand */}
+      <div className="mb-5 flex items-center gap-3 px-1">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-sm font-bold text-white shadow-[0_4px_16px_rgba(99,102,241,0.25)]">
+          S
+        </div>
+        <div>
+          <h1 className="text-base font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
+            Stash
+          </h1>
+          <span className="text-[9px] font-medium uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+            Operations
+          </span>
+        </div>
+      </div>
 
-            {/* Nav */}
-            <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-              {navigationItems.map((item) => {
-                // Check if a more specific sibling route matches first
-                const exactOrChild =
-                  item.href === "/"
-                    ? pathname === "/"
-                    : pathname === item.href || pathname.startsWith(`${item.href}/`);
-                const claimedByChild = exactOrChild && navigationItems.some(
-                  (other) =>
-                    other.href !== item.href &&
-                    other.href.startsWith(`${item.href}/`) &&
-                    (pathname === other.href || pathname.startsWith(`${other.href}/`))
-                );
-                const active = exactOrChild && !claimedByChild;
-
+      {/* Grouped Nav */}
+      <nav className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-5">
+        {navigationGroups.map((group) => (
+          <div key={group.label}>
+            <p className="mb-1.5 px-3 text-[9px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = isActive(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={() => setMobileNavOpen(false)}
                     className={`nav-item ${active ? "nav-item--active" : ""}`}
                   >
                     {icons[item.icon]}
-                    <span>{item.label}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-[13px] leading-tight">{item.label}</span>
+                      <span className="block text-[10px] leading-tight mt-0.5" style={{ color: active ? "var(--accent-light)" : "var(--text-tertiary)", opacity: active ? 0.8 : 0.6 }}>
+                        {item.caption}
+                      </span>
+                    </div>
                   </Link>
                 );
               })}
-            </nav>
-
-            {/* Footer */}
-            <div className="mt-4 rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
-              <p className="text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
-                Marx Corporate
-              </p>
-              <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
-                Stash Ops v1.0
-              </p>
             </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer */}
+      <div className="mt-auto pt-3">
+        <div className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>
+          <p className="text-[10px] font-medium" style={{ color: "var(--text-tertiary)" }}>
+            Marx Corporate
+          </p>
+          <p className="mt-0.5 text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+            Stash Ops v1.0
+          </p>
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="shell-stage min-h-screen">
+      {/* Mobile nav toggle */}
+      <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 xl:hidden" style={{ background: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-xs font-bold text-white">S</div>
+          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Stash Ops</span>
+        </div>
+        <button onClick={() => setMobileNavOpen(!mobileNavOpen)} className="rounded-lg p-2 transition-colors" style={{ color: "var(--text-secondary)" }}>
+          {mobileNavOpen ? icons.close : icons.menu}
+        </button>
+      </div>
+
+      {/* Mobile nav overlay */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-30 xl:hidden" onClick={() => setMobileNavOpen(false)}>
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)" }} />
+          <aside
+            className="absolute top-0 left-0 bottom-0 w-72 flex flex-col p-4 pt-16 overflow-y-auto"
+            style={{ background: "var(--bg-raised)", borderRight: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {navContent}
+          </aside>
+        </div>
+      )}
+
+      <div className="mx-auto grid min-h-screen max-w-[1780px] gap-5 px-4 pt-16 pb-6 xl:grid-cols-[240px_minmax(0,1fr)] xl:px-6 xl:py-5 xl:pt-5">
+        {/* Desktop Sidebar */}
+        <aside className="nav-rail relative hidden flex-col overflow-hidden p-4 xl:flex xl:min-h-[calc(100vh-2.5rem)] xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)]">
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {navContent}
           </div>
         </aside>
 
-        {/* ── Main content ── */}
-        <main className="min-w-0 space-y-5 pb-10">
+        {/* Main content */}
+        <main className="min-w-0 pb-10">
           {/* Page header */}
-          <header className="flex items-center gap-4 px-1 pt-1">
+          <header className="mb-6 flex items-center gap-4 px-1 pt-1">
             {!isRoot && (
               <button
-                type="button"
                 onClick={() => router.back()}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition hover:bg-white/[0.06]"
-                style={{ color: "var(--text-tertiary)", border: "1px solid var(--border)" }}
-                aria-label="Go back"
+                className="group flex h-8 w-8 items-center justify-center rounded-xl transition-all hover:bg-[var(--bg-surface)]"
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg
+                  className="h-4 w-4 transition-transform group-hover:-translate-x-0.5"
+                  style={{ color: "var(--text-tertiary)" }}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
             )}
             <h1 className="page-title">{title}</h1>
           </header>
-          {children}
+
+          <div className="space-y-5">
+            {children}
+          </div>
         </main>
       </div>
     </div>
