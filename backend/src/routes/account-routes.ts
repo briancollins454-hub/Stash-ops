@@ -299,6 +299,47 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
     return { ok: true, data: created };
   });
 
+  app.patch("/v1/accounts/:accountId/assets/:assetId", async (request, reply) => {
+    const params = z.object({ accountId: z.string(), assetId: z.string() }).parse(request.params);
+    const body = z.object({
+      label: z.string().min(1).optional(),
+      assetType: assetTypeSchema.optional(),
+      decorationMethod: z.string().optional().nullable(),
+      isDefault: z.boolean().optional(),
+      priority: z.coerce.number().int().optional(),
+      fileUrl: z.string().optional(),
+      colorway: z.string().optional().nullable(),
+      active: z.boolean().optional(),
+    }).parse(request.body);
+
+    // If setting as default, unset other defaults for same account + type
+    if (body.isDefault) {
+      const existing = await prisma.accountAsset.findUnique({ where: { id: params.assetId } });
+      if (existing) {
+        await prisma.accountAsset.updateMany({
+          where: { accountId: params.accountId, assetType: existing.assetType, isDefault: true, id: { not: params.assetId } },
+          data: { isDefault: false },
+        });
+      }
+    }
+
+    const updated = await prisma.accountAsset.update({
+      where: { id: params.assetId, accountId: params.accountId },
+      data: {
+        ...(body.label !== undefined && { label: body.label.trim() }),
+        ...(body.assetType !== undefined && { assetType: body.assetType as AssetType }),
+        ...(body.decorationMethod !== undefined && { decorationMethod: body.decorationMethod?.trim() || null }),
+        ...(body.isDefault !== undefined && { isDefault: body.isDefault }),
+        ...(body.priority !== undefined && { priority: body.priority }),
+        ...(body.fileUrl !== undefined && { fileUrl: body.fileUrl }),
+        ...(body.colorway !== undefined && { colorway: body.colorway?.trim() || null }),
+        ...(body.active !== undefined && { active: body.active }),
+      },
+    });
+
+    return { ok: true, data: updated };
+  });
+
   app.delete("/v1/accounts/:accountId/assets/:assetId", async (request, reply) => {
     const params = z
       .object({
