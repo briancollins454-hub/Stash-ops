@@ -310,4 +310,48 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
 
     return result;
   });
+
+  // ─────────────── POST /v1/batches/batch-all ───────────────
+  // Batch all account-matched jobs that have unbatched items
+
+  app.post("/v1/batches/batch-all", async () => {
+    const jobs = await prisma.job.findMany({
+      where: {
+        accountId: { not: null },
+        items: {
+          some: {
+            batchSourceLines: { none: {} },
+          },
+        },
+      },
+      select: { id: true },
+      take: 500,
+    });
+
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalItems = 0;
+    const errors: string[] = [];
+
+    for (const job of jobs) {
+      const r = await batchJobItems(job.id);
+      totalCreated += r.batchesCreated;
+      totalUpdated += r.batchesUpdated;
+      totalItems += r.itemsBatched;
+      errors.push(...r.errors);
+    }
+
+    logger.info(
+      { jobsProcessed: jobs.length, totalCreated, totalUpdated, totalItems },
+      "Batch-all completed"
+    );
+
+    return {
+      jobsProcessed: jobs.length,
+      batchesCreated: totalCreated,
+      batchesUpdated: totalUpdated,
+      itemsBatched: totalItems,
+      errors: errors.slice(0, 20),
+    };
+  });
 }

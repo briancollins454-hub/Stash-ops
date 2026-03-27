@@ -112,10 +112,18 @@ export function AppShell({ title, children }: AppShellProps) {
             {/* Nav */}
             <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
               {navigationItems.map((item) => {
-                const active =
+                // Check if a more specific sibling route matches first
+                const exactOrChild =
                   item.href === "/"
                     ? pathname === "/"
                     : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const claimedByChild = exactOrChild && navigationItems.some(
+                  (other) =>
+                    other.href !== item.href &&
+                    other.href.startsWith(`${item.href}/`) &&
+                    (pathname === other.href || pathname.startsWith(`${other.href}/`))
+                );
+                const active = exactOrChild && !claimedByChild;
 
                 return (
                   <Link

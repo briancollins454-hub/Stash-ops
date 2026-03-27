@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   ProductionBatch,
   ProductionBatchStats,
@@ -47,9 +48,37 @@ interface Props {
 }
 
 export function BatchBoard({ batches, stats }: Props) {
+  const router = useRouter();
   const [activeLane, setActiveLane] = useState("setup");
   const [searchQuery, setSearchQuery] = useState("");
   const [confidenceFilter, setConfidenceFilter] = useState<BatchConfidenceLabel | "all">("all");
+  const [batching, setBatching] = useState(false);
+  const [batchResult, setBatchResult] = useState<string | null>(null);
+
+  async function handleBatchAll() {
+    setBatching(true);
+    setBatchResult(null);
+    try {
+      const res = await fetch("/api/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "batch-all" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBatchResult(
+          `Processed ${data.jobsProcessed} jobs → ${data.batchesCreated} new batches, ${data.itemsBatched} items batched`
+        );
+        router.refresh();
+      } else {
+        setBatchResult(`Error: ${data.error ?? "Unknown error"}`);
+      }
+    } catch (err) {
+      setBatchResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBatching(false);
+    }
+  }
 
   // Filter
   const lane = LANES.find((l) => l.key === activeLane) ?? LANES[0];
@@ -76,8 +105,8 @@ export function BatchBoard({ batches, stats }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Stats bar */}
-      <div className="flex flex-wrap gap-3">
+      {/* Stats bar + batch all button */}
+      <div className="flex flex-wrap items-center gap-3">
         <StatPill label="Total" value={stats.total} />
         {Object.entries(stats.byConfidence).map(([k, v]) => (
           <StatPill
@@ -87,7 +116,28 @@ export function BatchBoard({ batches, stats }: Props) {
             colour={CONFIDENCE_STYLES[CONFIDENCE_MAP[k] ?? "Manual"]?.bg}
           />
         ))}
+        <button
+          onClick={handleBatchAll}
+          disabled={batching}
+          className="ml-auto rounded-md px-4 py-1.5 text-sm font-medium text-white transition-colors disabled:opacity-50"
+          style={{ background: "var(--accent, #6366f1)" }}
+        >
+          {batching ? "Batching…" : "Batch All Jobs"}
+        </button>
       </div>
+
+      {batchResult && (
+        <div
+          className="rounded-md border px-3 py-2 text-sm"
+          style={{
+            borderColor: batchResult.startsWith("Error") ? "#ef4444" : "#22c55e",
+            background: batchResult.startsWith("Error") ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+            color: batchResult.startsWith("Error") ? "#fca5a5" : "#86efac",
+          }}
+        >
+          {batchResult}
+        </div>
+      )}
 
       {/* Lane tabs */}
       <div className="flex gap-1 overflow-x-auto pb-1">
