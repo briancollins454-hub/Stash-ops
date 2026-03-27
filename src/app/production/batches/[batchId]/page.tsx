@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { getProductionBatchDetail } from "@/lib/data-repository";
 import { BatchActions } from "@/components/production/batch-actions";
+import { BatchDecoratorButton } from "@/components/production/batch-decorator-button";
 import { SourceOrdersList } from "@/components/production/source-orders-list";
 import type { ProductionBatchDetail, BatchItemDetail } from "@/lib/types";
 
@@ -102,13 +102,7 @@ export default async function BatchDetailPage({ params }: Props) {
                 Apply logos and configure initials for this batch. The system uses logic to map input variables to garment positions automatically.
               </p>
             </div>
-            <Link
-              href={`/production/batches/${batch.id}/designer`}
-              className="inline-block rounded-md px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90"
-              style={{ background: "#6366f1", color: "#fff" }}
-            >
-              Open Decorator
-            </Link>
+            <BatchDecoratorButton batch={batch} />
           </div>
 
           <BatchActions
