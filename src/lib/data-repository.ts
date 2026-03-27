@@ -13,6 +13,8 @@ import type {
   Metric,
   Order,
   OutstandingAccount,
+  ProductionBatch,
+  ProductionBatchStats,
   ProductionJob,
   StockPurchaseTask,
   WarehouseReceiptTask,
@@ -335,5 +337,112 @@ export async function listOutstandingAccounts(): Promise<OutstandingAccount[]> {
   } catch (error) {
     console.error("Failed to load accounts receivable.", error);
     return [];
+  }
+}
+
+// ── Production Batches ──
+
+const STATUS_MAP: Record<string, ProductionBatch["status"]> = {
+  DRAFT: "Draft",
+  PENDING_REVIEW: "Pending Review",
+  CONFIGURED: "Configured",
+  PERSONALISATION: "Personalisation",
+  READY_TO_ORDER: "Ready to Order",
+  ORDERED: "Ordered",
+  AWAITING_STOCK: "Awaiting Stock",
+  IN_PRODUCTION: "In Production",
+  QC: "QC",
+  COMPLETE: "Complete",
+  ON_HOLD: "On Hold",
+  CANCELLED: "Cancelled",
+};
+
+const CONFIDENCE_MAP: Record<string, ProductionBatch["confidence"]> = {
+  AUTO_CONFIGURED: "Auto",
+  NEEDS_REVIEW: "Review",
+  MANUAL_SETUP: "Manual",
+};
+
+interface BackendBatchItem {
+  id: string;
+  batchKey: string;
+  accountId: string;
+  displayTitle: string;
+  normalizedProduct: string;
+  colour: string | null;
+  decorationMethod: string | null;
+  status: string;
+  confidence: string;
+  totalQuantity: number;
+  sizeBreakdownJson: Record<string, number> | null;
+  hasPersonalisation: boolean;
+  createdAt: string;
+  updatedAt: string;
+  account: { id: string; name: string; type: string } | null;
+  items: { id: string; size: string; quantity: number }[];
+  _count: { personalisations: number };
+}
+
+function mapBackendBatchToUi(b: BackendBatchItem): ProductionBatch {
+  return {
+    id: b.id,
+    batchKey: b.batchKey,
+    accountId: b.accountId,
+    accountName: b.account?.name ?? "Unknown",
+    accountType: b.account?.type ?? "OTHER",
+    displayTitle: b.displayTitle,
+    normalizedProduct: b.normalizedProduct,
+    colour: b.colour,
+    decorationMethod: b.decorationMethod,
+    status: STATUS_MAP[b.status] ?? "Draft",
+    confidence: CONFIDENCE_MAP[b.confidence] ?? "Manual",
+    totalQuantity: b.totalQuantity,
+    sizes: b.items.map((i) => ({ size: i.size, quantity: i.quantity })),
+    hasPersonalisation: b.hasPersonalisation,
+    personalisationCount: b._count?.personalisations ?? 0,
+    createdAt: b.createdAt,
+    updatedAt: b.updatedAt,
+  };
+}
+
+export async function listProductionBatches(params?: {
+  status?: string;
+  confidence?: string;
+  search?: string;
+  limit?: number;
+}): Promise<{ batches: ProductionBatch[]; total: number }> {
+  if (!isBackendApiConfigured()) return { batches: [], total: 0 };
+
+  try {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.confidence) qs.set("confidence", params.confidence);
+    if (params?.search) qs.set("search", params.search);
+    if (params?.limit) qs.set("limit", String(params.limit));
+
+    const qsStr = qs.toString();
+    const payload = await fetchBackendJson<{
+      items: BackendBatchItem[];
+      total: number;
+    }>(`/api/v1/batches${qsStr ? `?${qsStr}` : ""}`);
+
+    return {
+      batches: payload.items.map(mapBackendBatchToUi),
+      total: payload.total,
+    };
+  } catch (error) {
+    console.error("Failed to load production batches.", error);
+    return { batches: [], total: 0 };
+  }
+}
+
+export async function getProductionBatchStats(): Promise<ProductionBatchStats> {
+  if (!isBackendApiConfigured()) return { total: 0, byStatus: {}, byConfidence: {} };
+
+  try {
+    return await fetchBackendJson<ProductionBatchStats>("/api/v1/batches/stats");
+  } catch (error) {
+    console.error("Failed to load batch stats.", error);
+    return { total: 0, byStatus: {}, byConfidence: {} };
   }
 }

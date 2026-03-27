@@ -200,6 +200,27 @@ enum JobType {
   FULLY_CUSTOM // Unknown product or bespoke setup
 }
 
+enum BatchStatus {
+  DRAFT // Items still being added (batch window open)
+  PENDING_REVIEW // Needs staff review before proceeding
+  CONFIGURED // Decoration setup confirmed
+  PERSONALISATION // Awaiting initials / names entry
+  READY_TO_ORDER // Ready for garment ordering
+  ORDERED // Garments ordered from supplier
+  AWAITING_STOCK // Waiting for garments to arrive
+  IN_PRODUCTION // On the machines
+  QC // Quality check
+  COMPLETE // Decorated and ready for dispatch
+  ON_HOLD
+  CANCELLED
+}
+
+enum BatchConfidence {
+  AUTO_CONFIGURED // ≥ 80 confidence
+  NEEDS_REVIEW // 40–79 confidence
+  MANUAL_SETUP // < 40 confidence
+}
+
 // ── Core models ──
 
 model Job {
@@ -295,6 +316,7 @@ model Job {
   warehouseReceipts WarehouseReceipt[]
   communications    Communication[]
   activityLogs      ActivityLog[]
+  batchSourceLines  BatchSourceLine[]
   account           Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
   storefront        Storefront?           @relation(fields: [storefrontId], references: [id], onDelete: SetNull)
 
@@ -355,6 +377,7 @@ model JobItem {
   decorationProfile DecorationProfile?   @relation(fields: [decorationProfileId], references: [id], onDelete: SetNull)
   productAssignment ProductAssignment?   @relation(fields: [productAssignmentId], references: [id], onDelete: SetNull)
   stockRequirement  JobStockRequirement?
+  batchSourceLines  BatchSourceLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -523,6 +546,7 @@ model Account {
   storefronts             Storefront[]
   decorationProfiles      DecorationProfile[]
   productAssignments      ProductAssignment[]
+  productionBatches       ProductionBatch[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 
@@ -660,6 +684,7 @@ model DecorationProfile {
   placementConfig    AccountPlacementConfig? @relation(fields: [placementConfigId], references: [id], onDelete: SetNull)
   productAssignments ProductAssignment[]
   jobItems           JobItem[]
+  productionBatches  ProductionBatch[]
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
 
@@ -694,6 +719,148 @@ model ProductAssignment {
   @@index([catalogProductId])
   @@index([styleCode])
   @@index([decorationProfileId])
+}
+
+// ── Production Batching models ──
+
+model ProductionBatch {
+  id                  String  @id @default(cuid())
+  batchKey            String  @unique // deterministic hash: accountId+product+colour+decoProfile+method
+  accountId           String
+  displayTitle        String // e.g. "Ballymena HS – Pink Hoodies (Embroidery)"
+  normalizedProduct   String // lowercased product title for matching
+  colour              String? // parsed from variantTitle
+  decorationMethod    String? // embroidery, dtf, etc.
+  decorationProfileId String?
+  configSnapshotId    String? // frozen config used for this batch
+
+  status     BatchStatus     @default(DRAFT)
+  confidence BatchConfidence @default(MANUAL_SETUP)
+
+  totalQuantity      Int     @default(0)
+  sizeBreakdownJson  Json? // { "XS": 2, "S": 5, "M": 8, "L": 4, "XL": 2 }
+  hasPersonalisation Boolean @default(false)
+
+  // Batch window: keep grouping items until closed
+  batchWindowEndsAt DateTime?
+  closedAt          DateTime?
+
+  // Ordering & production tracking
+  orderedAt            DateTime?
+  stockReceivedAt      DateTime?
+  productionStartedAt  DateTime?
+  productionCompleteAt DateTime?
+  notes                String?
+  metadata             Json?
+
+  // Relations
+  account           Account               @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  decorationProfile DecorationProfile?    @relation(fields: [decorationProfileId], references: [id], onDelete: SetNull)
+  configSnapshot    ConfigSnapshot?       @relation(fields: [configSnapshotId], references: [id], onDelete: SetNull)
+  items             BatchItem[]
+  personalisations  PersonalisationItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([status])
+  @@index([confidence])
+  @@index([normalizedProduct])
+  @@index([colour])
+  @@index([decorationMethod])
+  @@index([decorationProfileId])
+  @@index([batchWindowEndsAt])
+}
+
+model BatchItem {
+  id       String @id @default(cuid())
+  batchId  String
+  size     String // e.g. "M", "XL", "Age 9-11"
+  quantity Int    @default(0)
+
+  // Fulfillment tracking per size
+  orderedQuantity  Int @default(0)
+  receivedQuantity Int @default(0)
+  producedQuantity Int @default(0)
+
+  batch       ProductionBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  sourceLines BatchSourceLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, size])
+  @@index([batchId])
+}
+
+model BatchSourceLine {
+  id            String  @id @default(cuid())
+  batchItemId   String
+  jobItemId     String
+  jobId         String
+  shopifyLineId String? // external reference
+  quantity      Int     @default(1)
+
+  // Personalisation text from this source line (if any)
+  personalisationText String?
+
+  batchItem BatchItem @relation(fields: [batchItemId], references: [id], onDelete: Cascade)
+  jobItem   JobItem   @relation(fields: [jobItemId], references: [id], onDelete: Cascade)
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([batchItemId])
+  @@index([jobItemId])
+  @@index([jobId])
+}
+
+model PersonalisationItem {
+  id       String @id @default(cuid())
+  batchId  String
+  size     String // which size this personalisation is for
+  position Int    @default(1) // sequence number within batch
+
+  // Personalisation details
+  text         String // e.g. "SMITH", "J.B.", "12"
+  font         String? // font name if specified
+  threadColour String? // thread colour for embroidery
+  notes        String?
+
+  batch ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([batchId])
+  @@index([batchId, size])
+}
+
+model ConfigSnapshot {
+  id                String  @id @default(cuid())
+  accountId         String
+  normalizedProduct String // lowercased product title
+  decorationMethod  String
+  artworkAssetId    String?
+  placementConfigId String?
+  coordinatesJson   Json? // frozen placement coordinates
+  colourway         String?
+  source            String  @default("manual") // template | historical | manual
+
+  // Approval tracking
+  approvedAt DateTime?
+  approvedBy String?
+  usageCount Int       @default(0)
+
+  batches ProductionBatch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId, normalizedProduct, decorationMethod])
+  @@index([accountId])
+  @@index([approvedAt])
 }
 
 // ── Deco catalog models ──

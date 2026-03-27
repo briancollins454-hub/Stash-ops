@@ -346,3 +346,52 @@ export interface CommunicationSignal {
   state: "Unread" | "Awaiting reply" | "Resolved";
   updatedAt: string;
 }
+
+// ── Production Batch types ──
+
+export type BatchStatusLabel =
+  | "Draft"
+  | "Pending Review"
+  | "Configured"
+  | "Personalisation"
+  | "Ready to Order"
+  | "Ordered"
+  | "Awaiting Stock"
+  | "In Production"
+  | "QC"
+  | "Complete"
+  | "On Hold"
+  | "Cancelled";
+
+export type BatchConfidenceLabel = "Auto" | "Review" | "Manual";
+
+export interface BatchSizeBreakdown {
+  size: string;
+  quantity: number;
+}
+
+export interface ProductionBatch {
+  id: string;
+  batchKey: string;
+  accountId: string;
+  accountName: string;
+  accountType: string;
+  displayTitle: string;
+  normalizedProduct: string;
+  colour: string | null;
+  decorationMethod: string | null;
+  status: BatchStatusLabel;
+  confidence: BatchConfidenceLabel;
+  totalQuantity: number;
+  sizes: BatchSizeBreakdown[];
+  hasPersonalisation: boolean;
+  personalisationCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductionBatchStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byConfidence: Record<string, number>;
+}
