@@ -149,9 +149,9 @@ export function DecoratorStudio({
     [templateId, templates],
   );
 
-  const theme = studioThemes[product.id as keyof typeof studioThemes];
+  const theme = studioThemes[product.id as keyof typeof studioThemes] ?? studioThemes["PD-01"];
   const templateSignal =
-    templateSignals[activeTemplate.id as keyof typeof templateSignals];
+    templateSignals[activeTemplate.id as keyof typeof templateSignals] ?? templateSignals["TMP-1"];
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
   const maxLayerWidth = Math.max(120, product.decorationArea.width - 20);
   const selectedLayerIndex =
@@ -278,16 +278,6 @@ export function DecoratorStudio({
       window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [dragState]);
-
-  if (!hasStudioData) {
-    return (
-      <section className="surface p-6">
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          Decorator data is not available yet.
-        </p>
-      </section>
-    );
-  }
 
   return (
     <div className="space-y-5">
