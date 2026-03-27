@@ -16,12 +16,30 @@ export function BatchDecoratorButton({ batch }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // If we have a recognized product code, load its details including visuals
-    if (batch.normalizedProduct && batch.normalizedProduct !== "Unknown") {
+    // Extract a real SKU from the batch's job items (Shopify line-item SKU)
+    const itemSku = batch.items
+      ?.flatMap((item) => item.sourceLines)
+      .find((sl) => sl.jobItem?.sku)?.jobItem?.sku;
+
+    // Use SKU if available, otherwise fall back to the normalizedProduct text
+    const searchQuery = itemSku || batch.normalizedProduct;
+
+    if (searchQuery && searchQuery !== "Unknown") {
       setLoading(true);
-      fetch(`/api/decorator/products/${encodeURIComponent(batch.normalizedProduct)}`)
+      // Step 1: Search for matching product via the quotes product search (same as quote builder)
+      fetch(`/api/quotes/products?q=${encodeURIComponent(searchQuery)}`)
         .then((res) => {
-          if (!res.ok) throw new Error("Not found");
+          if (!res.ok) throw new Error("Search failed");
+          return res.json();
+        })
+        .then((searchResult: { items?: Array<{ decoProductId: string; sku?: string }> }) => {
+          const match = searchResult.items?.[0];
+          if (!match) throw new Error("No product match");
+          // Step 2: Fetch full product detail (same endpoint the quote builder uses)
+          return fetch(`/api/quotes/products/${encodeURIComponent(match.decoProductId)}${itemSku ? `?sku=${encodeURIComponent(itemSku)}` : ""}`);
+        })
+        .then((res) => {
+          if (!res.ok) throw new Error("Detail fetch failed");
           return res.json();
         })
         .then((data) => {
@@ -34,7 +52,7 @@ export function BatchDecoratorButton({ batch }: Props) {
           setLoading(false);
         });
     }
-  }, [batch.normalizedProduct]);
+  }, [batch.normalizedProduct, batch.items]);
 
   // Construct a fallback mapped product detail from the batch info if actual product fails to load
   const fallbackProductDetail: DesignerProductDetail = {
