@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { getProductionBatchDetail } from "@/lib/data-repository";
@@ -94,6 +95,22 @@ export default async function BatchDetailPage({ params }: Props) {
 
         {/* Actions — transitions, edit method, notes */}
         <SectionCard kicker="Actions" title="Batch Actions">
+          <div className="mb-6 flex items-center justify-between border-b pb-4" style={{ borderColor: "var(--border, #334155)" }}>
+            <div>
+              <h4 className="text-sm font-medium" style={{ color: "var(--text-primary, #e2e8f0)" }}>Batch Decorator</h4>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary, #94a3b8)" }}>
+                Apply logos and configure initials for this batch. The system uses logic to map input variables to garment positions automatically.
+              </p>
+            </div>
+            <Link
+              href={`/production/batches/${batch.id}/designer`}
+              className="inline-block rounded-md px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ background: "#6366f1", color: "#fff" }}
+            >
+              Open Decorator
+            </Link>
+          </div>
+
           <BatchActions
             batchId={batch.id}
             currentStatus={batch.status}
