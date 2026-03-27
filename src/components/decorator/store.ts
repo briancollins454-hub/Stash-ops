@@ -86,6 +86,9 @@ export interface DecoratorState {
   // Zone config
   setZoneConfig: (zoneKey: string, config: Partial<ZoneConfig>) => void;
 
+  // Zone position/size
+  updateZone: (key: string, changes: Partial<Pick<ZoneDef, "x" | "y" | "w" | "h">>) => void;
+
   // File uploads
   addUpload: (file: UploadedFile) => void;
   removeUpload: (id: string) => void;
@@ -261,6 +264,25 @@ export const useDecoratorStore = create<DecoratorState>()((set, get) => ({
   setZoom: (z) => set({ zoom: clamp(z, 0.25, 4) }),
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
   toggleGrid: () => set((s) => ({ showGrid: !s.showGrid })),
+
+  /* ── Zone position/size ── */
+  updateZone: (key, changes) => {
+    set((s) => ({
+      zones: s.zones.map((z) => {
+        if (z.key !== key) return z;
+        const updated = { ...z, ...changes };
+        // Recalculate physical mm dimensions proportionally
+        if (z.actualWidthMm && changes.w !== undefined) {
+          updated.actualWidthMm = Math.round((changes.w / z.w) * z.actualWidthMm);
+        }
+        if (z.actualHeightMm && changes.h !== undefined) {
+          updated.actualHeightMm = Math.round((changes.h / z.h) * z.actualHeightMm);
+        }
+        return updated;
+      }),
+      isDirty: true,
+    }));
+  },
 
   /* ── Object CRUD ── */
   addObject: (obj) => {

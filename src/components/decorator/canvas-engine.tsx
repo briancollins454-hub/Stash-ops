@@ -59,6 +59,7 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
     selectObject,
     clearSelection,
     updateObject,
+    updateZone,
     pushHistory,
   } = useDecoratorStore(
     useShallow((s) => ({
@@ -73,6 +74,7 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
       selectObject: s.selectObject,
       clearSelection: s.clearSelection,
       updateObject: s.updateObject,
+      updateZone: s.updateZone,
       pushHistory: s.pushHistory,
     }))
   );
@@ -120,6 +122,13 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
 
     const handleSelectionCreated = (e: { selected: FabricObject[] }) => {
       if (isUpdatingFromStore.current) return;
+      // Check if a zone rect was selected
+      const zoneObj = e.selected.find((obj) => (obj as FabricObject & { _isZone?: boolean })._isZone);
+      if (zoneObj) {
+        const zoneKey = (zoneObj as FabricObject & { _zoneKey?: string })._zoneKey;
+        if (zoneKey) useDecoratorStore.getState().setActiveZone(zoneKey);
+        return;
+      }
       const ids = e.selected
         .map((obj) => (obj as FabricObject & { _designObjectId?: string })._designObjectId)
         .filter(Boolean) as string[];
@@ -146,7 +155,28 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
 
     const handleObjectModified = (e: { target?: FabricObject }) => {
       if (isUpdatingFromStore.current || !e.target) return;
-      const target = e.target as FabricObject & { _designObjectId?: string };
+      const target = e.target as FabricObject & { _designObjectId?: string; _isZone?: boolean; _zoneKey?: string };
+
+      // Handle zone rect drag/resize
+      if (target._isZone && target._zoneKey) {
+        const left = target.left ?? 0;
+        const top = target.top ?? 0;
+        const width = (target.width ?? 0) * (target.scaleX ?? 1);
+        const height = (target.height ?? 0) * (target.scaleY ?? 1);
+
+        // Reset scale to 1 (we store size as width/height, not via scale)
+        target.set({ scaleX: 1, scaleY: 1, width, height });
+
+        updateZone(target._zoneKey, {
+          x: canvasToPct(left, CANVAS_WIDTH),
+          y: canvasToPct(top, CANVAS_HEIGHT),
+          w: canvasToPct(width, CANVAS_WIDTH),
+          h: canvasToPct(height, CANVAS_HEIGHT),
+        });
+        return;
+      }
+
+      // Handle design object drag/resize
       if (!target._designObjectId) return;
 
       pushHistory();
@@ -185,7 +215,7 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       canvas.off("object:modified", handleObjectModified as any);
     };
-  }, [canvasReady, selectObject, clearSelection, updateObject, pushHistory]);
+  }, [canvasReady, selectObject, clearSelection, updateObject, updateZone, pushHistory]);
 
   /* ── Render background image ── */
   useEffect(() => {
@@ -226,7 +256,7 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
     }
   }, [backgroundImageUrl, garmentColorHex, canvasReady, view]);
 
-  /* ── Render zone boundaries ── */
+  /* ── Render zone boundaries (draggable + resizable) ── */
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas || !canvasReady) return;
@@ -253,11 +283,24 @@ export function CanvasEngine({ view, backgroundImageUrl, garmentColorHex, garmen
         stroke: isActive ? "#6366f1" : "rgba(148, 163, 184, 0.3)",
         strokeWidth: isActive ? 2 : 1,
         strokeDashArray: isActive ? undefined : [6, 4],
-        selectable: false,
-        evented: false,
+        // Interactive — allow drag and resize
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+        lockRotation: true,
+        // Keep it behind design objects but above background
         excludeFromExport: true,
+        // Custom control styling for zones
+        cornerColor: isActive ? "#6366f1" : "rgba(148, 163, 184, 0.5)",
+        cornerStrokeColor: isActive ? "#4f46e5" : "rgba(148, 163, 184, 0.7)",
+        cornerStyle: "circle",
+        cornerSize: 8,
+        transparentCorners: false,
+        borderColor: isActive ? "#6366f1" : "rgba(148, 163, 184, 0.5)",
       });
       (rect as FabricObject & { _isZone?: boolean })._isZone = true;
+      (rect as FabricObject & { _zoneKey?: string })._zoneKey = zone.key;
       canvas.add(rect);
     }
 
