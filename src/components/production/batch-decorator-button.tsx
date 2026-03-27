@@ -72,7 +72,7 @@ export function BatchDecoratorButton({ batch }: Props) {
           onClose={() => setOpen(false)}
           onApply={handleApply}
           productDetail={finalProductDetail}
-          selectedColorId={finalProductDetail.colors.find(c => c.name.toLowerCase() === batch.colour?.toLowerCase() || c.name === batch.colour)??.id || 1}
+          selectedColorId={finalProductDetail.colors.find(c => c.name.toLowerCase() === batch.colour?.toLowerCase() || c.name === batch.colour)?.id || 1}
           initialDesigns={designs}
           accountId={batch.accountId}
         />
