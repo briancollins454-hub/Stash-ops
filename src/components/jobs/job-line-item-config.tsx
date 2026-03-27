@@ -229,8 +229,8 @@ function scoreMatch(result: DecoSearchResult, item: JobLineItem): number {
   if (titleCode && rSku === titleCode) score += 70;
   if (titleCode && rName.startsWith(titleCode)) score += 40;
 
-  // Same garment type bonus
-  if (itemCat && resultCat && itemCat === resultCat) score += 15;
+  // Same garment type bonus (only when there's already a real match signal)
+  if (score > 0 && itemCat && resultCat && itemCat === resultCat) score += 15;
 
   return score;
 }
@@ -321,8 +321,8 @@ function scoreCatalogMatch(result: CatalogSearchResult, item: JobLineItem): numb
   const titleCode = iTitle.match(/^([a-z0-9]{3,10})\s*[-–—:]/)?.[1];
   if (titleCode && rCode === titleCode) score += 70;
 
-  // Same garment category bonus
-  if (itemCat && resultCat && itemCat === resultCat) score += 15;
+  // Same garment category bonus (only when there's already a real match signal)
+  if (score > 0 && itemCat && resultCat && itemCat === resultCat) score += 15;
 
   return score;
 }
@@ -410,7 +410,7 @@ async function lookupProduct(item: JobLineItem): Promise<DesignerProductDetail |
     ...allDecoResults.map((r) => ({ source: "deco" as const, result: r, score: scoreMatch(r, item) })),
     ...allCatalogResults.map((r) => ({ source: "catalog" as const, result: r, score: scoreCatalogMatch(r, item) })),
   ]
-    .filter((s) => s.score > 0)
+    .filter((s) => s.score >= 30) // require meaningful match (SKU/code/name overlap, not just garment type)
     .sort((a, b) => b.score - a.score);
 
   if (scored.length === 0) return null;
