@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { normalizeMatchToken } from "../services/shopify-order-context";
-import { getAccountDecoArtwork } from "../services/deco-api-service";
+import { getAccountDecoArtwork, fetchDecoDesignImage } from "../services/deco-api-service";
 
 const accountTypeSchema = z.enum(["SCHOOL", "CLUB", "CLIENT", "OTHER"]);
 const assetTypeSchema = z.enum(["LOGO", "TEMPLATE", "DESIGN_REFERENCE", "PROOF"]);
@@ -421,7 +421,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
           assetType: "LOGO" as AssetType,
           label: item.name,
           decoDesignId: item.id,
-          fileUrl: item.thumbnailUrl,
+          fileUrl: item.fullUrl || item.thumbnailUrl,
           active: true,
           priority: 100,
         },
@@ -495,7 +495,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
                   assetType: "LOGO" as AssetType,
                   label: item.name,
                   decoDesignId: item.id,
-                  fileUrl: item.thumbnailUrl,
+                  fileUrl: item.fullUrl || item.thumbnailUrl,
                   active: true,
                   priority: 100,
                 },
@@ -598,6 +598,96 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
       total: assets.length,
       errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
     };
+  });
+
+  // ── Upgrade artwork quality: re-fetch full-res images from Deco for assets that have decoDesignId ──
+  app.post("/v1/accounts/upgrade-artwork-quality", async (request, reply) => {
+    // Find all assets that were imported from Deco (have decoDesignId)
+    const assets = await prisma.accountAsset.findMany({
+      where: {
+        decoDesignId: { not: null },
+        active: true,
+      },
+      select: { id: true, decoDesignId: true, label: true, fileUrl: true },
+    });
+
+    if (assets.length === 0) {
+      return { upgraded: 0, failed: 0, skipped: 0, total: 0, note: "No Deco-imported artwork found." };
+    }
+
+    let upgraded = 0;
+    let failed = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "application/x-ndjson",
+      "Transfer-Encoding": "chunked",
+    });
+
+    // Process in batches of 5 (slower to avoid overloading Deco)
+    const batchSize = 5;
+    for (let i = 0; i < assets.length; i += batchSize) {
+      const batch = assets.slice(i, i + batchSize);
+
+      const results = await Promise.allSettled(
+        batch.map(async (asset) => {
+          try {
+            const fullResData = await fetchDecoDesignImage(asset.decoDesignId!);
+            if (!fullResData) {
+              // Couldn't fetch — skip but don't count as failure
+              skipped++;
+              return false;
+            }
+
+            // Check if we actually got a bigger image than what's stored
+            const existingSize = asset.fileUrl?.length ?? 0;
+            if (fullResData.length <= existingSize) {
+              skipped++;
+              return false;
+            }
+
+            await prisma.accountAsset.update({
+              where: { id: asset.id },
+              data: { fileUrl: fullResData },
+            });
+
+            return true;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`${asset.label} (${asset.id}): ${msg}`);
+            return false;
+          }
+        }),
+      );
+
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) upgraded++;
+        else if (r.status === "rejected") failed++;
+      }
+
+      // Stream progress
+      const progress = { processed: Math.min(i + batchSize, assets.length), total: assets.length, upgraded, failed, skipped };
+      reply.raw.write(JSON.stringify(progress) + "\n");
+
+      // Small delay between batches
+      if (i + batchSize < assets.length) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      logger.info(`[UpgradeArtwork] Progress: ${Math.min(i + batchSize, assets.length)}/${assets.length} (${upgraded} upgraded, ${skipped} skipped, ${failed} failed)`);
+    }
+
+    const finalResult = {
+      upgraded,
+      failed,
+      skipped,
+      total: assets.length,
+      done: true,
+      errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
+    };
+    reply.raw.write(JSON.stringify(finalResult) + "\n");
+    reply.raw.end();
   });
 
 }

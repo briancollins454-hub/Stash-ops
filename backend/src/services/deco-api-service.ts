@@ -3591,7 +3591,10 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
         const thumbPath = imgMatch ? imgMatch[1] : null;
 
         const thumbnailUrl = thumbPath ? `${base}${thumbPath}` : "";
-        const fullUrl = thumbnailUrl;
+        // Derive high-res URL: replace thumb100.png with original.png
+        const fullUrl = thumbnailUrl
+          ? thumbnailUrl.replace(/\/thumb\d+\.\w+/, "/original.png")
+          : thumbnailUrl;
 
         items.push({
           id: designId,
@@ -3607,6 +3610,74 @@ export async function getAccountDecoArtwork(decoCustomerIds: string[]): Promise<
   }
 
   return { items };
+}
+
+/**
+ * Fetch a full-resolution design image from Deco by design ID.
+ * Tries the original.png path first, falls back to large thumbnail.
+ * Returns a base64 data URL or null on failure.
+ */
+export async function fetchDecoDesignImage(decoDesignId: string): Promise<string | null> {
+  if (!isDecoConfigured()) return null;
+
+  const cookies = await getDecoWebSession();
+  if (!cookies) return null;
+
+  const base = baseUrl();
+
+  // Try fetching the design detail page to find the actual image path
+  try {
+    const detailUrl = `${base}/bh/crm/customer_design/${decoDesignId}`;
+    const detailRes = await fetch(detailUrl, {
+      headers: { Cookie: cookies, "X-Requested-With": "XMLHttpRequest" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (detailRes.ok) {
+      const html = await detailRes.text();
+      // Look for full-size image paths — try original, then largest available
+      const imgMatches = [...html.matchAll(/src="(\/asset\/s\/image\/[^"]+)"/g)];
+      const paths = imgMatches.map((m) => m[1]);
+
+      // Prefer the largest image: original > large > thumb
+      const original = paths.find((p) => p.includes("/original"));
+      const large = paths.find((p) => /thumb(500|400|300|800|1000)/.test(p));
+      const bestPath = original || large || paths[0];
+
+      if (bestPath) {
+        const imgUrl = `${base}${bestPath}`;
+        const imgRes = await fetch(imgUrl, {
+          headers: { Cookie: cookies },
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (imgRes.ok) {
+          const contentType = imgRes.headers.get("content-type") || "image/png";
+          const buffer = await imgRes.arrayBuffer();
+          return `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn(`[DecoArtwork] Detail page failed for design ${decoDesignId}: ${err}`);
+  }
+
+  // Fallback: construct the generic asset URL and try original.png
+  try {
+    // Try the known Deco pattern: /asset/s/image/customer_design/{id}/original.png
+    const fallbackUrl = `${base}/asset/s/image/customer_design/${decoDesignId}/original.png`;
+    const res = await fetch(fallbackUrl, {
+      headers: { Cookie: cookies },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) {
+      const contentType = res.headers.get("content-type") || "image/png";
+      const buffer = await res.arrayBuffer();
+      return `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
 export async function processDecoWebhook(
