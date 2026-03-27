@@ -624,7 +624,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
     // Try to fetch both thumb and full URLs
     const cookies = await getDecoSessionCookies();
-    const headers = cookies ? { Cookie: cookies } : {};
+    const headers: Record<string, string> = cookies ? { Cookie: cookies } : {};
 
     const thumbSize = await fetch(match.thumbnailUrl, { headers, signal: AbortSignal.timeout(10_000) })
       .then((r) => r.ok ? r.arrayBuffer().then((b) => b.byteLength) : -1)
