@@ -377,4 +377,98 @@ export async function registerBatchRoutes(app: FastifyInstance): Promise<void> {
 
     return { success: true };
   });
+
+  // ─────────────── PATCH /v1/batches/:batchId/source-lines/:lineId ───────────────
+
+  const sourceLineParamsSchema = z.object({
+    batchId: z.string().min(1),
+    lineId: z.string().min(1),
+  });
+
+  const updateSourceLineBodySchema = z.object({
+    quantity: z.number().int().min(1).optional(),
+    personalisationText: z.string().nullable().optional(),
+  });
+
+  app.patch("/v1/batches/:batchId/source-lines/:lineId", async (request, reply) => {
+    const { batchId, lineId } = sourceLineParamsSchema.parse(request.params);
+    const body = updateSourceLineBodySchema.parse(request.body);
+
+    // Verify batch exists
+    const batch = await prisma.productionBatch.findUnique({
+      where: { id: batchId },
+    });
+    if (!batch) {
+      reply.status(404);
+      return { error: "Batch not found" };
+    }
+
+    // Verify source line exists and belongs to this batch
+    const line = await prisma.batchSourceLine.findUnique({
+      where: { id: lineId },
+      include: { batchItem: true },
+    });
+    if (!line || line.batchItem.batchId !== batchId) {
+      reply.status(404);
+      return { error: "Source line not found in this batch" };
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (body.quantity !== undefined) updateData.quantity = body.quantity;
+    if (body.personalisationText !== undefined) updateData.personalisationText = body.personalisationText;
+
+    const updated = await prisma.batchSourceLine.update({
+      where: { id: lineId },
+      data: updateData,
+      include: {
+        jobItem: {
+          select: { id: true, sku: true, productTitle: true, variantTitle: true, quantity: true },
+        },
+        job: {
+          select: { id: true, internalJobId: true, shopifyOrderName: true, customerName: true },
+        },
+      },
+    });
+
+    // If quantity changed, recalculate batch item totals
+    if (body.quantity !== undefined) {
+      const batchItemId = line.batchItemId;
+      const allLines = await prisma.batchSourceLine.findMany({
+        where: { batchItemId },
+        select: { quantity: true },
+      });
+      const newTotal = allLines.reduce((sum, l) => sum + l.quantity, 0);
+      await prisma.batchItem.update({
+        where: { id: batchItemId },
+        data: { quantity: newTotal },
+      });
+
+      // Recalculate batch totals
+      const allItems = await prisma.batchItem.findMany({
+        where: { batchId },
+        select: { quantity: true },
+      });
+      await prisma.productionBatch.update({
+        where: { id: batchId },
+        data: { totalQuantity: allItems.reduce((sum, i) => sum + i.quantity, 0) },
+      });
+    }
+
+    // If personalisation text was set, update batch flag
+    if (body.personalisationText !== undefined) {
+      const hasAny = await prisma.batchSourceLine.count({
+        where: {
+          batchItem: { batchId },
+          personalisationText: { not: null },
+        },
+      });
+      await prisma.productionBatch.update({
+        where: { id: batchId },
+        data: { hasPersonalisation: hasAny > 0 },
+      });
+    }
+
+    logger.info({ batchId, lineId, changes: body }, "Source line updated");
+    return updated;
+  });
 }

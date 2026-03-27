@@ -48,6 +48,28 @@ export async function POST(request: Request, { params }: RouteContext) {
   const body = await request.json();
   const { action, ...rest } = body as { action: string; [key: string]: unknown };
 
+  // Source line update: action = "update-source-line", lineId required
+  if (action === "update-source-line") {
+    const { lineId, ...updateData } = rest as { lineId: string; [key: string]: unknown };
+    if (!lineId) {
+      return NextResponse.json({ error: "lineId is required" }, { status: 400 });
+    }
+    try {
+      const payload = await fetchBackendJson(
+        `/api/v1/batches/${encodeURIComponent(batchId)}/source-lines/${encodeURIComponent(lineId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updateData),
+        }
+      );
+      return NextResponse.json(payload);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
+  }
+
   const routeMap: Record<string, string> = {
     transition: "transition",
     "match-template": "match-template",

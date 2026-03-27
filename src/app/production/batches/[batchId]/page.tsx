@@ -3,6 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { getProductionBatchDetail } from "@/lib/data-repository";
 import { BatchActions } from "@/components/production/batch-actions";
+import { SourceOrdersList } from "@/components/production/source-orders-list";
 import type { ProductionBatchDetail, BatchItemDetail } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -160,53 +161,9 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         </SectionCard>
 
-        {/* Source Orders */}
+        {/* Source Orders — clickable & editable */}
         <SectionCard kicker="Source" title="Contributing Orders">
-          <div className="space-y-2">
-            {batch.items.flatMap((item) =>
-              item.sourceLines.map((sl) => (
-                <div
-                  key={sl.id}
-                  className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                  style={{
-                    borderColor: "var(--border, #334155)",
-                    background: "var(--bg-base, #0f172a)",
-                  }}
-                >
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span style={{ color: "var(--text-primary, #e2e8f0)" }}>
-                      {sl.job?.shopifyOrderName ?? sl.job?.internalJobId ?? "—"}
-                    </span>
-                    <span style={{ color: "var(--text-tertiary, #64748b)" }}>
-                      {sl.job?.customerName ?? ""}
-                    </span>
-                    <span
-                      className="rounded bg-slate-700 px-1.5 py-0.5 text-xs"
-                      style={{ color: "var(--text-secondary, #94a3b8)" }}
-                    >
-                      {item.size} × {sl.quantity}
-                    </span>
-                  </div>
-                  {sl.personalisationText && (
-                    <span
-                      className="rounded px-2 py-0.5 text-xs"
-                      style={{ background: "#fef3c7", color: "#92400e" }}
-                    >
-                      {sl.personalisationText}
-                    </span>
-                  )}
-                </div>
-              ))
-            )}
-            {batch.items.every((i) => i.sourceLines.length === 0) && (
-              <p
-                className="text-sm"
-                style={{ color: "var(--text-tertiary, #64748b)" }}
-              >
-                No source orders linked yet.
-              </p>
-            )}
-          </div>
+          <SourceOrdersList batchId={batch.id} items={batch.items} />
         </SectionCard>
       </div>
     </AppShell>
