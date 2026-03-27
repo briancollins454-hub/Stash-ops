@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { fetchBackendJson, isBackendApiConfigured } from "@/lib/backend-api";
 
+/**
+ * Fetch a supplier catalog product by style code and map it into the
+ * DesignerProductDetail shape used by the Decorator component.
+ *
+ * GET /api/decorator/products/:sku
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ sku: string }> }
@@ -12,7 +18,6 @@ export async function GET(
   const { sku } = await params;
 
   try {
-    // We can fetch from the generalized catalog API in the backend
     const catalogData = await fetchBackendJson<any>(
       `/api/v1/catalog/products/${encodeURIComponent(sku)}`
     );
@@ -21,9 +26,7 @@ export async function GET(
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    // Map `CatalogProductResult` from backend into `DesignerProductDetail` the UI expects
-    
-    // Deduplicate colors just in case
+    // Deduplicate colours
     const seenNames = new Map<string, any>();
     for (const c of (catalogData.colours || [])) {
       if (c.skuStatus === "Discontinued") continue;
@@ -34,13 +37,13 @@ export async function GET(
       }
     }
     const uniqueColours = Array.from(seenNames.values());
-    
+
     const colors = uniqueColours.map((c, i) => ({
       id: i + 1,
       name: c.colourName.replace(/[*\u2020]+$/g, "").trim(),
     }));
 
-    // Sizes logic
+    // Sizes
     let sizeNames: string[] = [];
     if (catalogData.sizeRange) {
       sizeNames = catalogData.sizeRange.split(/[,/]+/).map((s: string) => s.trim()).filter(Boolean);
@@ -50,11 +53,11 @@ export async function GET(
     }
     const sizes = sizeNames.map((s, i) => ({ id: i + 1, code: s, name: s }));
 
-    // Extract images correctly mapped for front/back etc.
-    const images: any[] = [];
-    
+    // Images — front, back, side per colour
+    const images: Array<{ url: string; type: string; color?: string }> = [];
+
     if (catalogData.primaryImageUrl) {
-        images.push({ url: catalogData.primaryImageUrl, type: "front" });
+      images.push({ url: catalogData.primaryImageUrl, type: "front" });
     }
 
     for (const c of uniqueColours) {
@@ -64,7 +67,7 @@ export async function GET(
       if (c.sideImageUrl) images.push({ url: c.sideImageUrl, type: "side", color: colorName });
     }
 
-    const designerFormat = {
+    return NextResponse.json({
       productCode: catalogData.styleCode,
       productName: catalogData.name,
       supplier: catalogData.brand,
@@ -73,10 +76,8 @@ export async function GET(
       colors,
       sizes,
       images,
-    };
-
-    return NextResponse.json(designerFormat);
-  } catch (err) {
+    });
+  } catch {
     return NextResponse.json({ error: "Failed to fetch and map product" }, { status: 500 });
   }
 }
