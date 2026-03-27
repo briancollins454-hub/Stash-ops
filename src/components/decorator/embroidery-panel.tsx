@@ -7,7 +7,7 @@
  * ═══════════════════════════════════════════════════════════
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { StitchPreview, type StitchRenderType } from "./stitch-preview";
 
 /* ── Types mirroring the backend engine ── */
@@ -187,14 +187,20 @@ export function EmbroideryPanel({
     });
   }, [estimate, production, quantity, ratePerK, setupFee, isRepeat]);
 
-  // Callbacks
+  // Stable refs for callbacks to prevent infinite re-render loops
+  const stitchCountRef = useRef(onStitchCountChange);
+  stitchCountRef.current = onStitchCountChange;
+  const costChangeRef = useRef(onCostChange);
+  costChangeRef.current = onCostChange;
+
+  // Callbacks — only fire when the computed value changes, not when the callback ref changes
   useEffect(() => {
-    onStitchCountChange?.(estimate.totalStitches);
-  }, [estimate.totalStitches, onStitchCountChange]);
+    stitchCountRef.current?.(estimate.totalStitches);
+  }, [estimate.totalStitches]);
 
   useEffect(() => {
-    onCostChange?.(cost.totalCost);
-  }, [cost.totalCost, onCostChange]);
+    costChangeRef.current?.(cost.totalCost);
+  }, [cost.totalCost]);
 
   // Thread search
   const handleThreadSearch = useCallback(async (q: string) => {

@@ -15,6 +15,7 @@ import {
   generateId,
   type DesignObject,
   type UploadedFile,
+  type ZoneConfig,
 } from "./types";
 import { EmbroideryPanel } from "./embroidery-panel";
 
@@ -167,14 +168,12 @@ export function PropertiesPanel({ accountId }: { accountId?: string }) {
           />
         )}
         {rightPanel === "embroidery" && activeZone && (
-          <EmbroideryPanel
+          <EmbroideryPanelWrapper
             zoneKey={activeZoneKey}
-            widthMm={activeZone.actualWidthMm ?? 100}
-            heightMm={activeZone.actualHeightMm ?? 100}
-            artworkUrl={objects.find((o) => o.zoneKey === activeZoneKey && o.type === "image")?.imageUrl}
-            colourCount={config?.colorCount ?? 1}
-            quantity={1}
-            onStitchCountChange={(count) => setZoneConfig(activeZoneKey, { stitchCount: count })}
+            activeZone={activeZone}
+            objects={objects}
+            config={config}
+            setZoneConfig={setZoneConfig}
           />
         )}
         {rightPanel === "artwork" && (
@@ -204,6 +203,41 @@ export function PropertiesPanel({ accountId }: { accountId?: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Embroidery Panel Wrapper — stabilises callbacks to prevent infinite re-renders
+   ═══════════════════════════════════════════════════════════ */
+
+function EmbroideryPanelWrapper({
+  zoneKey,
+  activeZone,
+  objects,
+  config,
+  setZoneConfig,
+}: {
+  zoneKey: string;
+  activeZone: { key: string; actualWidthMm?: number; actualHeightMm?: number };
+  objects: DesignObject[];
+  config?: { colorCount?: number };
+  setZoneConfig: (zoneKey: string, config: Partial<ZoneConfig>) => void;
+}) {
+  const onStitchCountChange = useCallback(
+    (count: number) => setZoneConfig(zoneKey, { stitchCount: count }),
+    [zoneKey, setZoneConfig]
+  );
+
+  return (
+    <EmbroideryPanel
+      zoneKey={zoneKey}
+      widthMm={activeZone.actualWidthMm ?? 100}
+      heightMm={activeZone.actualHeightMm ?? 100}
+      artworkUrl={objects.find((o) => o.zoneKey === zoneKey && o.type === "image")?.imageUrl}
+      colourCount={config?.colorCount ?? 1}
+      quantity={1}
+      onStitchCountChange={onStitchCountChange}
+    />
   );
 }
 
