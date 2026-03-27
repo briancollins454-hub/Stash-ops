@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { SectionCard } from "@/components/section-card";
 import { getProductionBatchDetail } from "@/lib/data-repository";
+import { BatchActions } from "@/components/production/batch-actions";
 import type { ProductionBatchDetail, BatchItemDetail } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +89,16 @@ export default async function BatchDetailPage({ params }: Props) {
               {batch.notes}
             </p>
           )}
+        </SectionCard>
+
+        {/* Actions — transitions, edit method, notes */}
+        <SectionCard kicker="Actions" title="Batch Actions">
+          <BatchActions
+            batchId={batch.id}
+            currentStatus={batch.status}
+            notes={batch.notes}
+            decorationMethod={batch.decorationMethod}
+          />
         </SectionCard>
 
         {/* Decoration Profile */}
