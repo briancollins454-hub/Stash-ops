@@ -174,25 +174,28 @@ export async function batchJobItems(jobId: string): Promise<BatchResult> {
       );
 
       // Upsert the ProductionBatch
-      let batch = await prisma.productionBatch.findUnique({
+      const existingBatch = await prisma.productionBatch.findUnique({
         where: { batchKey },
       });
 
-      if (!batch) {
-        batch = await prisma.productionBatch.create({
-          data: {
-            batchKey,
-            accountId,
-            displayTitle: buildDisplayTitle(accountName, item.productTitle, colour, decoMethod),
-            normalizedProduct: normalizeProduct(item.productTitle),
-            colour,
-            decorationMethod: decoMethod,
-            decorationProfileId: decoProfileId,
-            status: "DRAFT",
-            confidence: "MANUAL_SETUP",
-            totalQuantity: 0,
-          },
-        });
+      const batch = await prisma.productionBatch.upsert({
+        where: { batchKey },
+        create: {
+          batchKey,
+          accountId,
+          displayTitle: buildDisplayTitle(accountName, item.productTitle, colour, decoMethod),
+          normalizedProduct: normalizeProduct(item.productTitle),
+          colour,
+          decorationMethod: decoMethod,
+          decorationProfileId: decoProfileId,
+          status: "DRAFT",
+          confidence: "MANUAL_SETUP",
+          totalQuantity: 0,
+        },
+        update: {},
+      });
+
+      if (!existingBatch) {
         result.batchesCreated++;
         logger.info({ batchKey, batchId: batch.id }, "Created new production batch");
       } else {
@@ -200,24 +203,17 @@ export async function batchJobItems(jobId: string): Promise<BatchResult> {
       }
 
       // Upsert BatchItem for this size
-      let batchItem = await prisma.batchItem.findUnique({
+      const batchItem = await prisma.batchItem.upsert({
         where: { batchId_size: { batchId: batch.id, size } },
+        create: {
+          batchId: batch.id,
+          size,
+          quantity: item.quantity,
+        },
+        update: {
+          quantity: { increment: item.quantity },
+        },
       });
-
-      if (!batchItem) {
-        batchItem = await prisma.batchItem.create({
-          data: {
-            batchId: batch.id,
-            size,
-            quantity: item.quantity,
-          },
-        });
-      } else {
-        batchItem = await prisma.batchItem.update({
-          where: { id: batchItem.id },
-          data: { quantity: batchItem.quantity + item.quantity },
-        });
-      }
 
       // Create BatchSourceLine linking this job item to the batch
       await prisma.batchSourceLine.create({
