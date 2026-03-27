@@ -70,6 +70,36 @@ function designSummary(designs: DesignConfig[]): string {
   return designs.map((d) => `${d.placement} → ${d.decorationMethod}`).join(", ");
 }
 
+/* ── Service-item detection ── */
+
+const SERVICE_PATTERNS = [
+  /\binitials?\b/i,
+  /\bmonogram\b/i,
+  /\bpersonali[sz]ation\b/i,
+  /\bsurcharge\b/i,
+  /\blate\s+(fee|charge|surcharge)\b/i,
+  /\brush\b.*\b(fee|charge)\b/i,
+  /\bexpress\b.*\b(fee|charge)\b/i,
+  /\bsetup\s+fee\b/i,
+  /\b(delivery|shipping|postage)\s*(fee|charge)?\b/i,
+  /\bdiscount\b/i,
+  /\bcredit\b/i,
+  /\brefund\b/i,
+  /\bgift\s*wrap\b/i,
+  /\bdonation\b/i,
+  /\btip\b/i,
+  /\bengraving\b/i,
+  /\b(embroidery|printing|decoration)\s+fee\b/i,
+  /\b(admin|handling)\s+(fee|charge)\b/i,
+];
+
+/** Detect items that are service charges, personalisations, or fees — not physical garments */
+function isServiceItem(item: JobLineItem): boolean {
+  const title = item.productTitle;
+  if (!title) return false;
+  return SERVICE_PATTERNS.some((rx) => rx.test(title));
+}
+
 /* ── Product lookup types ── */
 
 interface DecoSearchResult {
@@ -563,10 +593,13 @@ export function JobLineItemConfig({ jobId, items, accountId }: Props) {
     setSearchOpen((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
   }, []);
 
+  const garmentItems = items.filter((item) => !isServiceItem(item));
+  const serviceItems = items.filter((item) => isServiceItem(item));
+
   return (
     <>
       <div className="space-y-3">
-        {items.map((item, i) => {
+        {garmentItems.map((item, i) => {
           const isExpanded = expanded === item.id;
           const isSaving = saving === item.id;
           const method = editMethod[item.id] ?? item.decorationMethod ?? "";
@@ -851,6 +884,36 @@ export function JobLineItemConfig({ jobId, items, accountId }: Props) {
           );
         })}
       </div>
+
+      {/* ── Service items (surcharges, personalisations, fees) ── */}
+      {serviceItems.length > 0 && (
+        <div className="mt-4 space-y-1">
+          <p className="eyebrow mb-2" style={{ color: "var(--text-tertiary)" }}>Add-ons & charges ({serviceItems.length})</p>
+          {serviceItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between rounded-lg px-4 py-2.5"
+              style={{ background: "var(--bg-raised, #1e293b)", border: "1px solid var(--border, #334155)" }}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm" style={{ color: "var(--text-primary)" }}>
+                  {item.productTitle}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  Qty {item.quantity}
+                  {item.totalPriceMinor != null && ` · ${(item.totalPriceMinor / 100).toFixed(2)}`}
+                </p>
+              </div>
+              <span
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                style={{ background: "rgba(148,163,184,0.12)", color: "#94a3b8", border: "1px solid rgba(148,163,184,0.2)" }}
+              >
+                Service
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Decorator Studio ── */}
       {designerItem && (

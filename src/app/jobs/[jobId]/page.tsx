@@ -405,6 +405,7 @@ export default async function JobDetailPage({
         detail={`${job.items.reduce((sum, i) => sum + i.quantity, 0)} units total`}
         defaultOpen
       >
+
         {job.items.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No line items on this job.</p>
         ) : (
